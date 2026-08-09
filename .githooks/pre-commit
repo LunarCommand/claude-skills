@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Pre-commit hook — runs the fast subset of scripts/validate.sh.
+#
+# Not installed by `git clone`. Enable it with:
+#   git config core.hooksPath .githooks
+#
+# CI runs the full suite (including the install integration test) on every push
+# and pull request, so this is a local convenience, not the gate.
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+if [[ ! -x "$repo_root/scripts/validate.sh" ]]; then
+  echo "pre-commit: scripts/validate.sh missing or not executable — skipping" >&2
+  exit 0
+fi
+
+"$repo_root/scripts/validate.sh" --quick || {
+  echo
+  echo "pre-commit: validation failed. Fix the issues above, or bypass with --no-verify." >&2
+  exit 1
+}

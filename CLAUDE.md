@@ -54,6 +54,11 @@ Each top-level directory has one role:
 - `user-claude-md/CLAUDE.md` — the recommended global user-level CLAUDE.md (the
   plan→implement→test→handoff workflow) the skills and settings are tuned to.
   Shipped as the example `install.sh` installs; reference, not active in-repo.
+- `scripts/validate.sh` — **the checks** (see Testing / validation below). One
+  script, called by both CI and the optional pre-commit hook so they can't drift.
+- `.github/workflows/validate.yml` — runs `scripts/validate.sh` on push and PR.
+- `.githooks/pre-commit` — opt-in local hook (`git config core.hooksPath
+  .githooks`) running the fast subset.
 - `install.sh`, `LICENSE`, `README.md` — the installer, MIT license, and the
   public-facing overview of the toolkit.
 
@@ -132,7 +137,26 @@ node). Hard constraints, stated in their headers and enforced by the runtime:
 
 ## Testing / validation
 
-There is no automated test suite. Validate a change by **running the affected
-script against a real instance** (or a workflow via the Workflow tool) and
-checking output. For scripts, also confirm the usage/error paths still fire with
-missing args or missing `.agent.env` keys.
+There is no unit-test suite — the artifacts are Markdown contracts and bash
+scripts. What exists instead is `scripts/validate.sh`, which enforces the
+mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
+SKILL.md frontmatter (`name` matching its directory, `description` present),
+config-template JSON validity, that every skill named in the settings allowlist
+actually exists, repo hygiene (no macOS cruft, personal paths, or
+credential-shaped strings — this repo is public), and an end-to-end `install.sh`
+run into a temp `CLAUDE_HOME`.
+
+```bash
+scripts/validate.sh            # everything — what CI runs
+scripts/validate.sh --quick    # skips the install integration test
+SHELLCHECK_SEVERITY=warning scripts/validate.sh   # tighten the shellcheck ratchet
+```
+
+shellcheck is a **ratchet**: only `error` severity blocks, so the linter can't
+turn CI red over pre-existing style. Lower-severity findings still print. Raise
+the floor once they're triaged.
+
+Beyond that, validate behavior by **running the affected script against a real
+instance** (or a workflow via the Workflow tool) and checking output — CI cannot
+do this, since it has no credentials. For scripts, also confirm the usage/error
+paths still fire with missing args or missing `.agent.env` keys.
