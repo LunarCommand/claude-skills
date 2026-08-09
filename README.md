@@ -17,29 +17,49 @@ that's all you want.
 
 ## What's inside
 
-Three layers, meant to be used together:
+Three layers, meant to be used together.
 
-1. **Skills** — `/`-invokable tools Claude Code loads on demand:
-   - **hyperdx** — query logs and traces from HyperDX (Lucene syntax), against
-     cloud or a local instance.
-   - **langfuse** — query and inspect Langfuse traces, observations, sessions,
-     scores, and prompts. Handles both the legacy v1 REST API and the v4 read
-     API automatically.
-   - **pr-review** — triage and resolve GitHub PR review threads one at a time,
-     proposing a verdict for each before replying.
-   - **feature-planning** — a two-gate, plan-before-code workflow for planning
-     and building a new feature.
-   - **adversarial-review** — multi-lens, adversarial pre-merge review that
-     *generates* findings (independent lenses, then refutation), reported by
-     severity.
-2. **Recommended user CLAUDE.md** (`user-claude-md/CLAUDE.md`) — the
-   plan → implement → test → hand-off workflow the skills and settings are
-   tuned to. Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts
-   you want.
-3. **Per-project settings** (`project-files/`) — an `.agent.env` template the
-   skill scripts read for configuration, and a `.claude/settings.json`
-   permission allowlist that pre-approves those scripts and gates the git
-   operations the workflow says to confirm first.
+### 1. Skills
+
+`/`-invokable tools Claude Code loads on demand, grouped by the three concerns
+above.
+
+**Observability** — the prod-local half: real traces and logs from a stack you
+run yourself.
+
+- **hyperdx** — query logs and traces with Lucene syntax, against HyperDX cloud
+  or a local instance in Docker.
+- **langfuse** — inspect LLM traces, observations, sessions, scores, and
+  prompts, self-hosted or cloud. Detects the server's API generation and adapts
+  to either the legacy v1 REST API or the v4 read API.
+
+**Planning** — decide before you build.
+
+- **feature-planning** — a plan-before-code workflow with two human approval
+  gates, driven from a requirements file or a description in chat.
+
+**Review** — catch what a diff-scoped bot structurally can't.
+
+- **adversarial-review** — multi-lens review that *generates* findings:
+  independent lenses hunt for what breaks, each finding is verified by
+  refutation before it surfaces, and survivors are ranked by severity.
+- **pr-review** — the other half of that loop: triage existing GitHub review
+  threads one at a time, proposing a verdict for each before replying and
+  resolving.
+
+### 2. The recommended user CLAUDE.md
+
+`user-claude-md/CLAUDE.md` — the plan → implement → test → hand-off loop the
+skills assume, with explicit gates where you review before anything is committed
+or pushed. Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you
+want.
+
+### 3. Per-project settings
+
+`project-files/` — an `.agent.env` template the skill scripts read for
+configuration, and a `.claude/settings.json` permission allowlist that
+pre-approves those scripts while still gating the git operations the workflow
+says to confirm first.
 
 ## Install
 
