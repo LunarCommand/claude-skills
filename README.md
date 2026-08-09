@@ -1,8 +1,19 @@
 # Claude Skills Toolkit
 
-An opinionated toolkit for [Claude Code](https://claude.com/claude-code): a set
-of skills, a recommended user-level workflow, and the per-project settings that
-make them work together.
+A complete, working [Claude Code](https://claude.com/claude-code) setup for
+building AI agents locally — with the observability, planning discipline, and
+review depth you'd usually only have in production.
+
+The approach is **prod-local**: run the same observability stack on your machine
+that you'd run in production, so debugging an agent means querying real traces
+and logs instead of adding print statements. Around that sit a plan-first
+workflow with explicit human gates, and a review pass that reasons about the
+whole system rather than just the diff.
+
+It's a system, not a pile of prompts — the skills, the workflow they assume, and
+the settings that let them run cleanly are built to fit together. Install it in
+one command and you get the whole setup; take any single piece on its own if
+that's all you want.
 
 ## What's inside
 
