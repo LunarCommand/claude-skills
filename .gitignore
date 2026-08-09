@@ -1,0 +1,8 @@
+# Local Claude Code settings for working IN this repo — not part of the toolkit.
+# Anchored to the repo root so the shipped template at project-files/.claude/
+# stays tracked.
+/.claude/
+
+# macOS cruft (was previously committed by accident)
+.DS_Store
+__MACOSX/
