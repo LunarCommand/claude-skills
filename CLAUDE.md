@@ -149,12 +149,11 @@ run into a temp `CLAUDE_HOME`.
 ```bash
 scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # skips the install integration test
-SHELLCHECK_SEVERITY=warning scripts/validate.sh   # tighten the shellcheck ratchet
 ```
 
-shellcheck is a **ratchet**: only `error` severity blocks, so the linter can't
-turn CI red over pre-existing style. Lower-severity findings still print. Raise
-the floor once they're triaged.
+shellcheck blocks at `warning` severity and the scripts are clean at that level,
+so keep them there. `SHELLCHECK_SEVERITY=error` exists to stage a noisy new
+script without turning CI red; it is not the normal setting.
 
 Beyond that, validate behavior by **running the affected script against a real
 instance** (or a workflow via the Workflow tool) and checking output — CI cannot

@@ -17,7 +17,7 @@
 # Exit code is non-zero if any check FAILS. Warnings do not fail the run.
 set -uo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 QUICK=false
 [[ "${1:-}" == "--quick" ]] && QUICK=true
@@ -42,11 +42,9 @@ for f in "${SH_FILES[@]}"; do
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
-  # Ratchet: only `error` severity blocks by default, so adding the linter to
-  # existing scripts cannot turn CI red over style. Lower-severity findings are
-  # still printed so they can be triaged, then tighten via:
-  #   SHELLCHECK_SEVERITY=warning scripts/validate.sh
-  sev="${SHELLCHECK_SEVERITY:-error}"
+  # The scripts were clean at `warning` on the first CI run, so that is the
+  # gate. Loosen with SHELLCHECK_SEVERITY=error only to stage a noisy import.
+  sev="${SHELLCHECK_SEVERITY:-warning}"
   for f in "${SH_FILES[@]}"; do
     if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f"
     else fail "shellcheck  $f"; printf '%s\n' "$out" | sed 's/^/        /'; fi
