@@ -84,6 +84,12 @@ const targetKind = a.targetKind === 'code' || a.targetKind === 'spec' ? a.target
 // (this HAS happened — see READ_ONLY_MANDATE) mutates a sandbox, not the user's
 // tree. Off by default: a worktree can only hold committed work, so the skill
 // only sets args.isolate once the change is committed.
+//
+// Isolation is NOT a complete sandbox. Two observed leaks: (1) submodule
+// working trees are not isolated, and an agent has written into one during an
+// isolated run; (2) agents sometimes operate on the real repo path directly
+// rather than their worktree. So the READ_ONLY_MANDATE and the caller's
+// snapshot both still matter with isolation on.
 const ISOLATE = a.isolate === true
 
 // The ref actually holding the change, and what to diff it against. Load-bearing
@@ -143,6 +149,13 @@ const READ_ONLY_MANDATE =
   'with --fix, codemods, or test runs that rewrite fixtures/snapshots.\n' +
   'To read a different version of a file, use `git show <ref>:<path>` — it ' +
   'writes nothing. To see what changed, use `git diff` / `git log -p`.\n' +
+  'SUBMODULES ARE OFF LIMITS ENTIRELY. Never create, move, delete, or symlink ' +
+  'anything inside a git submodule, and never change what commit one points at. ' +
+  'A submodule is usually a pinned dependency (a spec, a vendored library) that ' +
+  'the host repo treats as read-only, and worktree isolation does NOT sandbox ' +
+  'it — a write there lands in the real checkout. This has happened: an agent ' +
+  'left a symlink pointing a submodule directory at itself, which makes every ' +
+  'later tree walk recurse forever. Read submodule files, write nothing.\n' +
   'If verifying a claim seems to REQUIRE mutating the tree, do not do it: ' +
   'lower your confidence, say in the finding what you could not verify and why, ' +
   'and move on. An honestly-hedged finding is worth far more than a destroyed ' +
@@ -291,7 +304,20 @@ const LENSES = [
       'LENS: WHAT IS MISSING. Name what the change does NOT handle but should. ' +
       'Find any claim in a docstring, comment, or name that is unverified or false. ' +
       'Identify untested cases and silently-assumed invariants. Report the absent ' +
-      'thing, not the present one.',
+      'thing, not the present one.\n\n' +
+      'ENUMERATE THE SPELLINGS. When the change adds a rule, check, warning, or ' +
+      'validation keyed on configuration or API shape, do not stop at the one ' +
+      'spelling the code tests. Enumerate EVERY distinct way a caller can express ' +
+      'the condition the rule is meant to catch, then check each against the ' +
+      'implementation. A rule that fires on one spelling and silently misses an ' +
+      'equivalent one is a false negative, and it is worse when the missed ' +
+      'spelling is the more idiomatic or the DEFAULT one. Same for the inverse: an ' +
+      'over-broad predicate that fires on a spelling which is not actually the ' +
+      'hazard. Concretely: alternative parameter sets that reach the same state, ' +
+      'a scalar pair vs a map that encode the same relation, positional vs keyword ' +
+      'forms, an optional field whose absence changes meaning, and any mode switch ' +
+      '(mode A vs mode B) where the rule was written with only one mode in mind. ' +
+      'This has caught real defects that a per-hunk read missed twice over.',
   },
 ]
 
@@ -501,8 +527,16 @@ const verified = await parallel(
         )
       )
     ).then((votes) => {
-      const survived = votes.filter(Boolean).filter((v) => v.real).length
-      return { finding: f, survives: survived >= need }
+      const cast = votes.filter(Boolean)
+      const survived = cast.filter((v) => v.real).length
+      return {
+        finding: f,
+        survives: survived >= need,
+        // Kept so a REFUTED finding stays auditable instead of vanishing.
+        // A refutation resting on wrong-tree evidence has already killed a
+        // real blocker; without the reasoning surfaced, that is invisible.
+        votes: cast.map((v) => ({ real: v.real, reason: v.reason })),
+      }
     })
   })
 )
@@ -526,6 +560,23 @@ const counts = {
   should: finalFindings.filter((f) => f.severity === 'should').length,
   nit: finalFindings.filter((f) => f.severity === 'nit').length,
 }
+// Refuted findings are RETURNED, not dropped. A refutation is itself a
+// judgement that can be wrong, and a wrong one is indistinguishable from
+// "no such defect" once the finding disappears — that is exactly how a
+// confirmed CI-breaking blocker was lost on one run, refuted by three
+// agents reading the wrong git ref. Surfacing each refutation's reasoning
+// lets the caller spot-check the ones that rest on file contents.
+const refutedFindings = verified
+  .filter(Boolean)
+  .filter((x) => !x.survives)
+  .map((x) => ({
+    summary: x.finding.summary,
+    file: x.finding.file,
+    line: x.finding.line,
+    severity: x.finding.severity,
+    refutations: x.votes.filter((v) => !v.real).map((v) => v.reason),
+  }))
+
 log(
   'Confirmed ' +
     finalFindings.length +
@@ -535,7 +586,16 @@ log(
     counts.should +
     ' should, ' +
     counts.nit +
-    ' nit'
+    ' nit' +
+    (refutedFindings.length
+      ? '; ' + refutedFindings.length + ' refuted (returned for spot-checking)'
+      : '')
 )
 
-return { scope: scope, counts: counts, findings: finalFindings }
+return {
+  scope: scope,
+  counts: counts,
+  findings: finalFindings,
+  refutedCount: refutedFindings.length,
+  refuted: refutedFindings,
+}
