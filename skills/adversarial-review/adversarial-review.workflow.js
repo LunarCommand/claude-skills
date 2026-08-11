@@ -130,6 +130,21 @@ const WORKTREE_REF_MANDATE = !ISOLATE
     '- Unchanged collaborator files ARE valid to read directly: they are the same ' +
     'on both refs. It is the CHANGED files that require the ref.'
 
+// The refs bounding the review, surfaced whether or not isolation is on.
+// Delta mode passes baseRef/reviewRef with isolation OFF; without this the
+// agents never learn baseRef and silently review the whole artifact instead of
+// the delta, which makes args.baseRef look functional while doing nothing.
+const REF_SCOPE_MANDATE = !(REVIEW_REF || BASE_REF)
+  ? ''
+  : '\n\n## The refs that bound this review\n' +
+    (REVIEW_REF ? 'The change under review is at ref: ' + REVIEW_REF + '.\n' : '') +
+    (BASE_REF ? 'Its already-reviewed baseline is: ' + BASE_REF + '.\n' : '') +
+    (REVIEW_REF && BASE_REF
+      ? 'Scope your review to `git diff ' + BASE_REF + ' ' + REVIEW_REF + '`. ' +
+        'Anything outside that diff is context you may read, not the change ' +
+        'under review.\n'
+      : '')
+
 // Appended to EVERY agent prompt in this workflow. These agents run in the
 // user's real working tree, which may hold uncommitted work with no backup.
 //
@@ -161,9 +176,11 @@ const READ_ONLY_MANDATE =
   'and move on. An honestly-hedged finding is worth far more than a destroyed ' +
   'working tree.' +
   // Folded in here rather than appended at each agent() call: every prompt in
-  // this workflow already ends with READ_ONLY_MANDATE, so this reaches all of
-  // them (lenses, merge, verify) with no call site to keep in sync. Empty
-  // string when isolation is off, where the working copy IS the reviewed state.
+  // this workflow already ends with READ_ONLY_MANDATE, so these reach all of
+  // them (lenses, merge, verify) with no call site to keep in sync.
+  // WORKTREE_REF_MANDATE is empty when isolation is off, where the working copy
+  // IS the reviewed state; REF_SCOPE_MANDATE is empty when no refs were passed.
+  REF_SCOPE_MANDATE +
   WORKTREE_REF_MANDATE
 
 // Each lens is a distinct adversarial mandate. Run as separate agents so the
