@@ -94,11 +94,14 @@ const VERDICT_SCHEMA = {
 }
 
 // One canonical finding per distinct defect, for the merge stage.
+// `lenses` is REQUIRED: a merged finding can never carry the singular `lens`
+// (not a permitted property here), so an omitted `lenses` makes the synthesis
+// fallback collapse to [] and the convergence signal vanishes silently.
 const MERGE_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['findings'],
   properties: { findings: { type: 'array', items: {
     type: 'object', additionalProperties: false,
-    required: ['title', 'severity', 'location', 'failure', 'why_real'],
+    required: ['title', 'severity', 'location', 'failure', 'why_real', 'lenses'],
     properties: {
       title: { type: 'string' }, severity: { type: 'string', enum: ['blocker', 'should', 'nit'] },
       location: { type: 'string' }, failure: { type: 'string' }, why_real: { type: 'string' },
