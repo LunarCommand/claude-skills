@@ -35,6 +35,29 @@ on**. The agent interprets it; it is not a rigid parser. Accepted forms:
   transaction/rollback semantics`, or `the checkout endpoint; I care most about the
   concurrency angle, skip style nits`.
 
+### Delta mode: reviewing changes made *since* a previous review
+
+When this skill has already reviewed the change and work continued afterwards
+(fixes for the findings, a new requirement, a follow-up commit), do **not** review
+the whole thing again, and do **not** skip it either. Review the delta:
+
+- Set `args.baseRef` to the **previously-reviewed commit** and `args.reviewRef` to
+  the current one, so the scope is literally `git diff <reviewed> <now>`.
+- Say in `args.context` that the baseline was already reviewed and what it
+  validated, so the lenses do not re-derive settled ground.
+- **List the prior findings and their fixes**, with the instruction: do not
+  re-report the original issue, but do check whether each fix is correct,
+  complete, and free of new defects. A fix is unreviewed code.
+- **Fence off settled design decisions** explicitly ("do not re-litigate X"),
+  or a fresh panel will re-argue choices you already worked through.
+- Measure the delta first and say how big it is. Post-review fix batches are
+  routinely large enough to deserve their own review: signature changes, new
+  logic, and relocated call sites all hide in them.
+
+This is worth doing because the reviewed artifact and the merged artifact are not
+the same thing. It has found a false negative in a default code path that the
+full review of the baseline never reached.
+
 Separate the two parts of whatever you're given:
 
 - The **scope** decides which files to pull into context (Step 1).
@@ -95,6 +118,12 @@ table and keep a git snapshot guard for when it isn't.
    # snapshot silently fails to cover brand-new files (a new module, a new test).
    git ls-files --others --exclude-standard -z \
      | xargs -0 -r tar czf "$SNAP/ar_untracked_before.tgz" 2>/dev/null || true
+   # SUBMODULES are also invisible to `git diff HEAD` (it reports only a changed
+   # POINTER, never dirty content inside). Record their state separately.
+   git submodule status --recursive > "$SNAP/ar_submodules_before.txt" 2>/dev/null || true
+   git submodule foreach --recursive --quiet \
+     'git status --porcelain | sed "s|^|$displaypath |"' \
+     > "$SNAP/ar_submodule_dirt_before.txt" 2>/dev/null || true
    ```
 
    If the change adds new files, say so when offering option (c): the snapshot's
@@ -249,29 +278,47 @@ single finding:
 SNAP="${CLAUDE_JOB_DIR:-/tmp}/tmp"
 git status --porcelain  > "$SNAP/ar_tree_after.txt"
 git diff HEAD           > "$SNAP/ar_diff_after.txt"
+git submodule foreach --recursive --quiet \
+  'git status --porcelain | sed "s|^|$displaypath |"' \
+  > "$SNAP/ar_submodule_dirt_after.txt" 2>/dev/null || true
 diff "$SNAP/ar_tree_before.txt" "$SNAP/ar_tree_after.txt" && \
-  diff "$SNAP/ar_diff_before.txt" "$SNAP/ar_diff_after.txt" && echo "tree unchanged"
+  diff "$SNAP/ar_diff_before.txt" "$SNAP/ar_diff_after.txt" && \
+  diff "$SNAP/ar_submodule_dirt_before.txt" "$SNAP/ar_submodule_dirt_after.txt" && \
+  echo "tree unchanged"
 ```
 
-When the run was isolated (`args.isolate: true`) this always passes — the agents
-never had access to the tree — so it's just confirmation. When it wasn't, it's the
-real guard: the porcelain diff catches added/removed/renamed files and the
-`git diff HEAD` compare catches any tracked in-place edit, including one that
-leaves the line count unchanged. If EITHER differs, an agent mutated the tree
-despite the read-only mandate: **say so at the top of your report, before the
-findings**, name the affected files, and help the user restore them —
-`$SNAP/ar_diff_before.txt` holds the exact pre-review state of every tracked
-change, so it's the reference for what each file should contain. A silently
-reverted or edited file is a worse outcome than any finding in the report is a
-good one. Do not bury it.
+**Isolation does NOT make this check redundant.** Two leaks are confirmed: a
+submodule working tree is not sandboxed, and agents sometimes act on the real
+repo path rather than their worktree. On one isolated run an agent left a
+self-referential symlink inside a submodule. So run the compare either way.
+
+The three compares cover different things, and each is blind to the others'
+territory. The porcelain compare catches added / removed / renamed files **and is
+the only one that reveals a dirty submodule** (as a ` M <path>` line). The
+`git diff HEAD` compare catches a tracked in-place edit, including one that
+leaves the line count unchanged, but it says **nothing** about untracked files or
+about content inside a submodule. The submodule compare covers the rest.
+
+If any differ, an agent mutated the tree despite the read-only mandate: **say so
+at the top of your report, before the findings**, name what changed, and help the
+user restore it. `$SNAP/ar_diff_before.txt` holds the exact pre-review state of
+every tracked change; `ar_untracked_before.tgz` holds the new files. Report the
+damage proportionately — distinguish "a stray file was added" (annoying) from "a
+file holding your work was reverted" (serious) — but never omit it. A silently
+reverted file is a worse outcome than any finding in the report is a good one.
+Before deleting anything an agent created, look at it: confirm it is review
+debris and not something of the user's, and say what it was.
 
 **Second, sanity-check the refutations you're about to trust.** The workflow
-returns only survivors, so a wrongly-refuted finding vanishes silently. Before
-reporting, re-check by hand any finding you *expected* to see and didn't, and any
-refutation whose reasoning was "it isn't in the file" — under isolation that
-evidence came from the default branch, not the change (see Step 4). One command
-against the reviewed ref settles it. Treat the survivor list as a floor, not a
-ceiling, and say so if you had to resurrect something.
+returns a `refuted` array alongside `findings`, each entry carrying the
+refutation reasoning — read it. Scan for any refutation resting on **file
+contents** ("that entry doesn't exist", "the premise is factually false", "that
+line is out of range"): under isolation that evidence came from the default
+branch, not the change, so one `git show <reviewRef>:<path>` settles it. A
+refutation resting on *logic*, *spec text*, or *intended behaviour* needs no
+recheck. Also re-check any finding you *expected* to see and didn't. Treat the
+survivor list as a floor, not a ceiling, and say plainly if you had to resurrect
+something — a review that killed a real defect is worth knowing about.
 
 Then report survivors **most-severe first**, each with: what's wrong (one sentence),
 the concrete failure scenario, severity, and the fix (or an explicit open question

@@ -4,7 +4,8 @@ export const meta = {
   whenToUse: 'Reviewing a spec/RFC change before commit+tag/publish. Assemble context inline first, pass via args.context.',
   phases: [
     { title: 'Lenses', detail: 'independent adversarial passes over the change' },
-    { title: 'Verify', detail: 'refute each finding on VALIDITY not severity' },
+    { title: 'Merge', detail: 'cluster raw findings into distinct defects before verifying' },
+    { title: 'Verify', detail: 'refute each distinct defect on VALIDITY not severity; 3 angles for blocker/should, 1 for nit' },
     { title: 'Synthesize', detail: 'rank survivors; keep refuted-with-reasoning for audit' },
   ],
 }
@@ -79,10 +80,56 @@ const FINDING_SCHEMA = {
     } } } },
 }
 
+// `adjusted_severity` exists so PARTIAL means something. Without it a verifier
+// could say "the core reproduces but the severity is overstated" and the finding
+// still printed at its original severity, because synthesis treated CONFIRMED and
+// PARTIAL identically. Now a downgrade is applied.
 const VERDICT_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['verdict', 'reasoning'],
-  properties: { verdict: { type: 'string', enum: ['CONFIRMED', 'REFUTED', 'PARTIAL'] }, reasoning: { type: 'string' } },
+  properties: {
+    verdict: { type: 'string', enum: ['CONFIRMED', 'REFUTED', 'PARTIAL'] },
+    reasoning: { type: 'string' },
+    adjusted_severity: { type: 'string', enum: ['blocker', 'should', 'nit'] },
+  },
 }
+
+// One canonical finding per distinct defect, for the merge stage.
+// `lenses` is REQUIRED: a merged finding can never carry the singular `lens`
+// (not a permitted property here), so an omitted `lenses` makes the synthesis
+// fallback collapse to [] and the convergence signal vanishes silently.
+const MERGE_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['findings'],
+  properties: { findings: { type: 'array', items: {
+    type: 'object', additionalProperties: false,
+    required: ['title', 'severity', 'location', 'failure', 'why_real', 'lenses'],
+    properties: {
+      title: { type: 'string' }, severity: { type: 'string', enum: ['blocker', 'should', 'nit'] },
+      location: { type: 'string' }, failure: { type: 'string' }, why_real: { type: 'string' },
+      fix: { type: 'string' },
+      // Which lenses independently found this. Convergence is signal worth keeping:
+      // three lenses arriving at one defect is stronger evidence than one.
+      lenses: { type: 'array', items: { type: 'string' } },
+    } } } },
+}
+
+// The three refutation angles, ported from the main adversarial-review workflow.
+// A nit is judged by 'claim-true' alone: it is a claim about correctness, and
+// 'reproduce' would auto-refute a prose defect that can never have a runtime trigger.
+const ANGLES = [
+  { key: 'reproduce', ask:
+    'Reproduce this finding concretely. This is a SPEC repo, so most real defects have NO triggering input: ' +
+    '"reproduce" means show concretely how the artifact misleads a reader, makes two conforming implementations ' +
+    'diverge, contradicts another section, or states something false. Do NOT refute merely because there is no ' +
+    'runtime trigger.' },
+  { key: 'regress', ask:
+    'Would the implied fix actually resolve this without regressing something else, and is it necessary at all? ' +
+    'If the fix is wrong, unnecessary, or would break a sibling rule or a shipped fixture, the finding is not ' +
+    'actionable as stated.' },
+  { key: 'claim-true', ask:
+    'Is the underlying claim even true, under a PLAIN reading, against the actual spec text and fixtures (not ' +
+    'general intuition, and not the most charitable interpretation)? A claim that is false, or a reference that ' +
+    'is ambiguous under a plain reading, is a real defect even if a generous reading exists.' },
+]
 
 // Generic spec-review lenses. Each hunts for a failure, not a summary.
 const LENSES = [
@@ -136,43 +183,149 @@ const LENSES = [
   ].join('\n') },
 ]
 
+// --- Lenses ---
+// A BARRIER (parallel, not pipeline): the merge stage below needs the full result
+// set to cluster across lenses. Each lens is wrapped so a dead lens is recorded
+// rather than silently dropped: a transient API error once killed the
+// spec-reconciliation lens mid-response, it contributed zero findings, and the
+// result payload gave no hint — which reads exactly like "that lens found
+// nothing." One retry, then record the failure.
 phase('Lenses')
-const raw = await pipeline(
-  LENSES,
-  (lens) => agent(PREAMBLE + '\n\n' + lens.prompt, { label: 'lens:' + lens.key, phase: 'Lenses', schema: FINDING_SCHEMA })
-    .then(r => (r?.findings || []).map(f => ({ ...f, lens: lens.key }))),
-  (findings) => parallel((findings || []).map(f => () =>
+const lensFailures = []
+async function runLens(lens, attempt) {
+  try {
+    const r = await agent(PREAMBLE + '\n\n' + lens.prompt,
+      { label: 'lens:' + lens.key + (attempt > 1 ? ' (retry)' : ''), phase: 'Lenses', schema: FINDING_SCHEMA })
+    if (!r) throw new Error('no result')
+    return (r.findings || []).map(f => ({ ...f, lens: lens.key }))
+  } catch (e) {
+    if (attempt < 2) {
+      log('lens ' + lens.key + ' failed, retrying once')
+      return runLens(lens, attempt + 1)
+    }
+    lensFailures.push(lens.key)
+    log('LENS COVERAGE LOST: ' + lens.key + ' failed twice; its mandate went unexamined')
+    return []
+  }
+}
+const rawFindings = (await parallel(LENSES.map(lens => () => runLens(lens, 1)))).filter(Boolean).flat()
+log('lenses raised ' + rawFindings.length + ' raw findings' +
+  (lensFailures.length ? ' (' + lensFailures.length + ' lens(es) FAILED)' : ''))
+
+// --- Merge ---
+// Independent lenses converge on the same defect from different angles, so raw
+// counts overstate the work: one run reported the same blocker three times and the
+// same stale header three times, 24 raw for ~17 distinct. Clustering BEFORE verify
+// is also the cost lever, since verify then runs per distinct defect rather than
+// per duplicate. Low effort: clustering is bounded. Falls back to raw on failure.
+phase('Merge')
+let distinct = rawFindings
+if (rawFindings.length > 1) {
+  const merged = await agent(
+    PREAMBLE +
+    '\n\nYou are the MERGE stage of a multi-lens spec review. The lenses below reviewed the same change ' +
+    'and several findings likely describe the SAME underlying defect from different angles (different line ' +
+    'numbers, different wording, different lens). Cluster findings sharing a root cause and emit exactly ONE ' +
+    'canonical finding per distinct defect: keep the clearest title, the most precise location, the HIGHEST ' +
+    'severity in the cluster, the strongest failure and why_real, and list every lens that found it in ' +
+    '`lenses`. Do NOT drop any distinct defect, and do NOT merge findings that are genuinely different defects ' +
+    '(same file or section is NOT enough — they must share a root cause). Findings:\n\n' +
+    JSON.stringify(rawFindings, null, 2),
+    { label: 'merge', phase: 'Merge', schema: MERGE_SCHEMA, effort: 'low' }
+  )
+  if (merged && merged.findings && merged.findings.length) distinct = merged.findings
+}
+log('merged to ' + distinct.length + ' distinct defect(s)')
+
+// --- Verify (tiered, multi-angle) ---
+// Full 3-angle panel for blocker/should, single claim-true verifier for a nit (a
+// wrong nit is cheap; a wrongly-confirmed blocker is not). Survives on a majority
+// of the angles that judged it.
+phase('Verify')
+const verified = await parallel(distinct.map(f => () => {
+  const angles = f.severity === 'nit' ? [ANGLES[2]] : ANGLES
+  const need = Math.ceil(angles.length / 2)
+  return parallel(angles.map(ang => () =>
     agent(
       PREAMBLE +
-      '\n\nADVERSARIAL VERIFICATION. A prior lens raised this finding:\n' +
-      'TITLE: ' + f.title + '\nSEVERITY: ' + f.severity + '\nLOCATION: ' + f.location +
+      '\n\nADVERSARIAL VERIFICATION via the "' + ang.key + '" angle.\n' +
+      ang.ask +
+      '\n\nThe finding:\nTITLE: ' + f.title + '\nSEVERITY: ' + f.severity + '\nLOCATION: ' + f.location +
       '\nFAILURE: ' + f.failure + '\nWHY REAL: ' + f.why_real + '\nPROPOSED FIX: ' + (f.fix || '(none)') +
-      '\n\nRead the actual files and judge it. REFUTE (verdict REFUTED) ONLY if the finding is FACTUALLY WRONG, ' +
-      'describes INTENDED behavior, or its fix would REGRESS / is unnecessary. Do NOT refute a factually-correct ' +
-      'finding merely because it is low-severity or has no runtime reproduction — for a spec/docs artifact, ' +
-      '"reproduction" means showing it misleads a reader, makes two conforming impls diverge, contradicts another ' +
-      'section, or is literally false; a true-but-minor finding is CONFIRMED (as a nit), not refuted. Do NOT refute ' +
-      'via a charitable reading when a plain reading is false. CONFIRM if the claim holds under a plain reading; ' +
-      'PARTIAL if the core reproduces but the framing/severity is overstated. Cite the specific spec/fixture text.',
-      { label: 'verify:' + (f.lens || 'x'), phase: 'Verify', schema: VERDICT_SCHEMA }
-    ).then(v => ({ ...f, verdict: v?.verdict || 'REFUTED', verify_reasoning: v?.reasoning || '' }))
-  ))
-)
+      '\n\nRead the actual files and judge VALIDITY, not severity. REFUTE (verdict REFUTED) ONLY if the finding ' +
+      'is FACTUALLY WRONG, describes INTENDED behavior, its fix would REGRESS or is unnecessary, OR it is ' +
+      'factually true but NOT A DEFECT AT ALL — nothing misleads a reader, no two conforming implementations ' +
+      'diverge, nothing contradicts another section, and nothing is false (an observation about style, symmetry, ' +
+      'or how many entries a proposal happens to have is not a defect). Do NOT refute a factually-correct ' +
+      'finding merely because it is low-severity or has no runtime reproduction: a true-but-minor finding is ' +
+      'CONFIRMED as a nit. Do NOT refute via a charitable reading when a plain reading is false. Do NOT refute ' +
+      'on "I looked and it is not there" without confirming you read the reviewed state of the file. ' +
+      'CONFIRM if the claim holds under a plain reading. PARTIAL if the core holds but the framing or severity ' +
+      'is overstated, and then set `adjusted_severity` to what you actually believe. Cite the specific ' +
+      'spec/fixture text you relied on.',
+      { label: 'verify:' + ang.key + ':' + String(f.location || '').slice(0, 40), phase: 'Verify', schema: VERDICT_SCHEMA, effort: 'low' }
+    ).then(v => ({
+      angle: ang.key,
+      verdict: v?.verdict || 'REFUTED',
+      reasoning: v?.reasoning || '',
+      adjusted: v?.adjusted_severity,
+    }))
+  )).then(votes => {
+    const cast = votes.filter(Boolean)
+    const kept = cast.filter(v => v.verdict === 'CONFIRMED' || v.verdict === 'PARTIAL')
+    // PARTIAL now bites: if any surviving angle downgraded, take the LOWEST
+    // severity any of them argued for, so an overstated blocker lands as it should.
+    const rank = { blocker: 0, should: 1, nit: 2 }
+    let severity = f.severity
+    for (const v of kept) {
+      if (v.verdict === 'PARTIAL' && v.adjusted && (rank[v.adjusted] ?? 3) > (rank[severity] ?? 3)) {
+        severity = v.adjusted
+      }
+    }
+    return {
+      finding: { ...f, severity, severity_as_raised: f.severity },
+      survives: kept.length >= need,
+      // Votes are surfaced WITH reasoning so the caller can audit a wrong
+      // refutation, which is the recurring failure mode, instead of re-deriving it.
+      votes: cast.map(v => ({ angle: v.angle, verdict: v.verdict, reasoning: v.reasoning })),
+    }
+  })
+}))
 
 phase('Synthesize')
-const all = raw.flat().filter(Boolean)
-const survivors = all.filter(f => f.verdict === 'CONFIRMED' || f.verdict === 'PARTIAL')
+const judged = verified.filter(Boolean)
+const survivors = judged.filter(x => x.survives).map(x => ({ ...x.finding, votes: x.votes }))
 const order = { blocker: 0, should: 1, nit: 2 }
 survivors.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
-log('lenses raised ' + all.length + ' findings; ' + survivors.length + ' survived verification')
+log(distinct.length + ' distinct defect(s) judged; ' + survivors.length + ' survived verification')
 
 return {
-  total_raised: all.length,
+  raw_raised: rawFindings.length,
+  distinct: distinct.length,
   survived: survivors.length,
-  findings: survivors.map(f => ({ severity: f.severity, verdict: f.verdict, title: f.title, location: f.location,
-    failure: f.failure, why_real: f.why_real, fix: f.fix, lens: f.lens, verify_reasoning: f.verify_reasoning })),
-  // Refuted findings are returned WITH their reasoning so the caller can audit for wrong refutations
-  // (the recurring failure mode) instead of re-deriving from scratch.
-  refuted: all.filter(f => f.verdict === 'REFUTED').map(f => ({ title: f.title, lens: f.lens,
-    severity: f.severity, refutation: f.verify_reasoning })),
+  by_severity: {
+    blocker: survivors.filter(f => f.severity === 'blocker').length,
+    should: survivors.filter(f => f.severity === 'should').length,
+    nit: survivors.filter(f => f.severity === 'nit').length,
+  },
+  // Non-empty means part of the mandate went unexamined. Treat the survivor list as
+  // a floor, not a ceiling, and say so when reporting: a silent lens death once cost
+  // a whole lens's coverage on a run whose payload looked healthy.
+  lenses_failed: lensFailures,
+  findings: survivors.map(f => ({
+    severity: f.severity,
+    // Present only when a PARTIAL verdict moved it, so a downgrade is visible rather than implicit.
+    severity_as_raised: f.severity_as_raised !== f.severity ? f.severity_as_raised : undefined,
+    title: f.title, location: f.location, failure: f.failure, why_real: f.why_real, fix: f.fix,
+    // Which lenses independently converged on it. Multiple lenses is stronger evidence.
+    lenses: f.lenses || (f.lens ? [f.lens] : []),
+    votes: f.votes,
+  })),
+  // Refuted defects are returned WITH every angle's reasoning so the caller can audit a
+  // wrong refutation, the recurring failure mode, instead of re-deriving from scratch.
+  refuted: judged.filter(x => !x.survives).map(x => ({
+    title: x.finding.title, severity: x.finding.severity,
+    lenses: x.finding.lenses || (x.finding.lens ? [x.finding.lens] : []),
+    votes: x.votes,
+  })),
 }
