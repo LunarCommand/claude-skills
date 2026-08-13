@@ -11,10 +11,18 @@
 #   - a SKILL.md whose frontmatter name does not match its directory
 #   - a plugin manifest whose name drifts from its directory, or a marketplace
 #     entry pointing at a directory that is not a plugin
+#   - a skill changed without bumping its plugin version, which strands every
+#     user who already installed it (see docs/RELEASING.md)
 #
 # Usage:
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # skip the install integration test (pre-commit hook)
+#
+# Environment:
+#   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
+#   SHELLCHECK_OPTIONAL=1       tolerate shellcheck being absent (normally fatal)
+#   SKIP_VERSION_CHECK=1        bypass the plugin version-bump check; for a clone
+#                               with no tags, not for skipping a real bump
 #
 # Exit code is non-zero if any check FAILS. Warnings do not fail the run.
 set -uo pipefail
@@ -211,6 +219,106 @@ PY
   pass "marketplace every entry resolves, names agree, no skill unlisted"
 else
   fail "marketplace manifest inconsistency:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# A plugin whose files changed since the last release but whose version did not
+# is invisible to everyone who already installed it: marketplace clients offer an
+# update only when `version` changes. Nothing else surfaces that, so it is a
+# check rather than a convention. See docs/RELEASING.md.
+# The baseline is the highest v<number> tag in the REPOSITORY, not the nearest
+# one reachable from HEAD. `git describe` walks ancestry, so on a branch cut
+# before the tag — or with the release tag on a sibling — it reports an older tag
+# or none at all, and "none" reads as "nothing released yet" and passes. The glob
+# is v[0-9]* rather than v*, or a tag like `vendor-snapshot` becomes the baseline.
+last_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -1 || true)
+case "${SKIP_VERSION_CHECK:-}" in 1|true|yes|TRUE|YES) skip_versions=true ;; *) skip_versions=false ;; esac
+
+if [[ "$skip_versions" == true ]]; then
+  warn "versions    bump check bypassed (SKIP_VERSION_CHECK)"
+elif [[ -z "$last_tag" ]]; then
+  # A shallow or --no-tags clone has tags upstream but none locally, which is
+  # indistinguishable from "nothing released" unless we say so. CI sets
+  # fetch-depth: 0 precisely to avoid this.
+  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)" != "false" ]]; then
+    fail "versions    no tags available locally (shallow clone?) — the bump check cannot run"
+    printf '        %s\n' "Give actions/checkout 'fetch-depth: 0', run 'git fetch --tags'," \
+      "or set SKIP_VERSION_CHECK=1 to bypass deliberately."
+  else
+    warn "versions    no v<number> tag yet — nothing released, so no bump is required"
+  fi
+elif out=$(LAST_TAG="$last_tag" python3 - <<'PY' 2>&1
+import json, os, re, subprocess, sys
+
+tag = os.environ['LAST_TAG']
+SEMVER = re.compile(r'^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$')
+
+def git(*a):
+    """Returns (ok, stdout). Never raises: a git failure must be reported, not
+    silently treated as 'this plugin is new and therefore exempt'."""
+    p = subprocess.run(('git',) + a, capture_output=True, text=True)
+    return p.returncode == 0, p.stdout
+
+def parsed(raw, where):
+    try:
+        v = json.loads(raw).get('version')
+    except Exception as e:
+        return None, f'{where}: manifest is not valid JSON ({e})'
+    if v is None:
+        return None, f'{where}: manifest has no "version" field'
+    if not SEMVER.match(str(v)):
+        return None, f'{where}: version {v!r} is not X.Y.Z'
+    return str(v), None
+
+bad = []
+for d in sorted(p for p in os.listdir('skills') if os.path.isdir(os.path.join('skills', p))):
+    sk = f'skills/{d}'
+    man = f'{sk}/.claude-plugin/plugin.json'
+    # Compare the tag against the INDEX: that is exactly what the commit will
+    # contain. Comparing to HEAD hides a staged change from the pre-commit hook;
+    # comparing to the working tree makes unrelated dirty state in some other
+    # skill block a commit that does not touch it.
+    unchanged, _ = git('diff', '--cached', '--quiet', tag, '--', sk)
+    if unchanged:
+        continue
+    existed, old_raw = git('cat-file', '-p', f'{tag}:{man}')
+    if not existed:
+        # Genuinely absent at the tag => a new plugin, which needs no bump. This
+        # is the one exemption, and it is granted only on an explicit "the blob
+        # is not there", never on an unexplained read failure.
+        ok_probe, _ = git('cat-file', '-e', f'{tag}:{sk}')
+        if ok_probe:
+            bad.append(f'{d}: changed, and {man} is unreadable at {tag} (renamed?)')
+        continue
+    was, err = parsed(old_raw, f'{d} at {tag}')
+    if err:
+        bad.append(err); continue
+    # Index only — never fall back to the working tree. Falling back let a
+    # commit that STAGES A DELETION of the manifest pass, because the on-disk
+    # copy still carried a bumped version. A manifest absent from the index is
+    # absent from the commit, and a plugin without one cannot be installed.
+    ok_now, now_raw = git('show', f':{man}')
+    if not ok_now:
+        bad.append(f'{d}: changed, but {man} is not in the index '
+                   '(staged for deletion, or never added?)')
+        continue
+    now, err = parsed(now_raw, d)
+    if err:
+        bad.append(err); continue
+    if tuple(map(int, SEMVER.match(now).groups())) <= tuple(map(int, SEMVER.match(was).groups())):
+        rel = 'is still' if now == was else f'went BACKWARDS from {was} to'
+        bad.append(f'{d}: changed since {tag} but {rel} {now}')
+
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
+); then
+  pass "versions    every plugin changed since $last_tag has a higher version"
+else
+  fail "versions    a plugin changed since $last_tag without a valid bump:"
+  printf '%s\n' "$out" | sed 's/^/        /'
+  printf '        %s\n' "Users who installed it will never be offered the update." \
+    "Bump the version in skills/<name>/.claude-plugin/plugin.json and add a" \
+    "CHANGELOG.md entry under Unreleased. See docs/RELEASING.md."
 fi
 
 # The authoritative check, when the CLI is on hand. CI has no Claude Code, so

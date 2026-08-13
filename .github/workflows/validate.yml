@@ -11,6 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the plugin version-bump check compares each
+          # skill against the last v* tag. A shallow clone has no tags, and the
+          # check would pass vacuously.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

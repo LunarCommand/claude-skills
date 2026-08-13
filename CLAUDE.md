@@ -59,9 +59,12 @@ Each top-level directory has one role:
   a `bin/` dir or a `*.workflow.js` engine. Each directory *is* the plugin root,
   which is why the manifest sits inside it rather than under a separate
   `plugins/` tree. `install.sh` copies each into `~/.claude/skills/`.
-- `docs/` — **methodology docs**, not installed. `docs/ai-review/` covers how to
-  get high-value review out of AI (the reasoning behind the `adversarial-review`
-  skill).
+- `docs/` — **methodology and process docs**, not installed. `docs/ai-review/`
+  covers how to get high-value review out of AI (the reasoning behind the
+  `adversarial-review` skill). `docs/RELEASING.md` is authoritative on how a
+  change actually reaches users — read it before proposing a tag.
+- `CHANGELOG.md` — grouped **by plugin**, not by repo, since each ships its own
+  version. Keep the `Unreleased` section current as work lands.
 - `project-files/` — **templates to copy into a consuming project**: `.agent.env`
   (secrets/config the scripts read) and `.claude/settings.json` (a permissions
   allowlist that pre-approves the skill scripts).
@@ -87,8 +90,10 @@ A skill is a directory containing:
   when editing.
 - `.claude-plugin/plugin.json` — the plugin manifest. `name` must match the
   directory name (and the SKILL.md frontmatter `name`). `version` gates updates:
-  users are only offered a new version when this string changes, so bump it in
-  any release that touches the skill.
+  users are only offered a new version when this string changes, so **bump it in
+  the same change that touches the skill**, including prose-only SKILL.md edits —
+  the Markdown is the artifact. `scripts/validate.sh` fails when a skill changed
+  since the last `v*` tag without a bump. See `docs/RELEASING.md`.
 - `bin/` — bash CLIs that do the actual external work. Claude Code adds this to
   the Bash tool's `PATH`, so the files must stay executable and are invoked by
   bare name. Do not reintroduce a `scripts/` dir; it is not on `PATH`.
@@ -214,15 +219,22 @@ every skill listed, plus `claude plugin validate` when the CLI is on hand),
 config-template JSON validity, that the settings allowlist and the shipped
 `bin/` scripts name each other exactly, GNU-only shell idioms in shipped scripts
 (this workstation and CI are both Linux, so a `find -printf` passes here and
-fails on a user's Mac — running the code cannot catch it), repo hygiene (no
-macOS cruft, personal paths, or
-credential-shaped strings — this repo is public), and an end-to-end `install.sh`
-run into a temp `CLAUDE_HOME`.
+fails on a user's Mac — running the code cannot catch it), **plugin version
+bumps** (a skill changed since the last `v<number>` tag must carry a higher
+`version`, or everyone who installed it is stranded — see `docs/RELEASING.md`),
+repo hygiene (no macOS cruft, personal paths, or credential-shaped strings —
+this repo is public), and an end-to-end `install.sh` run into a temp
+`CLAUDE_HOME`.
 
 ```bash
 scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # skips the install integration test
 ```
+
+Three environment variables loosen it, each a deliberate bypass rather than a
+normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`, and
+`SKIP_VERSION_CHECK=1`. The version check needs tags, so CI checks out with
+`fetch-depth: 0`; without that it would pass vacuously.
 
 shellcheck blocks at `warning` severity and the scripts are clean at that level,
 so keep them there. `SHELLCHECK_SEVERITY=error` exists to stage a noisy new
