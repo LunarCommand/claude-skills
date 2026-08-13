@@ -22,7 +22,7 @@ whenever the skill is installed. **Invoke each by bare name** — never by an
 absolute path. The bare form is the only spelling that works on both install
 routes, and it is what the permission rules match. The `pr_review_` prefix is
 deliberate: these rules approve a command *name*, so a generic one like
-`post_reply.sh` could be satisfied by an unrelated executable earlier on `PATH`.
+`post_reply` could be satisfied by an unrelated executable earlier on `PATH`.
 
 The matching rules live in the toolkit's `project-files/.claude/settings.json`
 template and are **not installed by either install route** — the user merges them

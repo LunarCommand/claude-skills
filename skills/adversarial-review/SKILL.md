@@ -116,13 +116,12 @@ table and keep a git snapshot guard for when it isn't.
    git diff HEAD           > "$SNAP/ar_diff_before.txt"
    # UNTRACKED files are invisible to `git diff HEAD`, so copy them too or the
    # snapshot silently fails to cover brand-new files (a new module, a new test).
-   # Guarded rather than using `xargs -r`: that flag is GNU-only, so on macOS the
-   # pipeline would run tar with no arguments, error, and — swallowed by the
-   # `|| true` this replaces — leave you believing new files were covered.
-   if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-     git ls-files --others --exclude-standard -z \
-       | xargs -0 tar czf "$SNAP/ar_untracked_before.tgz"
-   fi
+   # `tar -T -` reads the NUL-separated list on stdin in ONE invocation. Piping
+   # through `xargs` instead loses files: past ARG_MAX xargs runs tar repeatedly
+   # and `czf` recreates the archive each time, so only the final batch survives
+   # (measured: 64 of 3000 files). It also avoids `xargs -r`, which is GNU-only.
+   git ls-files --others --exclude-standard -z \
+     | tar czf "$SNAP/ar_untracked_before.tgz" --null -T -
    # SUBMODULES are also invisible to `git diff HEAD` (it reports only a changed
    # POINTER, never dirty content inside). Record their state separately.
    git submodule status --recursive > "$SNAP/ar_submodules_before.txt" 2>/dev/null || true

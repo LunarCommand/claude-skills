@@ -120,9 +120,11 @@ Two consequences, both load-bearing when adding a script:
   string, and the name resolves through `PATH`, which the user controls and the
   plugin does not. So shipped basenames must be distinctive enough that nothing
   else plausibly owns them — this is why the pr-review scripts carry a
-  `pr_review_` prefix rather than being `post_reply.sh` and `resolve_thread.sh`.
-  `scripts/validate.sh` fails on a basename shipped by two skills, since bare-name
-  invocation can only ever reach one of them.
+  `pr_review_` prefix rather than bare names like `post_reply` or
+  `resolve_thread`. `scripts/validate.sh` fails on a basename shipped by two
+  skills, since bare-name invocation can only ever reach one of them — and on any
+  `*.sh` named in the docs that no longer ships, which is how a rename turns into
+  a failing check rather than stale prose.
 - **Never tell a user to put the whole settings template at user scope.** It is a
   project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent` and more;
   globally that applies to every repo they open, including untrusted ones the
@@ -160,11 +162,13 @@ hdx_query.sh --local --table traces --query "SpanName:call_model"
 # Langfuse (auto-detects legacy v1 vs v4 API from /api/public/health)
 langfuse_query.sh apigen        # → legacy | v4
 
-# GitHub PR review threads
-parse_comments.sh <owner/repo> <pr>          # list unresolved
-parse_comments.sh <owner/repo> <pr> <index>  # detail by index
-post_reply.sh <owner/repo> <pr> <comment_id> "<text>"
-resolve_thread.sh <thread_node_id>
+# GitHub PR review threads (the pr_review_ prefix is deliberate — see the
+# bare-name rule above: a permission rule approves a NAME, so a generic one
+# could be satisfied by an unrelated executable earlier on PATH)
+pr_review_parse_comments.sh <owner/repo> <pr>          # list unresolved
+pr_review_parse_comments.sh <owner/repo> <pr> <index>  # detail by index
+pr_review_post_reply.sh <owner/repo> <pr> <comment_id> "<text>"
+pr_review_resolve_thread.sh <thread_node_id>
 ```
 
 To run one *in this repo* while developing it, use its real path

@@ -292,6 +292,31 @@ pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-
   printf '%s\n' "$pathrefs" | sed 's/^/        /'
 }
 
+# Every script name mentioned in the docs must be a script that exists. A rename
+# otherwise leaves working prose pointing at a command that is not on PATH, and
+# the check above only covers SKILL.md — which is exactly how CLAUDE.md kept
+# naming parse_comments.sh after it became pr_review_parse_comments.sh.
+if out=$(python3 - <<'PY' 2>&1
+import glob, os, re, sys
+shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
+# The repo's own tooling, named in docs but never installed as a skill script.
+own = {'install.sh', 'validate.sh', 'pre-commit.sh'}
+bad = []
+for md in sorted(glob.glob('*.md') + glob.glob('skills/*/SKILL.md') + glob.glob('docs/**/*.md', recursive=True)):
+    for n, line in enumerate(open(md), 1):
+        for name in re.findall(r'\b[A-Za-z0-9_.-]+\.sh\b', line):
+            if name not in shipped and name not in own:
+                bad.append(f'{md}:{n}: {name}')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
+); then
+  pass "doc scripts every *.sh named in the docs actually ships"
+else
+  fail "docs name a script that does not exist (stale after a rename?):"
+  printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
 # --------------------------------------------------------------------------
 section "Hygiene (this repo is public)"
 # --------------------------------------------------------------------------
