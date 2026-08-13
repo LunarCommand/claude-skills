@@ -292,12 +292,15 @@ for d in sorted(p for p in os.listdir('skills') if os.path.isdir(os.path.join('s
     was, err = parsed(old_raw, f'{d} at {tag}')
     if err:
         bad.append(err); continue
-    ok_now, now_raw = git('show', f':{man}')       # staged content
+    # Index only — never fall back to the working tree. Falling back let a
+    # commit that STAGES A DELETION of the manifest pass, because the on-disk
+    # copy still carried a bumped version. A manifest absent from the index is
+    # absent from the commit, and a plugin without one cannot be installed.
+    ok_now, now_raw = git('show', f':{man}')
     if not ok_now:
-        try:
-            now_raw = open(man).read()             # untracked but present
-        except OSError as e:
-            bad.append(f'{d}: changed, but {man} cannot be read ({e})'); continue
+        bad.append(f'{d}: changed, but {man} is not in the index '
+                   '(staged for deletion, or never added?)')
+        continue
     now, err = parsed(now_raw, d)
     if err:
         bad.append(err); continue
