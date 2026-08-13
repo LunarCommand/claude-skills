@@ -42,10 +42,15 @@ plugins. It does not have to match any plugin's version, and usually will not.
 
 ## Cutting a release
 
-1. **Confirm every changed plugin is bumped.** `scripts/validate.sh` does this
-   against the last `v*` tag. Do not reach for `SKIP_VERSION_CHECK=1` to get past
-   it — that variable exists for working in a shallow clone, not for skipping the
-   bump.
+1. **Confirm every changed plugin is bumped.** `scripts/validate.sh` compares
+   each skill against the highest `v<number>` tag and requires a *higher* version
+   — a repeat, a decrement, a missing field, or a non-`X.Y.Z` string all fail.
+   It compares against the git index, so it sees what a commit will contain and
+   ignores unrelated work in progress.
+
+   `SKIP_VERSION_CHECK=1` bypasses the check entirely. It exists for a clone with
+   no tags available; using it to get past a genuine un-bumped plugin ships a
+   change nobody will be offered.
 
 2. **Bring `CHANGELOG.md` up to date.** Move `Unreleased` into a new
    `## vX.Y.Z — <date>` section, keeping one subsection per plugin that changed
@@ -77,9 +82,10 @@ plugins. It does not have to match any plugin's version, and usually will not.
 
 ## Verifying a release reached users
 
-The honest check is to install as a stranger would:
+The honest check is to install as a stranger would. These are Claude Code
+commands, typed in a session — not shell:
 
-```bash
+```
 /plugin marketplace update lunar-skills
 /plugin install hyperdx@lunar-skills
 ```

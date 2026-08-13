@@ -219,15 +219,22 @@ every skill listed, plus `claude plugin validate` when the CLI is on hand),
 config-template JSON validity, that the settings allowlist and the shipped
 `bin/` scripts name each other exactly, GNU-only shell idioms in shipped scripts
 (this workstation and CI are both Linux, so a `find -printf` passes here and
-fails on a user's Mac — running the code cannot catch it), repo hygiene (no
-macOS cruft, personal paths, or
-credential-shaped strings — this repo is public), and an end-to-end `install.sh`
-run into a temp `CLAUDE_HOME`.
+fails on a user's Mac — running the code cannot catch it), **plugin version
+bumps** (a skill changed since the last `v<number>` tag must carry a higher
+`version`, or everyone who installed it is stranded — see `docs/RELEASING.md`),
+repo hygiene (no macOS cruft, personal paths, or credential-shaped strings —
+this repo is public), and an end-to-end `install.sh` run into a temp
+`CLAUDE_HOME`.
 
 ```bash
 scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # skips the install integration test
 ```
+
+Three environment variables loosen it, each a deliberate bypass rather than a
+normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`, and
+`SKIP_VERSION_CHECK=1`. The version check needs tags, so CI checks out with
+`fetch-depth: 0`; without that it would pass vacuously.
 
 shellcheck blocks at `warning` severity and the scripts are clean at that level,
 so keep them there. `SHELLCHECK_SEVERITY=error` exists to stage a noisy new

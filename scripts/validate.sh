@@ -11,10 +11,18 @@
 #   - a SKILL.md whose frontmatter name does not match its directory
 #   - a plugin manifest whose name drifts from its directory, or a marketplace
 #     entry pointing at a directory that is not a plugin
+#   - a skill changed without bumping its plugin version, which strands every
+#     user who already installed it (see docs/RELEASING.md)
 #
 # Usage:
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # skip the install integration test (pre-commit hook)
+#
+# Environment:
+#   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
+#   SHELLCHECK_OPTIONAL=1       tolerate shellcheck being absent (normally fatal)
+#   SKIP_VERSION_CHECK=1        bypass the plugin version-bump check; for a clone
+#                               with no tags, not for skipping a real bump
 #
 # Exit code is non-zero if any check FAILS. Warnings do not fail the run.
 set -uo pipefail
@@ -217,44 +225,93 @@ fi
 # is invisible to everyone who already installed it: marketplace clients offer an
 # update only when `version` changes. Nothing else surfaces that, so it is a
 # check rather than a convention. See docs/RELEASING.md.
-last_tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
-if [[ -n "${SKIP_VERSION_CHECK:-}" ]]; then
-  warn "versions    bump check skipped (SKIP_VERSION_CHECK is set)"
+# The baseline is the highest v<number> tag in the REPOSITORY, not the nearest
+# one reachable from HEAD. `git describe` walks ancestry, so on a branch cut
+# before the tag — or with the release tag on a sibling — it reports an older tag
+# or none at all, and "none" reads as "nothing released yet" and passes. The glob
+# is v[0-9]* rather than v*, or a tag like `vendor-snapshot` becomes the baseline.
+last_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -1 || true)
+case "${SKIP_VERSION_CHECK:-}" in 1|true|yes|TRUE|YES) skip_versions=true ;; *) skip_versions=false ;; esac
+
+if [[ "$skip_versions" == true ]]; then
+  warn "versions    bump check bypassed (SKIP_VERSION_CHECK)"
 elif [[ -z "$last_tag" ]]; then
-  # Distinguish the genuine bootstrap state from a shallow clone with tags
-  # upstream — the latter would otherwise pass vacuously, which is exactly the
-  # failure mode this check exists to prevent. CI sets fetch-depth: 0.
-  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
-    fail "versions    shallow clone: no tags fetched, so the bump check cannot run"
-    printf '        %s\n' "Give actions/checkout 'fetch-depth: 0', or set SKIP_VERSION_CHECK=1."
+  # A shallow or --no-tags clone has tags upstream but none locally, which is
+  # indistinguishable from "nothing released" unless we say so. CI sets
+  # fetch-depth: 0 precisely to avoid this.
+  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)" != "false" ]]; then
+    fail "versions    no tags available locally (shallow clone?) — the bump check cannot run"
+    printf '        %s\n' "Give actions/checkout 'fetch-depth: 0', run 'git fetch --tags'," \
+      "or set SKIP_VERSION_CHECK=1 to bypass deliberately."
   else
-    warn "versions    no v* tag yet — nothing released, so no bump is required"
+    warn "versions    no v<number> tag yet — nothing released, so no bump is required"
   fi
-elif out=$(
-  bad=""
-  for d in skills/*/; do
-    name=$(basename "$d")
-    # Compare the tag against the WORKING TREE, not HEAD: the pre-commit hook
-    # runs before the change is a commit, and comparing to HEAD would make the
-    # check invisible exactly where it is most useful. `git status` covers
-    # untracked additions, which `git diff` does not see at all.
-    changed=false
-    git diff --quiet "$last_tag" -- "$d" 2>/dev/null || changed=true
-    [[ -n "$(git status --porcelain -- "$d" 2>/dev/null)" ]] && changed=true
-    [[ "$changed" == false ]] && continue
-    man="$d.claude-plugin/plugin.json"
-    now=$(python3 -c "import json;print(json.load(open('$man')).get('version',''))" 2>/dev/null)
-    was=$(git show "$last_tag:$man" 2>/dev/null \
-      | python3 -c "import json,sys;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
-    # A plugin that did not exist at the tag is new; it needs no bump.
-    [[ -z "$was" ]] && continue
-    [[ "$now" == "$was" ]] && bad+="$name changed since $last_tag but is still $now"$'\n'
-  done
-  [[ -z "$bad" ]] || { printf '%s' "$bad"; exit 1; }
+elif out=$(LAST_TAG="$last_tag" python3 - <<'PY' 2>&1
+import json, os, re, subprocess, sys
+
+tag = os.environ['LAST_TAG']
+SEMVER = re.compile(r'^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$')
+
+def git(*a):
+    """Returns (ok, stdout). Never raises: a git failure must be reported, not
+    silently treated as 'this plugin is new and therefore exempt'."""
+    p = subprocess.run(('git',) + a, capture_output=True, text=True)
+    return p.returncode == 0, p.stdout
+
+def parsed(raw, where):
+    try:
+        v = json.loads(raw).get('version')
+    except Exception as e:
+        return None, f'{where}: manifest is not valid JSON ({e})'
+    if v is None:
+        return None, f'{where}: manifest has no "version" field'
+    if not SEMVER.match(str(v)):
+        return None, f'{where}: version {v!r} is not X.Y.Z'
+    return str(v), None
+
+bad = []
+for d in sorted(p for p in os.listdir('skills') if os.path.isdir(os.path.join('skills', p))):
+    sk = f'skills/{d}'
+    man = f'{sk}/.claude-plugin/plugin.json'
+    # Compare the tag against the INDEX: that is exactly what the commit will
+    # contain. Comparing to HEAD hides a staged change from the pre-commit hook;
+    # comparing to the working tree makes unrelated dirty state in some other
+    # skill block a commit that does not touch it.
+    unchanged, _ = git('diff', '--cached', '--quiet', tag, '--', sk)
+    if unchanged:
+        continue
+    existed, old_raw = git('cat-file', '-p', f'{tag}:{man}')
+    if not existed:
+        # Genuinely absent at the tag => a new plugin, which needs no bump. This
+        # is the one exemption, and it is granted only on an explicit "the blob
+        # is not there", never on an unexplained read failure.
+        ok_probe, _ = git('cat-file', '-e', f'{tag}:{sk}')
+        if ok_probe:
+            bad.append(f'{d}: changed, and {man} is unreadable at {tag} (renamed?)')
+        continue
+    was, err = parsed(old_raw, f'{d} at {tag}')
+    if err:
+        bad.append(err); continue
+    ok_now, now_raw = git('show', f':{man}')       # staged content
+    if not ok_now:
+        try:
+            now_raw = open(man).read()             # untracked but present
+        except OSError as e:
+            bad.append(f'{d}: changed, but {man} cannot be read ({e})'); continue
+    now, err = parsed(now_raw, d)
+    if err:
+        bad.append(err); continue
+    if tuple(map(int, SEMVER.match(now).groups())) <= tuple(map(int, SEMVER.match(was).groups())):
+        rel = 'is still' if now == was else f'went BACKWARDS from {was} to'
+        bad.append(f'{d}: changed since {tag} but {rel} {now}')
+
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
 ); then
-  pass "versions    every plugin changed since $last_tag has a bumped version"
+  pass "versions    every plugin changed since $last_tag has a higher version"
 else
-  fail "a plugin changed since $last_tag without a version bump:"
+  fail "versions    a plugin changed since $last_tag without a valid bump:"
   printf '%s\n' "$out" | sed 's/^/        /'
   printf '        %s\n' "Users who installed it will never be offered the update." \
     "Bump the version in skills/<name>/.claude-plugin/plugin.json and add a" \

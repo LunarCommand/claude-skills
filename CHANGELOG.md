@@ -10,22 +10,21 @@ a plugin's `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/) per plugin.
 
-## Unreleased
-
-Nothing yet.
-
 <!--
-Shape for the next entry — list the version each plugin will ship as, and only
-the plugins that actually changed:
+Shape for an entry — list the version each plugin will ship as, and only the
+plugins that actually changed:
 
 ### hyperdx — 1.1.0
 
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
-## v1.0.0 — 2026-08-13
+## Unreleased — will ship as v1.0.0
 
-First tagged release. Every plugin starts at `1.0.0`.
+Nothing is tagged yet, so this section stays under `Unreleased` until the tag is
+cut. Date it on the day you tag, not before.
+
+Every plugin starts at `1.0.0`.
 
 The toolkit is now a Claude Code plugin marketplace (`lunar-skills`), so each
 skill can be installed on its own with `/plugin install <name>@lunar-skills`.
