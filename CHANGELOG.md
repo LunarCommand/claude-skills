@@ -14,24 +14,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 Shape for an entry — list the version each plugin will ship as, and only the
 plugins that actually changed:
 
-### hyperdx — 1.1.0
+### hyperdx — 0.9.1
 
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
-## Unreleased — will ship as v1.0.0
+## Unreleased
 
-Nothing is tagged yet, so this section stays under `Unreleased` until the tag is
-cut. Date it on the day you tag, not before.
+Nothing yet.
 
-Every plugin starts at `1.0.0`.
+## v0.9.0 — 2026-08-13
+
+First tagged release. Every plugin starts at `0.9.0`: the skills have been in
+daily use for a long time, but the interfaces are still moving, so this stays
+pre-1.0 rather than promising the stability a `1.x` implies.
 
 The toolkit is now a Claude Code plugin marketplace (`lunar-skills`), so each
 skill can be installed on its own with `/plugin install <name>@lunar-skills`.
 Cloning and running `install.sh` still works and installs all five at once; the
 two routes are alternatives, not complements.
 
-### adversarial-review — 1.0.0
+### adversarial-review — 0.9.0
 
 - Multi-lens adversarial review that generates findings and verifies each by
   refutation before surfacing it, with a bundled multi-agent workflow engine.
@@ -42,12 +45,12 @@ two routes are alternatives, not complements.
 - Snapshot guard captures untracked files with tar's file-list mode; the previous
   `xargs` pipeline dropped all but the final batch on large working trees.
 
-### feature-planning — 1.0.0
+### feature-planning — 0.9.0
 
 - Plan-before-code workflow with two human approval gates, driven from a
   requirements file or a description in chat.
 
-### hyperdx — 1.0.0
+### hyperdx — 0.9.0
 
 - Query HyperDX logs and traces with Lucene syntax, against cloud or a local
   ClickHouse instance in Docker.
@@ -59,13 +62,13 @@ two routes are alternatives, not complements.
 - `curl` is required only in cloud mode; local mode reaches ClickHouse through
   `docker exec`.
 
-### langfuse — 1.0.0
+### langfuse — 0.9.0
 
 - Inspect Langfuse traces, observations, sessions, scores, and prompts.
   Auto-detects the server's API generation and adapts to the legacy v1 REST API
   or the v4 read API.
 
-### pr-review — 1.0.0
+### pr-review — 0.9.0
 
 - Triage GitHub PR review threads one at a time, proposing a verdict for each
   before replying and resolving.

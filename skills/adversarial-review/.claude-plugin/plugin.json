@@ -1,7 +1,7 @@
 {
   "name": "adversarial-review",
   "description": "Adversarial code review that generates findings rather than triaging them: independent lenses hunt for what breaks, and each finding must survive refutation before it surfaces.",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "author": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"
@@ -9,5 +9,11 @@
   "homepage": "https://github.com/LunarCommand/claude-skills#readme",
   "repository": "https://github.com/LunarCommand/claude-skills",
   "license": "MIT",
-  "keywords": ["code-review", "adversarial", "multi-agent", "workflow", "quality"]
+  "keywords": [
+    "code-review",
+    "adversarial",
+    "multi-agent",
+    "workflow",
+    "quality"
+  ]
 }

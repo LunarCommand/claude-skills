@@ -1,7 +1,7 @@
 {
   "name": "pr-review",
   "description": "Triage GitHub PR review threads one at a time, proposing a verdict for each before replying and resolving.",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "author": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"
@@ -9,5 +9,11 @@
   "homepage": "https://github.com/LunarCommand/claude-skills#readme",
   "repository": "https://github.com/LunarCommand/claude-skills",
   "license": "MIT",
-  "keywords": ["github", "pull-request", "code-review", "copilot", "triage"]
+  "keywords": [
+    "github",
+    "pull-request",
+    "code-review",
+    "copilot",
+    "triage"
+  ]
 }
