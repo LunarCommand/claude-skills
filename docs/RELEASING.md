@@ -54,9 +54,14 @@ plugins. It does not have to match any plugin's version, and usually will not.
 
 2. **Bring `CHANGELOG.md` up to date.** Move `Unreleased` into a new
    `## vX.Y.Z — <date>` section, keeping one subsection per plugin that changed
-   with the version it ships as. Write it from the user's point of view: what
+   with the version it ships as, plus a `### Repository` subsection for anything
+   that belongs to no plugin. Write it from the user's point of view: what
    changed for them, not which files moved. Refresh it as work lands rather than
    composing it at tag time.
+
+   This section becomes the Release notes verbatim in step 7, so the changelog
+   and the published notes stay identical by construction rather than by
+   remembering to copy one into the other.
 
 3. **Sweep the docs for stale wording.** For each behaviour change, grep for the
    old spelling — command names, flags, file paths, prerequisites — across
@@ -77,8 +82,20 @@ plugins. It does not have to match any plugin's version, and usually will not.
    git push origin v1.1.0
    ```
 
-   Optionally publish a GitHub Release using the CHANGELOG section as its body.
-   Nothing depends on it.
+7. **Publish the GitHub Release.** A pushed tag does *not* create one — they are
+   separate objects, and a repository with tags but no Releases shows an empty
+   Releases panel, which reads as a project that does not cut releases. Use the
+   CHANGELOG section as the body:
+
+   ```bash
+   # strip the heading; the release title carries the version
+   awk '/^## v1\.1\.0/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/notes.md
+   gh release create v1.1.0 --title "v1.1.0" --notes-file /tmp/notes.md --latest
+   ```
+
+   Nothing in the install path depends on this — the marketplace serves from the
+   default branch either way. It exists so people can see what the project is at
+   and what changed.
 
 ## Verifying a release reached users
 

@@ -4,6 +4,10 @@ Each skill is published as its own plugin with its own version, so entries are
 grouped by plugin rather than by repository. A plugin appears in a release
 section only if it changed.
 
+Changes that belong to no plugin — the installer, the checks, the release
+process, repo-wide docs — go under a `### Repository` heading in the same section.
+They carry no version of their own; they ship whenever they land on `main`.
+
 **The version bump is what ships.** Marketplace users receive an update only when
 a plugin's `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
 
@@ -21,7 +25,11 @@ plugins that actually changed:
 
 ## Unreleased
 
-Nothing yet.
+### Repository
+
+- Publishing a GitHub Release is now a step in the release process rather than an
+  aside. A pushed tag does not create one, and a repository showing tags with no
+  Releases reads as a project that does not cut them.
 
 ## v0.9.0 — 2026-08-13
 
