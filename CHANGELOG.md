@@ -5,7 +5,7 @@ grouped by plugin rather than by repository. A plugin appears in a release
 section only if it changed.
 
 Changes that belong to no plugin — the installer, the checks, the release
-process, repo-wide docs — go under a **Repository** heading in the same section.
+process, repo-wide docs — go under a `### Repository` heading in the same section.
 They carry no version of their own; they ship whenever they land on `main`.
 
 **The version bump is what ships.** Marketplace users receive an update only when
