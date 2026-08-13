@@ -61,7 +61,46 @@ configuration, and a `.claude/settings.json` permission allowlist that
 pre-approves those scripts while still gating the git operations the workflow
 says to confirm first.
 
+## Prerequisites
+
+Claude Code, plus whatever the skills you actually install shell out to:
+
+| Skill | Needs |
+| --- | --- |
+| **hyperdx** | `jq`, plus `curl` for cloud mode or `docker` for local mode |
+| **langfuse** | `curl`, `python3` |
+| **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
+| **adversarial-review** | nothing beyond Claude Code |
+| **feature-planning** | nothing beyond Claude Code |
+
+Each script checks its own dependencies first and names what's missing, rather
+than failing partway through a query.
+
 ## Install
+
+Two routes ship the same skills. **Pick one — they are alternatives, not
+complements.** Both put a skill directory carrying the same plugin name where
+Claude Code looks for plugins, so installing both gives you two copies competing
+for one name: one silently does not load, and which one wins is not something you
+control.
+
+### Plugin marketplace (per-skill, versioned)
+
+```
+/plugin marketplace add LunarCommand/claude-skills
+/plugin install hyperdx@lunar-skills
+```
+
+Each skill is its own plugin, so you install only what you want:
+`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`.
+Updates arrive through `/plugin marketplace update lunar-skills`. Plugin skills
+are namespaced, so the explicit invocation is `/hyperdx:hyperdx`.
+
+This route does not install the recommended user CLAUDE.md or the per-project
+templates — see [Per-project setup](#per-project-setup) below, and copy
+[`user-claude-md/CLAUDE.md`](user-claude-md/CLAUDE.md) by hand if you want it.
+
+### Clone and install (all skills at once)
 
 ```bash
 git clone https://github.com/LunarCommand/claude-skills.git
@@ -73,37 +112,95 @@ cd claude-skills
 existing copy first) and installs the recommended user CLAUDE.md. It never
 overwrites an existing `~/.claude/CLAUDE.md` — if you already have one, it
 writes the recommended version alongside as `CLAUDE.md.recommended` for you to
-merge. It then prints the per-project setup steps.
+merge. It then prints the per-project setup steps. Skills installed this way are
+not namespaced — the explicit invocation is `/hyperdx`.
 
 ### Per-project setup
 
 Each project that uses the **hyperdx** or **langfuse** skills needs an
-`.agent.env` in its root — copy the template and fill in the values:
+`.agent.env` in its root. If you cloned the repo, copy the template:
 
 ```bash
 cp path/to/claude-skills/project-files/.agent.env <your-project>/.agent.env
 ```
 
-To adopt the permission allowlist (so the skill scripts run without a prompt
-each time), merge `project-files/.claude/settings.json` into your project's
-`.claude/settings.json`.
+If you installed via the marketplace you have no clone, so fetch it directly —
+or just create the file by hand, since it is only these keys:
+
+```bash
+curl -o <your-project>/.agent.env \
+  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/project-files/.agent.env
+```
+
+```
+# hyperdx
+HYPERDX_MODE: local            # or: cloud
+OTEL_SERVICE_NAME: your-service-name
+HYPERDX_LOCAL_API_KEY: your-personal-api-key
+HYPERDX_CONTAINER: hdx-local
+
+# langfuse
+LANGFUSE_BASE_URL: http://localhost:3000
+LANGFUSE_PUBLIC_KEY: pk-lf-...
+LANGFUSE_SECRET_KEY: sk-lf-...
+```
+
+### Running the scripts without a prompt each time
+
+The skill scripts are on the Bash tool's `PATH`, so the permission rules approve
+them by bare name. Without a rule, every script call prompts — which reads as the
+skill being broken when it is only unapproved.
+
+**To approve just the skill scripts**, add these six rules. They are safe at user
+scope (`~/.claude/settings.json`), which is the right choice for the marketplace
+route since there is no per-project setup step:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(adversarial_review_path.sh:*)",
+      "Bash(hdx_query.sh:*)",
+      "Bash(langfuse_query.sh:*)",
+      "Bash(pr_review_parse_comments.sh:*)",
+      "Bash(pr_review_post_reply.sh:*)",
+      "Bash(pr_review_resolve_thread.sh:*)"
+    ]
+  }
+}
+```
+
+> **Do not copy the whole `permissions` block from
+> `project-files/.claude/settings.json` into your user settings.** That template
+> is a *project* configuration: alongside the script rules it sets
+> `defaultMode: auto` and grants `Write`, `Edit`, `Agent`, `WebFetch`,
+> `Bash(find:*)`, `Bash(make:*)` and more. At user scope those apply in every
+> repository you open — including untrusted ones the review skills exist to
+> inspect. Use it whole only in a project you trust, as
+> `<project>/.claude/settings.json`, where it also gates the git operations the
+> recommended workflow says to confirm first.
+
+A rule approves the command **name**, matching whatever `PATH` resolves it to
+rather than a specific file — which is why the shipped names are distinctive
+enough not to collide with anything you are likely to already have. Prefer
+project scope if that trade is one you would rather not make globally.
 
 ## How a skill works
 
-A skill is a directory under `~/.claude/skills/<name>/` containing a `SKILL.md`
-(YAML frontmatter + instructions) and any bundled `scripts/`. Claude
-auto-invokes a skill based on its `description`, or you can call it explicitly
-with `/<name>`.
+A skill is a directory containing a `SKILL.md` (YAML frontmatter +
+instructions), a `.claude-plugin/plugin.json` manifest, and any bundled
+executables under `bin/`. Claude auto-invokes a skill based on its
+`description`, or you can call it explicitly by name.
 
 All external access — HyperDX, Langfuse, GitHub — goes through the bundled
 scripts, never raw `curl` or `gh api`. That is deliberate: the scripts read
-`.agent.env`, route to the right API, and are exactly what the permission
-allowlist approves.
+`.agent.env` and route to the right API.
 
-## Roadmap
-
-- Distribute as a Claude Code **plugin marketplace** so the skills install via
-  `/plugin install` with versioning and updates, alongside the install script.
+Those scripts live in `bin/`, which Claude Code puts on the Bash tool's `PATH`
+while the skill is active. So they are invoked by bare name — `hdx_query.sh
+--query ...`, not a path — which is why the allowlist can approve them as
+`Bash(hdx_query.sh:*)`. That rule is stable: it holds for both install routes
+and does not break when a plugin updates to a new version directory.
 
 ## License
 

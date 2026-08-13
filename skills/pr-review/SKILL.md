@@ -11,11 +11,29 @@ Reviews all open PR comment threads one at a time. For each comment, Claude prop
 
 All GitHub API interactions go through these scripts — never call `gh api` directly or use shell redirects:
 
-- `scripts/parse_comments.sh <owner/repo> <pr_number>` — list all unresolved threads
-- `scripts/parse_comments.sh <owner/repo> <pr_number> <index>` — full detail by 1-based index including replies
-- `scripts/parse_comments.sh <owner/repo> <pr_number> --id <comment_id>` — full detail by comment database ID
-- `scripts/post_reply.sh <owner/repo> <pr_number> <comment_id> "<reply text>"` — posts a reply to a comment thread
-- `scripts/resolve_thread.sh <thread_node_id>` — resolves a review thread by its GraphQL node ID
+- `pr_review_parse_comments.sh <owner/repo> <pr_number>` — list all unresolved threads
+- `pr_review_parse_comments.sh <owner/repo> <pr_number> <index>` — full detail by 1-based index including replies
+- `pr_review_parse_comments.sh <owner/repo> <pr_number> --id <comment_id>` — full detail by comment database ID
+- `pr_review_post_reply.sh <owner/repo> <pr_number> <comment_id> "<reply text>"` — posts a reply to a comment thread
+- `pr_review_resolve_thread.sh <thread_node_id>` — resolves a review thread by its GraphQL node ID
+
+They ship in this skill's `bin/` directory, which is on the Bash tool's `PATH`
+whenever the skill is installed. **Invoke each by bare name** — never by an
+absolute path. The bare form is the only spelling that works on both install
+routes, and it is what the permission rules match. The `pr_review_` prefix is
+deliberate: these rules approve a command *name*, so a generic one like
+`post_reply` could be satisfied by an unrelated executable earlier on `PATH`.
+
+The matching rules live in the toolkit's `project-files/.claude/settings.json`
+template and are **not installed by either install route** — the user merges them
+in. If every call prompts, that is unfinished setup, not a broken skill. Say so
+once and continue; it is never a reason to fall back to `gh api` directly.
+
+Two failures are environment rather than defects: `Missing required command: gh`
+(exit 127) means the GitHub CLI is absent or unauthenticated — tell the user to
+install it and run `gh auth login`; and `command not found` on one of these
+scripts means the skill's `bin/` is not on `PATH`, so the plugin is disabled or
+the session predates the install. Neither is a reason to edit a script.
 
 Each script is invoked independently — never chain them.
 
@@ -39,10 +57,10 @@ Store the result as `$REPO`. Then fetch PR details and comments:
 ```bash
 gh pr view $PR --json number,title,headRefName,baseRefName
 
-~/.claude/skills/pr-review/scripts/parse_comments.sh $REPO $PR
+pr_review_parse_comments.sh $REPO $PR
 
 # To get full detail on a specific comment (e.g. comment 6):
-~/.claude/skills/pr-review/scripts/parse_comments.sh $REPO $PR 6
+pr_review_parse_comments.sh $REPO $PR 6
 ```
 
 Collect every top-level comment, noting for each:
@@ -99,7 +117,7 @@ Run these as **separate, sequential bash tool calls**. Never combine them with `
 1. Post the approved reply:
 
 ```bash
-~/.claude/skills/pr-review/scripts/post_reply.sh $REPO $PR $COMMENT_ID "<approved reply text>"
+pr_review_post_reply.sh $REPO $PR $COMMENT_ID "<approved reply text>"
 ```
 
 Wait for it to return. Then:
@@ -109,7 +127,7 @@ Wait for it to return. Then:
 3. Resolve the thread:
 
 ```bash
-~/.claude/skills/pr-review/scripts/resolve_thread.sh $THREAD_NODE_ID
+pr_review_resolve_thread.sh $THREAD_NODE_ID
 ```
 
 Confirm: **"Done — thread resolved. Moving to next comment."**
@@ -144,7 +162,7 @@ Total threads resolved: N
 
 - ALWAYS detect `$REPO` from `gh repo view` — never hardcode or guess the org/repo
 - ALWAYS use the bundled scripts for all GitHub API calls — never call `gh api` directly, never use shell pipes or redirects
-- To read a specific comment in full use `parse_comments.sh $REPO $PR <index>` or `parse_comments.sh $REPO $PR --id <comment_id>` — NEVER call `gh api` directly to look up a comment body, NEVER pipe or grep the output of parse_comments.sh
+- To read a specific comment in full use `pr_review_parse_comments.sh $REPO $PR <index>` or `pr_review_parse_comments.sh $REPO $PR --id <comment_id>` — NEVER call `gh api` directly to look up a comment body, NEVER pipe or grep the output of pr_review_parse_comments.sh
 - Never post a reply, make a code change, or resolve a thread without explicit user approval
 - Always comment before resolving — never silently close a thread
 - Never fix things Claude disagrees with just to clear the queue

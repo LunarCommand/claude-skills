@@ -5,10 +5,12 @@
 # scripts), but several invariants ARE checkable, and each check below maps to a
 # class of bug that has actually shipped from this repo before:
 #
-#   - a permission allowlist naming a skill that does not exist (typo)
+#   - a permission allowlist naming a script that does not exist (typo)
 #   - macOS cruft / personal paths committed into a public repo
 #   - a workflow JS file using an API that breaks Workflow-tool resume
 #   - a SKILL.md whose frontmatter name does not match its directory
+#   - a plugin manifest whose name drifts from its directory, or a marketplace
+#     entry pointing at a directory that is not a plugin
 #
 # Usage:
 #   scripts/validate.sh            # everything
@@ -57,9 +59,53 @@ if command -v shellcheck >/dev/null 2>&1; then
       fi
     done
   fi
+elif [[ -n "${SHELLCHECK_OPTIONAL:-}" ]]; then
+  warn "shellcheck not installed — lint skipped (SHELLCHECK_OPTIONAL is set)"
 else
-  warn "shellcheck not installed — lint skipped (CI installs it)"
+  # Deliberately a failure, not a warning. A machine without shellcheck still
+  # passed the pre-commit hook, so unlinted shell reached the push and CI was
+  # the first thing to see it. A skipped check should not look like a clean run.
+  fail "shellcheck not installed — no shell linting happened"
+  printf '        %s\n' \
+    "Install it:  sudo apt-get install -y shellcheck  (or: brew install shellcheck)" \
+    "Or skip deliberately:  SHELLCHECK_OPTIONAL=1 scripts/validate.sh"
 fi
+
+# GNU-only idioms in shipped scripts. CI and this workstation are Linux, so
+# these pass here and fail on a user's Mac — the one class of bug the local
+# checks structurally cannot catch by running the code. Dev-only scripts
+# (scripts/, install.sh) are exempt; they never leave a machine we control.
+# `\\x` covers sed/printf hex escapes: GNU substitutes the byte, BSD emits the
+# literal characters, which is a SILENT wrong answer rather than an error.
+# grep's -P is matched inside a bundled short-option run (-oP, -qP), not just
+# alone. timeout/realpath/base64 -w are GNU coreutils, absent on a stock macOS.
+GNU_RE="find [^|]*-printf|sed -i |sed -r |date -d |date --date|readlink -f"
+GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
+# timeout/realpath only in command position — otherwise the word "timeout" in
+# an error message matches.
+GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
+GNU_RE="$GNU_RE|(^|[|;&(]|&&|\\\$\\()[[:space:]]*(timeout|realpath)[[:space:]]"
+gnuisms=""
+shopt -s nullglob
+for f in skills/*/bin/*.sh; do
+  # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
+  # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
+  # every idiom appearing later on such a line.
+  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
+  [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
+done
+# SKILL.md ships shell the agent runs verbatim, so it needs the same scan. Same
+# full-line strip: inside a fenced block that is a shell comment, and outside one
+# it is a Markdown heading, which cannot match these patterns anyway.
+for f in skills/*/SKILL.md; do
+  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
+  [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
+done
+shopt -u nullglob
+[[ -z "$gnuisms" ]] && pass "no GNU-only idioms in skills/*/bin" || {
+  fail "GNU-only idiom in a shipped script (breaks on macOS/BSD):"
+  printf '%s\n' "$gnuisms" | sed 's/^/        /'
+}
 
 # --------------------------------------------------------------------------
 section "Workflow JS (Workflow-tool constraints)"
@@ -109,11 +155,74 @@ for d in skills/*/; do
   awk '/^---$/{n++; next} n==1 && /^description:/{found=1} END{exit !found}' "$f" \
     || fail "$name — frontmatter missing 'description' (the auto-trigger text)"
 
-  for s in "$d"scripts/*.sh; do
+  # bin/ is what Claude Code puts on the Bash tool's PATH. A non-executable file
+  # there is invisible to the skill, which then falls back to prompting.
+  for s in "$d"bin/*.sh; do
     [[ -e "$s" ]] || continue
     [[ -x "$s" ]] && pass "executable  $s" || fail "not executable: $s"
   done
+  # scripts/ was the pre-plugin layout; anything left there is not on PATH.
+  if [[ -d "$d/scripts" ]]; then
+    fail "$name — has scripts/; bundled executables belong in bin/ to reach PATH"
+  fi
 done
+
+# --------------------------------------------------------------------------
+section "Plugin manifests"
+# --------------------------------------------------------------------------
+for f in .claude-plugin/marketplace.json skills/*/.claude-plugin/plugin.json; do
+  if python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
+    pass "valid JSON  $f"
+  else
+    fail "invalid JSON $f"
+  fi
+done
+
+# A plugin whose manifest name drifts from its directory installs under the
+# wrong identifier, and the marketplace entry then points at nothing.
+if out=$(python3 - <<'PY' 2>&1
+import json, os, sys
+bad = []
+mp = json.load(open('.claude-plugin/marketplace.json'))
+listed = set()
+for entry in mp.get('plugins', []):
+    name, src = entry.get('name'), entry.get('source')
+    listed.add(name)
+    if not isinstance(src, str):
+        bad.append(f'{name}: source is not a relative path'); continue
+    d = os.path.normpath(src)
+    if not os.path.isdir(d):
+        bad.append(f'{name}: source {src} is not a directory'); continue
+    man = os.path.join(d, '.claude-plugin', 'plugin.json')
+    if not os.path.isfile(man):
+        bad.append(f'{name}: {d} has no .claude-plugin/plugin.json'); continue
+    pn = json.load(open(man)).get('name')
+    if pn != name:
+        bad.append(f'{name}: plugin.json name is {pn!r}')
+    if pn != os.path.basename(d):
+        bad.append(f'{name}: plugin.json name {pn!r} != directory {os.path.basename(d)!r}')
+for d in sorted(os.listdir('skills')):
+    if os.path.isdir(os.path.join('skills', d)) and d not in listed:
+        bad.append(f'{d}: skill exists but is not listed in marketplace.json')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
+); then
+  pass "marketplace every entry resolves, names agree, no skill unlisted"
+else
+  fail "marketplace manifest inconsistency:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# The authoritative check, when the CLI is on hand. CI has no Claude Code, so
+# the python checks above stand alone there.
+if command -v claude >/dev/null 2>&1; then
+  for t in . skills/*/; do
+    if out=$(claude plugin validate "$t" 2>&1); then pass "plugin validate $t"
+    else fail "plugin validate $t"; printf '%s\n' "$out" | sed 's/^/        /'; fi
+  done
+else
+  warn "claude CLI not installed — 'claude plugin validate' skipped"
+fi
 
 # --------------------------------------------------------------------------
 section "Config templates"
@@ -124,26 +233,88 @@ else
   fail "invalid JSON project-files/.claude/settings.json"
 fi
 
-# Every ~/.claude/skills/<x>/ in the allowlist must resolve to a real skill.
-# (This is exactly how the 'langfus' typo shipped unnoticed.)
+# The allowlist approves skill scripts by bare name, because bin/ is on the
+# Bash tool's PATH. Every such rule must name a script that actually ships, and
+# every shipped script must have a rule — a missing rule is a silent prompt.
+# (A path-shaped rule was how the 'langfus' typo shipped unnoticed; the bare
+# form moves the same failure here.)
 if out=$(python3 - <<'PY' 2>&1
-import json, os, re, sys
+import glob, json, os, re, sys
 bad = []
 try:
     cfg = json.load(open('project-files/.claude/settings.json'))
 except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
+shipped_paths = glob.glob('skills/*/bin/*.sh')
+shipped = {os.path.basename(p) for p in shipped_paths}
+# A basename shipped by two skills is unreachable for one of them: bare-name
+# invocation resolves through PATH, which can only ever pick one. The set
+# comparison below would happily pass such a pair.
+seen = {}
+for p in shipped_paths:
+    seen.setdefault(os.path.basename(p), []).append(p)
+for base, paths in sorted(seen.items()):
+    if len(paths) > 1:
+        bad.append(f'{base} is shipped by {len(paths)} skills ({", ".join(sorted(paths))}); '
+                   'bare-name invocation can only ever reach one')
+ruled = set()
 for rule in cfg.get('permissions', {}).get('allow', []):
-    m = re.search(r'~/\.claude/skills/([^/*]+)/', rule)
-    if m and not os.path.isdir(os.path.join('skills', m.group(1))):
-        bad.append(f'{m.group(1)}  (rule: {rule})')
+    m = re.fullmatch(r'Bash\(([A-Za-z0-9_.-]+\.sh):\*\)', rule)
+    if m:
+        ruled.add(m.group(1))
+    elif re.search(r'~/\.claude/skills/', rule):
+        bad.append(f'path-shaped skill rule will not match a PATH invocation: {rule}')
+for name in sorted(ruled - shipped):
+    bad.append(f'rule approves {name}, which no skill ships')
+for name in sorted(shipped - ruled):
+    bad.append(f'{name} ships but has no allowlist rule — it will prompt')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 PY
 ); then
-  pass "allowlist   every referenced skill exists"
+  pass "allowlist   bare-name rules and shipped scripts agree"
 else
-  fail "allowlist   references a skill that does not exist:"; printf '%s\n' "$out" | sed 's/^/        /'
+  fail "allowlist   inconsistent with the shipped scripts:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# The central invariant of the plugin layout: a SKILL.md must name its scripts
+# by bare name only. A path works on one install route and silently fails on the
+# other — ${CLAUDE_PLUGIN_ROOT} resolves under a marketplace install and passes
+# through literally under install.sh, where the Bash call is then rejected. Four
+# SKILL.md files were rewritten by hand to satisfy this; nothing but this check
+# stops the next edit from reintroducing it.
+# The tilde is bracketed so shellcheck does not read it as a path (SC2088);
+# `[~]` and `~` are the same character class to grep.
+pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-Za-z0-9_.-]+\.sh' \
+  skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
+[[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
+  fail "a SKILL.md references a script by path (breaks one install route):"
+  printf '%s\n' "$pathrefs" | sed 's/^/        /'
+}
+
+# Every script name mentioned in the docs must be a script that exists. A rename
+# otherwise leaves working prose pointing at a command that is not on PATH, and
+# the check above only covers SKILL.md — which is exactly how CLAUDE.md kept
+# naming parse_comments.sh after it became pr_review_parse_comments.sh.
+if out=$(python3 - <<'PY' 2>&1
+import glob, os, re, sys
+shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
+# The repo's own tooling, named in docs but never installed as a skill script.
+own = {'install.sh', 'validate.sh', 'pre-commit.sh'}
+bad = []
+for md in sorted(glob.glob('*.md') + glob.glob('skills/*/SKILL.md') + glob.glob('docs/**/*.md', recursive=True)):
+    for n, line in enumerate(open(md), 1):
+        for name in re.findall(r'\b[A-Za-z0-9_.-]+\.sh\b', line):
+            if name not in shipped and name not in own:
+                bad.append(f'{md}:{n}: {name}')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
+); then
+  pass "doc scripts every *.sh named in the docs actually ships"
+else
+  fail "docs name a script that does not exist (stale after a rename?):"
+  printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
 # --------------------------------------------------------------------------
@@ -178,6 +349,14 @@ section "Install integration"
   for d in skills/*/; do
     name=$(basename "$d")
     [[ -f "$tmp/skills/$name/SKILL.md" ]] && pass "installed   $name" || fail "install.sh did not install $name"
+    [[ -f "$tmp/skills/$name/.claude-plugin/plugin.json" ]] \
+      && pass "manifest    $name" \
+      || fail "install.sh did not install $name's plugin.json"
+  done
+  # A script that arrives without +x is on PATH but unrunnable.
+  for s in "$tmp"/skills/*/bin/*.sh; do
+    [[ -e "$s" ]] || continue
+    [[ -x "$s" ]] && pass "installed +x ${s#"$tmp"/}" || fail "installed non-executable: ${s#"$tmp"/}"
   done
   # An existing user CLAUDE.md must never be clobbered.
   printf 'PRESERVE ME\n' >"$tmp/CLAUDE.md"
@@ -185,6 +364,20 @@ section "Install integration"
   [[ "$(cat "$tmp/CLAUDE.md")" == "PRESERVE ME" ]] \
     && pass "existing CLAUDE.md preserved" \
     || fail "install.sh overwrote an existing ~/.claude/CLAUDE.md"
+
+  # Re-install must leave the skills root holding ONLY the skills. Claude Code
+  # loads every directory under it that carries a manifest, so a backup left in
+  # place becomes a second plugin claiming the live name, and the stale copy can
+  # win. install.sh has now run 3x above, so any accumulation shows here.
+  expected=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l)
+  actual=$(find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  manifests=$(find "$tmp/skills" -name plugin.json | wc -l)
+  if [[ "$actual" -eq "$expected" && "$manifests" -eq "$expected" ]]; then
+    pass "re-install    skills root holds exactly $expected skills, $expected manifests"
+  else
+    fail "re-install left $actual dirs / $manifests manifests in the skills root (expected $expected / $expected):"
+    find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | sed 's/^/        /'
+  fi
 fi
 
 # --------------------------------------------------------------------------

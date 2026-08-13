@@ -1,24 +1,53 @@
 #!/usr/bin/env bash
 # Fetches and parses unresolved GitHub PR review threads.
 # Usage:
-#   parse_comments.sh <owner/repo> <pr_number>              # list all unresolved
-#   parse_comments.sh <owner/repo> <pr_number> <index>      # full detail by 1-based index
-#   parse_comments.sh <owner/repo> <pr_number> --id <id>    # full detail by comment database ID
+#   pr_review_parse_comments.sh <owner/repo> <pr_number>            # list all unresolved
+#   pr_review_parse_comments.sh <owner/repo> <pr_number> <index>    # full detail by 1-based index
+#   pr_review_parse_comments.sh <owner/repo> <pr_number> --id <id>  # full detail by comment database ID
 set -euo pipefail
 
+# Dependency preflight. Without it a missing binary surfaces mid-pipeline as
+# `gh: command not found`, which reads as a bug in this script. The skill
+# instructs the agent to fix a failing script rather than work around it, so an
+# unclear failure sends it editing working code instead of naming the problem.
+#
+# gh only — the `--jq` filters below are gh's own embedded gojq engine, so the
+# standalone jq binary is NOT required. Do not add `require_cmd jq` here: it
+# refuses hosts where every code path would have worked.
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  echo "Missing required command: $1" >&2
+  echo "  $2" >&2
+  exit 127
+}
+require_cmd gh "Install the GitHub CLI and authenticate: https://cli.github.com then run 'gh auth login'."
+
 if [[ $# -lt 2 ]]; then
-  echo "Usage: parse_comments.sh <owner/repo> <pr_number> [<index> | --id <id>]" >&2
+  echo "Usage: pr_review_parse_comments.sh <owner/repo> <pr_number> [<index> | --id <id>]" >&2
   exit 1
 fi
 
 REPO="$1"
 PR="$2"
+
+if ! [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+  echo "Error: repo must be <owner>/<name>, got: $REPO" >&2
+  exit 1
+fi
+if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+  echo "Error: pr_number must be numeric, got: $PR" >&2
+  exit 1
+fi
+
 OWNER="${REPO%%/*}"
 NAME="${REPO#*/}"
 
-QUERY='{
-  repository(owner: "'"$OWNER"'", name: "'"$NAME"'") {
-    pullRequest(number: '"$PR"') {
+# owner/name/number travel as typed GraphQL variables rather than being spliced
+# into the document. Interpolation here let a crafted repo name close the string
+# and append attacker-chosen selections, run with the user's gh token.
+QUERY='query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
       reviewThreads(first: 100) {
         nodes {
           id
@@ -40,6 +69,16 @@ QUERY='{
   }
 }'
 
+# -F assigns typed variables ($number arrives as an Int); -f would send strings.
+gh_query() {
+  gh api graphql \
+    -F owner="$OWNER" \
+    -F name="$NAME" \
+    -F number="$PR" \
+    -f query="$QUERY" \
+    --jq "$1"
+}
+
 # --- Mode: --id <database_id> ---
 if [[ "${3:-}" == "--id" ]]; then
   if [[ $# -lt 4 ]]; then
@@ -47,7 +86,12 @@ if [[ "${3:-}" == "--id" ]]; then
     exit 1
   fi
   TARGET_ID="$4"
-  gh api graphql -f query="$QUERY" --jq '
+  # Numeric-only: this value is interpolated into the filter program below.
+  if ! [[ "$TARGET_ID" =~ ^[0-9]+$ ]]; then
+    echo "Error: --id must be numeric, got: $TARGET_ID" >&2
+    exit 1
+  fi
+  gh_query '
     .data.repository.pullRequest.reviewThreads.nodes as $all |
     [$all[] | select(.isResolved == false)] as $unresolved |
     (
@@ -81,7 +125,7 @@ if [[ $# -eq 3 ]]; then
     echo "Error: unrecognised argument '$INDEX'" >&2
     exit 1
   fi
-  gh api graphql -f query="$QUERY" --jq '
+  gh_query '
     [.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] |
     if ('"$INDEX"' < 1) or ('"$INDEX"' > length) then
       "Error: index '"$INDEX"' out of range (1-\(length))" | halt_error(1)
@@ -103,7 +147,7 @@ if [[ $# -eq 3 ]]; then
 fi
 
 # --- Mode: list all unresolved ---
-gh api graphql -f query="$QUERY" --jq '
+gh_query '
   .data.repository.pullRequest.reviewThreads.nodes as $all |
   [$all[] | select(.isResolved == false)] as $unresolved |
   "Total threads: \($all | length), Unresolved: \($unresolved | length)\n\n" +

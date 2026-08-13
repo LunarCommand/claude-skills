@@ -1,0 +1,35 @@
+{
+  "name": "lunar-skills",
+  "description": "Claude Code skills for observability, feature planning, and code review.",
+  "owner": {
+    "name": "LunarCommand",
+    "url": "https://github.com/LunarCommand"
+  },
+  "plugins": [
+    {
+      "name": "hyperdx",
+      "source": "./skills/hyperdx",
+      "category": "observability"
+    },
+    {
+      "name": "langfuse",
+      "source": "./skills/langfuse",
+      "category": "observability"
+    },
+    {
+      "name": "feature-planning",
+      "source": "./skills/feature-planning",
+      "category": "planning"
+    },
+    {
+      "name": "adversarial-review",
+      "source": "./skills/adversarial-review",
+      "category": "review"
+    },
+    {
+      "name": "pr-review",
+      "source": "./skills/pr-review",
+      "category": "review"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "langfuse",
+  "description": "Inspect Langfuse traces, observations, sessions, scores, and prompts; adapts to the legacy v1 or the v4 read API.",
+  "version": "1.0.0",
+  "author": {
+    "name": "LunarCommand",
+    "url": "https://github.com/LunarCommand"
+  },
+  "homepage": "https://github.com/LunarCommand/claude-skills#readme",
+  "repository": "https://github.com/LunarCommand/claude-skills",
+  "license": "MIT",
+  "keywords": ["langfuse", "llm", "tracing", "observability", "prompts", "evaluation"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "feature-planning",
+  "description": "A plan-before-code workflow with two human approval gates, driven from a requirements file or a description in chat.",
+  "version": "1.0.0",
+  "author": {
+    "name": "LunarCommand",
+    "url": "https://github.com/LunarCommand"
+  },
+  "homepage": "https://github.com/LunarCommand/claude-skills#readme",
+  "repository": "https://github.com/LunarCommand/claude-skills",
+  "license": "MIT",
+  "keywords": ["planning", "requirements", "workflow", "specification"]
+}

@@ -9,7 +9,7 @@ This skill helps you use Langfuse effectively: debugging traces, inspecting LLM 
 
 ## Core Principles
 
-1. **Use the query script for data access**: Run `langfuse_query.sh` (in this skill's `scripts/` directory) for all Langfuse queries. It detects the server's API generation and picks the right endpoints.
+1. **Use the query script for data access**: Run `langfuse_query.sh` for all Langfuse queries. It detects the server's API generation and picks the right endpoints. The script ships in this skill's `bin/` directory, which is on the Bash tool's `PATH` whenever the skill is installed — invoke it by bare name, never by an absolute path.
 2. **Documentation First**: When implementing SDK integrations, always fetch current docs before writing code (Langfuse updates frequently).
 
 ## Per-Project Configuration (.agent.env)
@@ -30,15 +30,32 @@ If any value is missing from `.agent.env`, ask the user to add it before proceed
 
 ## Permissions
 
-The query script is pre-approved in `.claude/settings.json`:
+The query script is meant to be pre-approved, via this rule:
 
 ```
-Bash(~/.claude/skills/langfuse/scripts/*)
+Bash(langfuse_query.sh:*)
 ```
+
+**Neither install route installs that rule** — it ships in the toolkit's
+`project-files/.claude/settings.json` template, which the user merges into a
+project's `.claude/settings.json` (or their user settings) themselves. If every
+call prompts, the rule is absent: that is unfinished setup, not a broken skill,
+and not a reason to reach for curl. Say so once and carry on.
 
 Run the script directly — **never** export env vars manually or run curl directly
 for data access. Both trigger permission prompts. The script reads `.agent.env`
 automatically from the project root.
+
+The rule approves the bare command **name**, matching whatever `PATH` resolves it
+to. An invocation prefixed with an inline env var
+(`LANGFUSE_MAX_RECORDS=10000 langfuse_query.sh ...`) falls outside it and will
+prompt — expected, and rare enough not to warrant a broader rule.
+
+Two failures are environment rather than defects: `Missing required command: <x>`
+(exit 127) means a dependency is absent — tell the user to install it; and
+`command not found: langfuse_query.sh` means the skill's `bin/` is not on `PATH`,
+so the plugin is disabled or the session predates the install. Neither is a
+reason to edit the script.
 
 ## API generations (important)
 
@@ -56,7 +73,7 @@ once from `/api/public/health` and routes accordingly:
 Check what you're talking to:
 
 ```bash
-$SCRIPT apigen        # → legacy | v4
+langfuse_query.sh apigen        # → legacy | v4
 ```
 
 Override detection with `LANGFUSE_API_GEN=legacy|v4` if needed.
@@ -89,71 +106,69 @@ note: stopped at the 2000-record cap after 20 pages; raise LANGFUSE_MAX_RECORDS 
 ```
 
 ```bash
-LANGFUSE_MAX_RECORDS=10000 $SCRIPT trace <trace-id>
+LANGFUSE_MAX_RECORDS=10000 langfuse_query.sh trace <trace-id>
 ```
 
 ## 1. Querying Langfuse Data
 
 ```bash
-SCRIPT=~/.claude/skills/langfuse/scripts/langfuse_query.sh
-
 # List recent traces
-$SCRIPT traces --limit 5
-$SCRIPT traces --name my-trace-name --limit 10
-$SCRIPT traces --session-id abc123 --limit 10
+langfuse_query.sh traces --limit 5
+langfuse_query.sh traces --name my-trace-name --limit 10
+langfuse_query.sh traces --session-id abc123 --limit 10
 
 # Get a full trace with all observations
-$SCRIPT trace <trace-id>
+langfuse_query.sh trace <trace-id>
 
 # Show LLM generations and tool calls for a trace (most common debugging task)
-$SCRIPT generations <trace-id>
+langfuse_query.sh generations <trace-id>
 
 # List observations for a trace, optionally filtered by type
-$SCRIPT observations <trace-id> --type GENERATION
+langfuse_query.sh observations <trace-id> --type GENERATION
 
 # Get a single observation with full detail (raw JSON)
-$SCRIPT observation <obs-id>
+langfuse_query.sh observation <obs-id>
 
 # Sessions, scores, prompts
-$SCRIPT sessions --limit 5
-$SCRIPT scores --trace-id <trace-id>
-$SCRIPT prompts
+langfuse_query.sh sessions --limit 5
+langfuse_query.sh scores --trace-id <trace-id>
+langfuse_query.sh prompts
 
 # Which API generation am I on?
-$SCRIPT apigen
+langfuse_query.sh apigen
 ```
 
 ### Common Workflows
 
 **Check what the LLM actually received and returned:**
 ```bash
-$SCRIPT traces --limit 3        # find the trace
-$SCRIPT generations <trace-id>  # model, prompt name+version, tokens, input, output
+langfuse_query.sh traces --limit 3        # find the trace
+langfuse_query.sh generations <trace-id>  # model, prompt name+version, tokens, input, output
 ```
 On v4 this also shows the linked prompt (`promptName` / `promptVersion`), which
 is the fastest way to confirm which prompt version produced a given output.
 
 **Review a full trace end-to-end:**
 ```bash
-$SCRIPT trace <trace-id>
+langfuse_query.sh trace <trace-id>
 ```
 Shows trace metadata plus a chronological list of all observations with tool
 calls and token counts.
 
 **Inspect token usage and cost:**
 ```bash
-$SCRIPT generations <trace-id>
+langfuse_query.sh generations <trace-id>
 ```
 
 **Get raw JSON for one observation** (full untruncated input/output):
 ```bash
-$SCRIPT observation <obs-id>
+langfuse_query.sh observation <obs-id>
 ```
 
 ### Troubleshooting
 
 - **404s on every command** — you are on a v4 server but detection returned
-  `legacy` (or vice versa). Check `$SCRIPT apigen` and force with
+  `legacy` (or vice versa). Check `langfuse_query.sh apigen` and force with
   `LANGFUSE_API_GEN`.
 - **Generations show no input/output** — the observation genuinely has none, or
   you are calling the API directly without `fields=...,io`.

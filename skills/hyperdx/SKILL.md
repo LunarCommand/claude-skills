@@ -1,8 +1,8 @@
 ---
 name: hyperdx
 description: >
-  Query and read logs and traces from HyperDX using Lucene syntax via the CLI
-  tool at scripts/hdx_query.sh. Use this skill whenever the user asks to search
+  Query and read logs and traces from HyperDX using Lucene syntax via the
+  bundled hdx_query.sh CLI. Use this skill whenever the user asks to search
   logs, fetch errors, debug a service, investigate incidents, check log output,
   inspect traces, or look up anything in HyperDX — even if they don't say
   "HyperDX" explicitly. Trigger on phrases like "check the logs", "show me
@@ -16,10 +16,25 @@ description: >
 
 # HyperDX Log Querying
 
-> **MANDATORY**: Always use `~/.claude/skills/hyperdx/scripts/hdx_query.sh` to
-> query logs and traces. Do not use curl, raw API calls, or any other method —
-> even if it seems simpler. If the script fails, fix the script — do not work
-> around it.
+> **MANDATORY**: Always use `hdx_query.sh` to query logs and traces. Do not use
+> curl, raw API calls, or any other method — even if it seems simpler. If the
+> script fails, fix the script — do not work around it.
+
+**Three failures are environment, not bugs — do not edit the script for these:**
+
+| What you see | What it means |
+| --- | --- |
+| `Missing required command: <x>` (exit 127) | A dependency is absent. Tell the user to install it. The script is fine. |
+| `command not found: hdx_query.sh` | The skill's `bin/` is not on `PATH` — the plugin is disabled, or the session started before it was installed. Ask the user to enable it and run `/reload-plugins`, or restart. Do not substitute an absolute path. |
+| A permission prompt on every call | The allowlist is not installed. That is setup, not failure — see Permissions below. |
+
+Anything else that fails is a real defect: fix the script rather than working
+around it.
+
+`hdx_query.sh` ships in this skill's `bin/` directory, which is on the Bash
+tool's `PATH` whenever the skill is installed. **Invoke it by bare name** — never
+by an absolute path. The bare form is the only spelling that works on both
+install routes, and it is what the permission rule matches.
 
 The script supports two modes: **cloud** (HyperDX REST API) and **local**
 (ClickHouse via docker exec into a local HyperDX container).
@@ -75,14 +90,23 @@ If `HYPERDX_MODE` is missing, ask the user to add it before proceeding.
 
 ## Permissions
 
-This script is pre-approved in `.claude/settings.json`. You do not need to ask
-for permission before running it. The approved pattern is:
+This script is meant to be pre-approved, via this rule:
 
 ```
-Bash(~/.claude/skills/hyperdx/scripts/hdx_query.sh*)
+Bash(hdx_query.sh:*)
 ```
 
-Run the script directly without prompting the user for approval.
+**That rule is not installed by either install route** — it lives in the
+toolkit's `project-files/.claude/settings.json` template and the user merges it
+into a project's `.claude/settings.json` (or their user settings) themselves. So:
+
+- If the rule is present, run the script directly and do not ask for approval.
+- If every call prompts, the rule is simply absent. Say so once and continue —
+  that is unfinished setup, not a malfunctioning skill, and not a reason to
+  reach for curl.
+
+Note the rule approves the command **name**. It matches whatever `PATH` resolves
+`hdx_query.sh` to, which is why the name is unusual enough not to collide.
 
 Dependencies: `curl` and `jq` (both standard on most dev machines).
 Local mode also requires `docker`.
@@ -160,14 +184,14 @@ field's stored values, drop the filter and grep `Body` with free text instead.
 **Cloud — quick error check:**
 
 ```bash
-~/.claude/skills/hyperdx/scripts/hdx_query.sh \
+hdx_query.sh \
   -k "your-key" -s "your-service" -q "level:error"
 ```
 
 **Cloud — multi-term OR search:**
 
 ```bash
-~/.claude/skills/hyperdx/scripts/hdx_query.sh \
+hdx_query.sh \
   -k "your-key" -s "your-service" \
   --query "request completed" \
   --query "job finished" \
@@ -177,7 +201,7 @@ field's stored values, drop the filter and grep `Body` with free text instead.
 **Local — recent logs:**
 
 ```bash
-~/.claude/skills/hyperdx/scripts/hdx_query.sh \
+hdx_query.sh \
   --local --container hdx-local -s "your-service" \
   -q "level:error" -t 10 -l 20
 ```
@@ -185,7 +209,7 @@ field's stored values, drop the filter and grep `Body` with free text instead.
 **Local — trace lookup:**
 
 ```bash
-~/.claude/skills/hyperdx/scripts/hdx_query.sh \
+hdx_query.sh \
   --local --table traces -s "your-service" \
   -q "TraceId:abc123"
 ```
@@ -193,7 +217,7 @@ field's stored values, drop the filter and grep `Body` with free text instead.
 **Local — self-hosted URL:**
 
 ```bash
-~/.claude/skills/hyperdx/scripts/hdx_query.sh \
+hdx_query.sh \
   -k "your-key" -q "level:error" --url http://localhost:8080
 ```
 
