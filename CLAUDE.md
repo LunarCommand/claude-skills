@@ -22,16 +22,24 @@ Git remote: `github.com:LunarCommand/claude-skills`.
 ## The one thing to understand first: source vs. deployed
 
 **Editing a file here does not change any running skill.** Skills only take
-effect once copied into a skills directory:
+effect once installed, by either of two routes:
 
-- Global (every repo): `~/.claude/skills/<name>/`
-- Project-scoped (one repo): `<project>/.claude/skills/<name>/`
+- **Clone and copy** — `install.sh` copies each skill into
+  `~/.claude/skills/<name>/` (or a project's `.claude/skills/<name>/`). Because
+  each skill dir carries a `.claude-plugin/plugin.json`, Claude Code loads it as
+  a *skills-directory plugin* (`<name>@skills-dir`), discovered in place.
+- **Plugin marketplace** — `/plugin marketplace add LunarCommand/claude-skills`
+  then `/plugin install <name>@lunar-skills`. Claude Code copies the plugin into
+  a versioned cache under `~/.claude/plugins/cache/`.
 
-Every `SKILL.md` references its own scripts by the **deployed** path
-(`~/.claude/skills/<name>/scripts/...`), never by a path inside this repo. So the
-workflow is: edit here → re-copy to the skills dir → the change is live.
-`install.sh` at the repo root does that copy for every skill under `skills/` (and
-installs the example user CLAUDE.md).
+No `SKILL.md` may reference its scripts by path — not a repo path, not
+`~/.claude/skills/...`, and **not `${CLAUDE_PLUGIN_ROOT}`**, which resolves on
+the marketplace route but passes through literally on the skills-dir route (the
+Bash call is then rejected with `Error: Contains expansion`). Scripts live in
+`bin/`, which Claude Code puts on the Bash tool's `PATH`, and are referenced by
+bare name. That is the only spelling that works on both routes.
+
+So the workflow is: edit here → re-copy to the skills dir → the change is live.
 
 When asked to "update the X skill," clarify whether that means editing the source
 here, the deployed copy under `~/.claude/skills/`, or both. They drift
@@ -41,10 +49,16 @@ independently.
 
 Each top-level directory has one role:
 
+- `.claude-plugin/marketplace.json` — **the marketplace catalog** (`lunar-skills`),
+  listing each skill as its own plugin with `"source": "./skills/<name>"`. Adding
+  a skill means adding an entry here too; `scripts/validate.sh` fails if one is
+  missing.
 - `skills/` — **the installable skills**, one directory per skill
   (`adversarial-review/`, `feature-planning/`, `hyperdx/`, `langfuse/`,
-  `pr-review/`). Each is a `SKILL.md` + (usually) a `scripts/` dir or a
-  `*.workflow.js` engine. `install.sh` copies each into `~/.claude/skills/`.
+  `pr-review/`). Each is a `SKILL.md` + `.claude-plugin/plugin.json` + (usually)
+  a `bin/` dir or a `*.workflow.js` engine. Each directory *is* the plugin root,
+  which is why the manifest sits inside it rather than under a separate
+  `plugins/` tree. `install.sh` copies each into `~/.claude/skills/`.
 - `docs/` — **methodology docs**, not installed. `docs/ai-review/` covers how to
   get high-value review out of AI (the reasoning behind the `adversarial-review`
   skill).
@@ -71,8 +85,20 @@ A skill is a directory containing:
   the skill auto-activates, so it enumerates trigger phrases exhaustively and is
   written in an imperative "Always use this skill when..." style. Match that style
   when editing.
-- `scripts/` — bash CLIs that do the actual external work.
+- `.claude-plugin/plugin.json` — the plugin manifest. `name` must match the
+  directory name (and the SKILL.md frontmatter `name`). `version` gates updates:
+  users are only offered a new version when this string changes, so bump it in
+  any release that touches the skill.
+- `bin/` — bash CLIs that do the actual external work. Claude Code adds this to
+  the Bash tool's `PATH`, so the files must stay executable and are invoked by
+  bare name. Do not reintroduce a `scripts/` dir; it is not on `PATH`.
 - optionally `*.workflow.js` — a multi-agent engine the skill escalates to.
+  These are handed to the Workflow tool as a `scriptPath` — a file to read, not
+  a command to run — so they do **not** belong in `bin/` and are not on `PATH`.
+  Resolving them is still a `bin/` job, though: `adversarial_review_path.sh`
+  prints the absolute path of a bundled file within whichever copy of the skill
+  is loaded. Prose ("this skill's base directory") was tried and does not work —
+  with two copies of a skill on disk, the model globs and can pick the stale one.
 
 ### The bundled-script invariant
 
@@ -83,6 +109,11 @@ permission prompts and bypass the config/routing logic. When a script fails, the
 instruction is to *fix the script*, not work around it. Preserve this framing in
 any skill edits.
 
+Its corollary is the **bare-name rule**: scripts are invoked as `hdx_query.sh
+...`, never by any path. The permission allowlist approves exactly that form
+(`Bash(hdx_query.sh:*)`), so a path-qualified or env-prefixed invocation prompts
+even though the script is pre-approved.
+
 ### `.agent.env` config convention
 
 `hdx_query.sh` and `langfuse_query.sh` auto-load `.agent.env` from the **current
@@ -91,25 +122,38 @@ accepts both `KEY: VALUE` and `KEY=VALUE` lines. `project-files/.agent.env` is
 the template. Scripts validate required keys and tell the user what's missing
 rather than guessing.
 
+The same rule covers **binaries**: every script that shells out preflights its
+dependencies with `require_cmd` and exits 127 naming what to install. This is
+load-bearing, not politeness — every SKILL.md tells the agent that a failing
+script must be *fixed, not worked around*, so a bare `jq: command not found`
+sends it editing working code instead of reporting a missing package. Keep the
+preflight when adding a script, and keep it duplicated per plugin: plugins
+cannot reference files outside their own directory, so there is no shared helper
+to factor it into.
+
 ## The scripts
 
 Each script is self-documenting via a header comment and `--help`/usage output.
-Common invocations (run from a consuming project, using deployed paths):
+Common invocations, run from a consuming project — bare name, no path, because
+`bin/` is on the Bash tool's `PATH`:
 
 ```bash
 # HyperDX logs/traces (cloud REST or local ClickHouse-in-Docker)
-~/.claude/skills/hyperdx/scripts/hdx_query.sh --query "level:err"
-~/.claude/skills/hyperdx/scripts/hdx_query.sh --local --table traces --query "SpanName:call_model"
+hdx_query.sh --query "level:err"
+hdx_query.sh --local --table traces --query "SpanName:call_model"
 
 # Langfuse (auto-detects legacy v1 vs v4 API from /api/public/health)
-~/.claude/skills/langfuse/scripts/langfuse_query.sh apigen        # → legacy | v4
+langfuse_query.sh apigen        # → legacy | v4
 
 # GitHub PR review threads
-~/.claude/skills/pr-review/scripts/parse_comments.sh <owner/repo> <pr>          # list unresolved
-~/.claude/skills/pr-review/scripts/parse_comments.sh <owner/repo> <pr> <index>  # detail by index
-~/.claude/skills/pr-review/scripts/post_reply.sh <owner/repo> <pr> <comment_id> "<text>"
-~/.claude/skills/pr-review/scripts/resolve_thread.sh <thread_node_id>
+parse_comments.sh <owner/repo> <pr>          # list unresolved
+parse_comments.sh <owner/repo> <pr> <index>  # detail by index
+post_reply.sh <owner/repo> <pr> <comment_id> "<text>"
+resolve_thread.sh <thread_node_id>
 ```
+
+To run one *in this repo* while developing it, use its real path
+(`skills/hyperdx/bin/hdx_query.sh`) — the source tree is not on `PATH`.
 
 `hdx_query.sh` and `langfuse_query.sh` are large (400 / 700 lines) and carry real
 routing logic — the Langfuse script in particular abstracts over two API
@@ -134,6 +178,11 @@ node). Hard constraints, stated in their headers and enforced by the runtime:
   with no worktree isolation possible — its header flags this as the
   highest-risk configuration and mandates read-only agent behavior (no
   `git checkout`/`git stash`). Respect that when editing.
+- Both are reachable from `SKILL.md` Step 3b, which picks between them by target
+  (code vs spec/RFC). Adding a third engine means adding it there too. An engine
+  no step routes to still runs when a user names it directly — which is how
+  `spec-accept-review.workflow.js` was used for a long time — but it is invisible
+  to anyone who installs the skill fresh and only reads `SKILL.md`.
 
 ## Testing / validation
 
@@ -141,8 +190,13 @@ There is no unit-test suite — the artifacts are Markdown contracts and bash
 scripts. What exists instead is `scripts/validate.sh`, which enforces the
 mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
 SKILL.md frontmatter (`name` matching its directory, `description` present),
-config-template JSON validity, that every skill named in the settings allowlist
-actually exists, repo hygiene (no macOS cruft, personal paths, or
+plugin and marketplace manifests (valid JSON, names agreeing with directories,
+every skill listed, plus `claude plugin validate` when the CLI is on hand),
+config-template JSON validity, that the settings allowlist and the shipped
+`bin/` scripts name each other exactly, GNU-only shell idioms in shipped scripts
+(this workstation and CI are both Linux, so a `find -printf` passes here and
+fails on a user's Mac — running the code cannot catch it), repo hygiene (no
+macOS cruft, personal paths, or
 credential-shaped strings — this repo is public), and an end-to-end `install.sh`
 run into a temp `CLAUDE_HOME`.
 
@@ -154,6 +208,12 @@ scripts/validate.sh --quick    # skips the install integration test
 shellcheck blocks at `warning` severity and the scripts are clean at that level,
 so keep them there. `SHELLCHECK_SEVERITY=error` exists to stage a noisy new
 script without turning CI red; it is not the normal setting.
+
+A **missing** shellcheck is a failure, not a warning — a machine that isn't
+linting should not report a clean run, which is how unlinted shell once got past
+the pre-commit hook and was first seen by CI. Install it
+(`sudo apt-get install -y shellcheck`, matching what CI does) or set
+`SHELLCHECK_OPTIONAL=1` to skip it on purpose.
 
 Beyond that, validate behavior by **running the affected script against a real
 instance** (or a workflow via the Workflow tool) and checking output — CI cannot

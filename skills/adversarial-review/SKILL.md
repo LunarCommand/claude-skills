@@ -186,11 +186,29 @@ Then run Step 4 (refute) and Step 5 (rank + report).
 
 ## Step 3b — Workflow escalation
 
-Call the Workflow tool with the bundled script and the assembled context as args:
+Two engines ship with this skill. Pick by what is under review:
+
+| Engine | Use it for |
+| --- | --- |
+| `adversarial-review.workflow.js` | Code, or a mixed code+spec change. The default. |
+| `spec-accept-review.workflow.js` | A spec/RFC change — normative prose and conformance fixtures — about to be committed, tagged, or published. |
+
+**Resolve the path first — never guess it and never glob for the file.** More
+than one copy of this skill can exist on a machine and they drift independently,
+so a glob can hand the Workflow tool a stale engine. Run:
+
+```bash
+adversarial_review_path.sh adversarial-review.workflow.js
+```
+
+That prints the absolute path of the engine inside the copy of the skill that is
+actually loaded. Pass the result verbatim as `scriptPath`.
+
+Then call the Workflow tool with that path and the assembled context as args:
 
 ```
 Workflow({
-  scriptPath: "<this skill's base directory>/adversarial-review.workflow.js",
+  scriptPath: "<the absolute path printed by adversarial_review_path.sh>",
   args: {
     scope: "<human description, e.g. 'PR #123' or 'app/api/orders.py'>",
     context: "<the assembled whole-system context from Step 1: changed files, callers, diff>",
@@ -219,6 +237,31 @@ the changed files are source or prose:
 The workflow fans the lenses out in parallel, verifies each finding by refutation
 (diverse angles, majority survives), dedupes, and returns findings ranked by
 severity. Relay its result via Step 5.
+
+### The spec/RFC engine
+
+For a spec or RFC change about to be committed, tagged, or published, use
+`spec-accept-review.workflow.js` instead. It carries lenses tuned to normative
+prose and conformance fixtures — a fixture that can pass wrongly, a stale
+cross-reference, a coverage gap against precedent, a CHANGELOG date that does not
+match the tag day. It takes only two args:
+
+```
+Workflow({
+  scriptPath: "<path from: adversarial_review_path.sh spec-accept-review.workflow.js>",
+  args: {
+    scope: "<short human label for the change>",
+    context: "<the assembled diff, new/changed fixtures and examples, the unchanged
+               sections the change depends on, and today's date — plus any
+               load-bearing claim you want verified against source>"
+  }
+})
+```
+
+There is no `isolate` option, and that is deliberate: this engine reviews
+**uncommitted** work in the real tree, and a git worktree can only hold committed
+work. Nothing enforces read-only here except the prompt mandate, so Step 0's
+snapshot is not optional on this path — take it before you call.
 
 **On worktree isolation.** Set `args.isolate: true` and the workflow runs every
 lens, merge, and verify agent in its own throwaway git worktree — via the

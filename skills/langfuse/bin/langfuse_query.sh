@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Dependency preflight. Without it a missing binary surfaces partway through a
+# pipeline as `python3: command not found`, which reads as a bug in this script.
+# The skill instructs the agent to fix a failing script rather than work around
+# it, so an unclear failure sends it editing working code.
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  echo "Missing required command: $1" >&2
+  echo "  $2" >&2
+  exit 127
+}
+require_cmd curl    "Install curl — most systems ship it (apt install curl / brew install curl)."
+require_cmd python3 "Install Python 3 — this script uses it to format JSON (apt install python3 / brew install python3)."
+
 # langfuse_query.sh — Query a self-hosted or cloud Langfuse instance.
 # Requires: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
 # Uses curl + python3 for JSON formatting (no jq dependency).

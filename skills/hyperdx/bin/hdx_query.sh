@@ -21,6 +21,22 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Dependency preflight
+# ---------------------------------------------------------------------------
+# Without this a missing binary surfaces as `jq: command not found` partway
+# through a pipeline, which reads as a bug in this script. The skill instructs
+# the agent to fix a failing script rather than work around it, so an unclear
+# failure here sends it editing working code instead of naming the real problem.
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  echo "Missing required command: $1" >&2
+  echo "  $2" >&2
+  exit 127
+}
+require_cmd curl "Install curl — most systems ship it (apt install curl / brew install curl)."
+require_cmd jq   "Install jq — apt install jq, brew install jq, or https://jqlang.github.io/jq/"
+
+# ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
 QUERIES=()
@@ -54,6 +70,11 @@ done
 if [[ ${#QUERIES[@]} -eq 0 ]]; then
   echo "Error: at least one --query is required" >&2
   exit 1
+fi
+
+# Only local mode shells into a container, so only check for docker there.
+if [[ "$LOCAL" == true ]]; then
+  require_cmd docker "Local mode queries ClickHouse inside the HyperDX container — install Docker, or drop --local to use cloud mode."
 fi
 
 # ---------------------------------------------------------------------------

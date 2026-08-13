@@ -1,0 +1,13 @@
+{
+  "name": "hyperdx",
+  "description": "Query HyperDX logs and traces with Lucene syntax, against cloud or a local ClickHouse instance.",
+  "version": "1.0.0",
+  "author": {
+    "name": "LunarCommand",
+    "url": "https://github.com/LunarCommand"
+  },
+  "homepage": "https://github.com/LunarCommand/claude-skills#readme",
+  "repository": "https://github.com/LunarCommand/claude-skills",
+  "license": "MIT",
+  "keywords": ["hyperdx", "logs", "traces", "observability", "opentelemetry", "debugging"]
+}

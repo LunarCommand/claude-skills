@@ -11,11 +11,15 @@ Reviews all open PR comment threads one at a time. For each comment, Claude prop
 
 All GitHub API interactions go through these scripts — never call `gh api` directly or use shell redirects:
 
-- `scripts/parse_comments.sh <owner/repo> <pr_number>` — list all unresolved threads
-- `scripts/parse_comments.sh <owner/repo> <pr_number> <index>` — full detail by 1-based index including replies
-- `scripts/parse_comments.sh <owner/repo> <pr_number> --id <comment_id>` — full detail by comment database ID
-- `scripts/post_reply.sh <owner/repo> <pr_number> <comment_id> "<reply text>"` — posts a reply to a comment thread
-- `scripts/resolve_thread.sh <thread_node_id>` — resolves a review thread by its GraphQL node ID
+- `parse_comments.sh <owner/repo> <pr_number>` — list all unresolved threads
+- `parse_comments.sh <owner/repo> <pr_number> <index>` — full detail by 1-based index including replies
+- `parse_comments.sh <owner/repo> <pr_number> --id <comment_id>` — full detail by comment database ID
+- `post_reply.sh <owner/repo> <pr_number> <comment_id> "<reply text>"` — posts a reply to a comment thread
+- `resolve_thread.sh <thread_node_id>` — resolves a review thread by its GraphQL node ID
+
+They ship in this skill's `bin/` directory, which is on the Bash tool's `PATH`
+whenever the skill is installed. **Invoke each by bare name** — never by an
+absolute path. The bare form is what the pre-approved permission rules match.
 
 Each script is invoked independently — never chain them.
 
@@ -39,10 +43,10 @@ Store the result as `$REPO`. Then fetch PR details and comments:
 ```bash
 gh pr view $PR --json number,title,headRefName,baseRefName
 
-~/.claude/skills/pr-review/scripts/parse_comments.sh $REPO $PR
+parse_comments.sh $REPO $PR
 
 # To get full detail on a specific comment (e.g. comment 6):
-~/.claude/skills/pr-review/scripts/parse_comments.sh $REPO $PR 6
+parse_comments.sh $REPO $PR 6
 ```
 
 Collect every top-level comment, noting for each:
@@ -99,7 +103,7 @@ Run these as **separate, sequential bash tool calls**. Never combine them with `
 1. Post the approved reply:
 
 ```bash
-~/.claude/skills/pr-review/scripts/post_reply.sh $REPO $PR $COMMENT_ID "<approved reply text>"
+post_reply.sh $REPO $PR $COMMENT_ID "<approved reply text>"
 ```
 
 Wait for it to return. Then:
@@ -109,7 +113,7 @@ Wait for it to return. Then:
 3. Resolve the thread:
 
 ```bash
-~/.claude/skills/pr-review/scripts/resolve_thread.sh $THREAD_NODE_ID
+resolve_thread.sh $THREAD_NODE_ID
 ```
 
 Confirm: **"Done — thread resolved. Moving to next comment."**
