@@ -59,9 +59,12 @@ Each top-level directory has one role:
   a `bin/` dir or a `*.workflow.js` engine. Each directory *is* the plugin root,
   which is why the manifest sits inside it rather than under a separate
   `plugins/` tree. `install.sh` copies each into `~/.claude/skills/`.
-- `docs/` — **methodology docs**, not installed. `docs/ai-review/` covers how to
-  get high-value review out of AI (the reasoning behind the `adversarial-review`
-  skill).
+- `docs/` — **methodology and process docs**, not installed. `docs/ai-review/`
+  covers how to get high-value review out of AI (the reasoning behind the
+  `adversarial-review` skill). `docs/RELEASING.md` is authoritative on how a
+  change actually reaches users — read it before proposing a tag.
+- `CHANGELOG.md` — grouped **by plugin**, not by repo, since each ships its own
+  version. Keep the `Unreleased` section current as work lands.
 - `project-files/` — **templates to copy into a consuming project**: `.agent.env`
   (secrets/config the scripts read) and `.claude/settings.json` (a permissions
   allowlist that pre-approves the skill scripts).
@@ -87,8 +90,10 @@ A skill is a directory containing:
   when editing.
 - `.claude-plugin/plugin.json` — the plugin manifest. `name` must match the
   directory name (and the SKILL.md frontmatter `name`). `version` gates updates:
-  users are only offered a new version when this string changes, so bump it in
-  any release that touches the skill.
+  users are only offered a new version when this string changes, so **bump it in
+  the same change that touches the skill**, including prose-only SKILL.md edits —
+  the Markdown is the artifact. `scripts/validate.sh` fails when a skill changed
+  since the last `v*` tag without a bump. See `docs/RELEASING.md`.
 - `bin/` — bash CLIs that do the actual external work. Claude Code adds this to
   the Bash tool's `PATH`, so the files must stay executable and are invoked by
   bare name. Do not reintroduce a `scripts/` dir; it is not on `PATH`.

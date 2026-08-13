@@ -213,6 +213,54 @@ else
   fail "marketplace manifest inconsistency:"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
+# A plugin whose files changed since the last release but whose version did not
+# is invisible to everyone who already installed it: marketplace clients offer an
+# update only when `version` changes. Nothing else surfaces that, so it is a
+# check rather than a convention. See docs/RELEASING.md.
+last_tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+if [[ -n "${SKIP_VERSION_CHECK:-}" ]]; then
+  warn "versions    bump check skipped (SKIP_VERSION_CHECK is set)"
+elif [[ -z "$last_tag" ]]; then
+  # Distinguish the genuine bootstrap state from a shallow clone with tags
+  # upstream — the latter would otherwise pass vacuously, which is exactly the
+  # failure mode this check exists to prevent. CI sets fetch-depth: 0.
+  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+    fail "versions    shallow clone: no tags fetched, so the bump check cannot run"
+    printf '        %s\n' "Give actions/checkout 'fetch-depth: 0', or set SKIP_VERSION_CHECK=1."
+  else
+    warn "versions    no v* tag yet — nothing released, so no bump is required"
+  fi
+elif out=$(
+  bad=""
+  for d in skills/*/; do
+    name=$(basename "$d")
+    # Compare the tag against the WORKING TREE, not HEAD: the pre-commit hook
+    # runs before the change is a commit, and comparing to HEAD would make the
+    # check invisible exactly where it is most useful. `git status` covers
+    # untracked additions, which `git diff` does not see at all.
+    changed=false
+    git diff --quiet "$last_tag" -- "$d" 2>/dev/null || changed=true
+    [[ -n "$(git status --porcelain -- "$d" 2>/dev/null)" ]] && changed=true
+    [[ "$changed" == false ]] && continue
+    man="$d.claude-plugin/plugin.json"
+    now=$(python3 -c "import json;print(json.load(open('$man')).get('version',''))" 2>/dev/null)
+    was=$(git show "$last_tag:$man" 2>/dev/null \
+      | python3 -c "import json,sys;print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+    # A plugin that did not exist at the tag is new; it needs no bump.
+    [[ -z "$was" ]] && continue
+    [[ "$now" == "$was" ]] && bad+="$name changed since $last_tag but is still $now"$'\n'
+  done
+  [[ -z "$bad" ]] || { printf '%s' "$bad"; exit 1; }
+); then
+  pass "versions    every plugin changed since $last_tag has a bumped version"
+else
+  fail "a plugin changed since $last_tag without a version bump:"
+  printf '%s\n' "$out" | sed 's/^/        /'
+  printf '        %s\n' "Users who installed it will never be offered the update." \
+    "Bump the version in skills/<name>/.claude-plugin/plugin.json and add a" \
+    "CHANGELOG.md entry under Unreleased. See docs/RELEASING.md."
+fi
+
 # The authoritative check, when the CLI is on hand. CI has no Claude Code, so
 # the python checks above stand alone there.
 if command -v claude >/dev/null 2>&1; then
