@@ -30,19 +30,32 @@ If any value is missing from `.agent.env`, ask the user to add it before proceed
 
 ## Permissions
 
-The query script is pre-approved in `.claude/settings.json`:
+The query script is meant to be pre-approved, via this rule:
 
 ```
 Bash(langfuse_query.sh:*)
 ```
 
+**Neither install route installs that rule** — it ships in the toolkit's
+`project-files/.claude/settings.json` template, which the user merges into a
+project's `.claude/settings.json` (or their user settings) themselves. If every
+call prompts, the rule is absent: that is unfinished setup, not a broken skill,
+and not a reason to reach for curl. Say so once and carry on.
+
 Run the script directly — **never** export env vars manually or run curl directly
 for data access. Both trigger permission prompts. The script reads `.agent.env`
 automatically from the project root.
 
-The rule matches the bare command name only. An invocation prefixed with an
-inline env var (`LANGFUSE_MAX_RECORDS=10000 langfuse_query.sh ...`) falls outside
-it and will prompt — expected, and rare enough not to warrant a broader rule.
+The rule approves the bare command **name**, matching whatever `PATH` resolves it
+to. An invocation prefixed with an inline env var
+(`LANGFUSE_MAX_RECORDS=10000 langfuse_query.sh ...`) falls outside it and will
+prompt — expected, and rare enough not to warrant a broader rule.
+
+Two failures are environment rather than defects: `Missing required command: <x>`
+(exit 127) means a dependency is absent — tell the user to install it; and
+`command not found: langfuse_query.sh` means the skill's `bin/` is not on `PATH`,
+so the plugin is disabled or the session predates the install. Neither is a
+reason to edit the script.
 
 ## API generations (important)
 

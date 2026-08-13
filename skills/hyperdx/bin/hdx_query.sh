@@ -33,8 +33,11 @@ require_cmd() {
   echo "  $2" >&2
   exit 127
 }
-require_cmd curl "Install curl — most systems ship it (apt install curl / brew install curl)."
-require_cmd jq   "Install jq — apt install jq, brew install jq, or https://jqlang.github.io/jq/"
+# jq only: it formats output on BOTH the cloud and local paths. curl and docker
+# are mode-specific and are checked after argument parsing, once the mode is
+# known — a docker-only host has no use for host-side curl, since local mode
+# reaches ClickHouse through `docker exec`.
+require_cmd jq "Install jq — apt install jq, brew install jq, or https://jqlang.github.io/jq/"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -72,9 +75,11 @@ if [[ ${#QUERIES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Only local mode shells into a container, so only check for docker there.
+# Mode-specific dependencies, now that argument parsing has settled the mode.
 if [[ "$LOCAL" == true ]]; then
   require_cmd docker "Local mode queries ClickHouse inside the HyperDX container — install Docker, or drop --local to use cloud mode."
+else
+  require_cmd curl "Cloud mode calls the HyperDX REST API — install curl (apt install curl / brew install curl), or use --local."
 fi
 
 # ---------------------------------------------------------------------------
@@ -156,12 +161,22 @@ EOJSON
   body=$(echo "$http_response" | sed '$d')
 
   if [[ "$http_code" == "401" ]]; then
-    echo "Error: Unauthorized. Check your HYPERDX_LOCAL_API_KEY in .agent.env."
-    return
+    echo "Error: Unauthorized. Check your HYPERDX_LOCAL_API_KEY in .agent.env." >&2
+    return 1
+  fi
+  # curl writes 000 when it never got an HTTP response at all: DNS failure, no
+  # route, connection refused, TLS failure, timeout. Reported as a generic HTTP
+  # error with an empty body it was indistinguishable from "the query ran and
+  # found nothing" — the worst possible answer while debugging an incident.
+  if [[ "$http_code" == "000" ]]; then
+    echo "Error: could not reach HyperDX at $BASE_URL (no HTTP response — DNS," >&2
+    echo "  connection, TLS, or timeout failure). This is NOT an empty result:" >&2
+    echo "  the query never ran. Check HYPERDX_MODE and connectivity." >&2
+    return 1
   fi
   if [[ "$http_code" != "200" ]]; then
-    echo "HTTP Error ($http_code): $body"
-    return
+    echo "HTTP Error ($http_code): $body" >&2
+    return 1
   fi
 
   local events
@@ -286,21 +301,28 @@ parse_lucene_to_where() {
 
   local IFS_OLD="$IFS"
 
-  # Split on OR (case-insensitive) into groups; \x02 is just a private delimiter.
+  # Private delimiters, expanded by bash rather than written as `\xNN` inside the
+  # sed script. `\xNN` in a replacement is a GNU extension: BSD/macOS sed
+  # substitutes the literal characters "x02", the split then never happens, and a
+  # multi-term query silently collapses into one free-text term returning zero
+  # rows — a wrong answer that looks like a successful empty result.
+  local OR_SEP=$'\002' AND_SEP=$'\001'
+
+  # Split on OR (case-insensitive) into groups.
   local or_normalized
-  or_normalized=$(echo "$query" | sed -E 's/ [Oo][Rr] /\x02/g')
+  or_normalized=$(echo "$query" | sed -E "s/ [Oo][Rr] /$OR_SEP/g")
   local or_groups=()
-  IFS=$'\x02' read -ra or_groups <<< "$or_normalized"
+  IFS="$OR_SEP" read -ra or_groups <<< "$or_normalized"
   IFS="$IFS_OLD"
 
   local group_sql=()
   local group
   for group in "${or_groups[@]}"; do
-    # Within a group, split on AND (\x01 private delimiter) and AND the clauses.
+    # Within a group, split on AND and AND the clauses together.
     local and_normalized
-    and_normalized=$(echo "$group" | sed -E 's/ [Aa][Nn][Dd] /\x01/g')
+    and_normalized=$(echo "$group" | sed -E "s/ [Aa][Nn][Dd] /$AND_SEP/g")
     local and_parts=()
-    IFS=$'\x01' read -ra and_parts <<< "$and_normalized"
+    IFS="$AND_SEP" read -ra and_parts <<< "$and_normalized"
     IFS="$IFS_OLD"
 
     local clauses=()

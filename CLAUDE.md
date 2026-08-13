@@ -114,6 +114,21 @@ Its corollary is the **bare-name rule**: scripts are invoked as `hdx_query.sh
 (`Bash(hdx_query.sh:*)`), so a path-qualified or env-prefixed invocation prompts
 even though the script is pre-approved.
 
+Two consequences, both load-bearing when adding a script:
+
+- **A rule approves a NAME, not a file.** It is a text match on the command
+  string, and the name resolves through `PATH`, which the user controls and the
+  plugin does not. So shipped basenames must be distinctive enough that nothing
+  else plausibly owns them — this is why the pr-review scripts carry a
+  `pr_review_` prefix rather than being `post_reply.sh` and `resolve_thread.sh`.
+  `scripts/validate.sh` fails on a basename shipped by two skills, since bare-name
+  invocation can only ever reach one of them.
+- **Never tell a user to put the whole settings template at user scope.** It is a
+  project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent` and more;
+  globally that applies to every repo they open, including untrusted ones the
+  review skills exist to inspect. `README.md` lists the six script rules
+  separately for exactly this reason.
+
 ### `.agent.env` config convention
 
 `hdx_query.sh` and `langfuse_query.sh` auto-load `.agent.env` from the **current

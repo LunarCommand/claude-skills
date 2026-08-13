@@ -67,9 +67,9 @@ Claude Code, plus whatever the skills you actually install shell out to:
 
 | Skill | Needs |
 | --- | --- |
-| **hyperdx** | `curl`, `jq` — and `docker` for local mode |
+| **hyperdx** | `jq`, plus `curl` for cloud mode or `docker` for local mode |
 | **langfuse** | `curl`, `python3` |
-| **pr-review** | `gh`, authenticated via `gh auth login`, and `jq` |
+| **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
 | **adversarial-review** | nothing beyond Claude Code |
 | **feature-planning** | nothing beyond Claude Code |
 
@@ -78,7 +78,11 @@ than failing partway through a query.
 
 ## Install
 
-Two routes. Both ship the same skills.
+Two routes ship the same skills. **Pick one — they are alternatives, not
+complements.** Both put a skill directory carrying the same plugin name where
+Claude Code looks for plugins, so installing both gives you two copies competing
+for one name: one silently does not load, and which one wins is not something you
+control.
 
 ### Plugin marketplace (per-skill, versioned)
 
@@ -114,27 +118,72 @@ not namespaced — the explicit invocation is `/hyperdx`.
 ### Per-project setup
 
 Each project that uses the **hyperdx** or **langfuse** skills needs an
-`.agent.env` in its root — copy the template and fill in the values:
+`.agent.env` in its root. If you cloned the repo, copy the template:
 
 ```bash
 cp path/to/claude-skills/project-files/.agent.env <your-project>/.agent.env
 ```
 
+If you installed via the marketplace you have no clone, so fetch it directly —
+or just create the file by hand, since it is only these keys:
+
+```bash
+curl -o <your-project>/.agent.env \
+  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/project-files/.agent.env
+```
+
+```
+# hyperdx
+HYPERDX_MODE: local            # or: cloud
+OTEL_SERVICE_NAME: your-service-name
+HYPERDX_LOCAL_API_KEY: your-personal-api-key
+HYPERDX_CONTAINER: hdx-local
+
+# langfuse
+LANGFUSE_BASE_URL: http://localhost:3000
+LANGFUSE_PUBLIC_KEY: pk-lf-...
+LANGFUSE_SECRET_KEY: sk-lf-...
+```
+
 ### Running the scripts without a prompt each time
 
 The skill scripts are on the Bash tool's `PATH`, so the permission rules approve
-them by bare name — `Bash(hdx_query.sh:*)` and friends. Merge the `permissions`
-block from `project-files/.claude/settings.json` into either:
+them by bare name. Without a rule, every script call prompts — which reads as the
+skill being broken when it is only unapproved.
 
-- **`~/.claude/settings.json`** — approves them everywhere. The right choice if
-  you installed via the marketplace, or you just want the skills to work without
-  per-project setup.
-- **a project's `.claude/settings.json`** — approves them in that repo only, and
-  is what the rest of that template is written for: it also gates the git
-  operations the recommended workflow says to confirm first.
+**To approve just the skill scripts**, add these six rules. They are safe at user
+scope (`~/.claude/settings.json`), which is the right choice for the marketplace
+route since there is no per-project setup step:
 
-Without one of these, every script call prompts, which reads as the skill being
-broken when it is only unapproved.
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(adversarial_review_path.sh:*)",
+      "Bash(hdx_query.sh:*)",
+      "Bash(langfuse_query.sh:*)",
+      "Bash(pr_review_parse_comments.sh:*)",
+      "Bash(pr_review_post_reply.sh:*)",
+      "Bash(pr_review_resolve_thread.sh:*)"
+    ]
+  }
+}
+```
+
+> **Do not copy the whole `permissions` block from
+> `project-files/.claude/settings.json` into your user settings.** That template
+> is a *project* configuration: alongside the script rules it sets
+> `defaultMode: auto` and grants `Write`, `Edit`, `Agent`, `WebFetch`,
+> `Bash(find:*)`, `Bash(make:*)` and more. At user scope those apply in every
+> repository you open — including untrusted ones the review skills exist to
+> inspect. Use it whole only in a project you trust, as
+> `<project>/.claude/settings.json`, where it also gates the git operations the
+> recommended workflow says to confirm first.
+
+A rule approves the command **name**, matching whatever `PATH` resolves it to
+rather than a specific file — which is why the shipped names are distinctive
+enough not to collide with anything you are likely to already have. Prefer
+project scope if that trade is one you would rather not make globally.
 
 ## How a skill works
 

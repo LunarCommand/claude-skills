@@ -9,9 +9,15 @@
 # Do not replace this with a glob for the filename: more than one copy of the
 # skill can exist on a machine (a marketplace install under
 # ~/.claude/plugins/cache/ and a copied install under ~/.claude/skills/), they
-# drift independently, and a glob picks whichever it finds first. This script
-# ships inside the copy that is actually loaded, so it always answers for that
-# copy.
+# drift independently, and a glob picks whichever it finds first.
+#
+# Scope of the guarantee: this answers for the copy of the skill that CONTAINS
+# THIS SCRIPT, which is not automatically the copy whose SKILL.md you are
+# reading. Invoked by bare name, which copy runs is decided by PATH order across
+# enabled plugin bins. That is still strictly better than globbing — the answer
+# is always a real, self-consistent skill directory rather than an arbitrary
+# match — but if two copies are installed, prefer removing one. install.sh and
+# /plugin install are alternatives, not complements.
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -19,6 +25,17 @@ if [[ $# -ne 1 ]]; then
   echo "  e.g. adversarial_review_path.sh adversarial-review.workflow.js" >&2
   exit 1
 fi
+
+# A bundled filename is flat, so anything path-shaped is rejected outright.
+# Without this, `../../..`-bearing or absolute arguments resolve and get printed,
+# and SKILL.md tells the caller to pass the result straight to the Workflow tool
+# as a scriptPath — turning a pre-approved helper into an arbitrary-path oracle.
+case "$1" in
+  */*|..|.|"")
+    echo "Error: expected a bare filename bundled with this skill, got: $1" >&2
+    exit 1
+    ;;
+esac
 
 # BASH_SOURCE[0] is the absolute path even when invoked by bare name from PATH.
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

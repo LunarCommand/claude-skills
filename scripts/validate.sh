@@ -75,13 +75,30 @@ fi
 # these pass here and fail on a user's Mac — the one class of bug the local
 # checks structurally cannot catch by running the code. Dev-only scripts
 # (scripts/, install.sh) are exempt; they never leave a machine we control.
-GNU_RE="find [^|]*-printf|sed -i |date -d |date --date|readlink -f|grep -P|stat -c|mktemp -p|xargs -r|--iso-8601"
+# `\\x` covers sed/printf hex escapes: GNU substitutes the byte, BSD emits the
+# literal characters, which is a SILENT wrong answer rather than an error.
+# grep's -P is matched inside a bundled short-option run (-oP, -qP), not just
+# alone. timeout/realpath/base64 -w are GNU coreutils, absent on a stock macOS.
+GNU_RE="find [^|]*-printf|sed -i |sed -r |date -d |date --date|readlink -f"
+GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
+# timeout/realpath only in command position — otherwise the word "timeout" in
+# an error message matches.
+GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
+GNU_RE="$GNU_RE|(^|[|;&(]|&&|\\\$\\()[[:space:]]*(timeout|realpath)[[:space:]]"
 gnuisms=""
 shopt -s nullglob
 for f in skills/*/bin/*.sh; do
-  # Blank out comments first — a script documenting why it AVOIDS an idiom is
-  # not using it. sed leaves the lines in place, so grep -n stays accurate.
-  hits=$(sed 's/#.*//' "$f" | grep -nE "$GNU_RE" || true)
+  # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
+  # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
+  # every idiom appearing later on such a line.
+  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
+  [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
+done
+# SKILL.md ships shell the agent runs verbatim, so it needs the same scan. Same
+# full-line strip: inside a fenced block that is a shell comment, and outside one
+# it is a Markdown heading, which cannot match these patterns anyway.
+for f in skills/*/SKILL.md; do
+  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
   [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
 done
 shopt -u nullglob
@@ -228,7 +245,18 @@ try:
     cfg = json.load(open('project-files/.claude/settings.json'))
 except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
-shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
+shipped_paths = glob.glob('skills/*/bin/*.sh')
+shipped = {os.path.basename(p) for p in shipped_paths}
+# A basename shipped by two skills is unreachable for one of them: bare-name
+# invocation resolves through PATH, which can only ever pick one. The set
+# comparison below would happily pass such a pair.
+seen = {}
+for p in shipped_paths:
+    seen.setdefault(os.path.basename(p), []).append(p)
+for base, paths in sorted(seen.items()):
+    if len(paths) > 1:
+        bad.append(f'{base} is shipped by {len(paths)} skills ({", ".join(sorted(paths))}); '
+                   'bare-name invocation can only ever reach one')
 ruled = set()
 for rule in cfg.get('permissions', {}).get('allow', []):
     m = re.fullmatch(r'Bash\(([A-Za-z0-9_.-]+\.sh):\*\)', rule)
@@ -248,6 +276,21 @@ PY
 else
   fail "allowlist   inconsistent with the shipped scripts:"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
+
+# The central invariant of the plugin layout: a SKILL.md must name its scripts
+# by bare name only. A path works on one install route and silently fails on the
+# other — ${CLAUDE_PLUGIN_ROOT} resolves under a marketplace install and passes
+# through literally under install.sh, where the Bash call is then rejected. Four
+# SKILL.md files were rewritten by hand to satisfy this; nothing but this check
+# stops the next edit from reintroducing it.
+# The tilde is bracketed so shellcheck does not read it as a path (SC2088);
+# `[~]` and `~` are the same character class to grep.
+pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-Za-z0-9_.-]+\.sh' \
+  skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
+[[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
+  fail "a SKILL.md references a script by path (breaks one install route):"
+  printf '%s\n' "$pathrefs" | sed 's/^/        /'
+}
 
 # --------------------------------------------------------------------------
 section "Hygiene (this repo is public)"
@@ -296,6 +339,20 @@ section "Install integration"
   [[ "$(cat "$tmp/CLAUDE.md")" == "PRESERVE ME" ]] \
     && pass "existing CLAUDE.md preserved" \
     || fail "install.sh overwrote an existing ~/.claude/CLAUDE.md"
+
+  # Re-install must leave the skills root holding ONLY the skills. Claude Code
+  # loads every directory under it that carries a manifest, so a backup left in
+  # place becomes a second plugin claiming the live name, and the stale copy can
+  # win. install.sh has now run 3x above, so any accumulation shows here.
+  expected=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l)
+  actual=$(find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  manifests=$(find "$tmp/skills" -name plugin.json | wc -l)
+  if [[ "$actual" -eq "$expected" && "$manifests" -eq "$expected" ]]; then
+    pass "re-install    skills root holds exactly $expected skills, $expected manifests"
+  else
+    fail "re-install left $actual dirs / $manifests manifests in the skills root (expected $expected / $expected):"
+    find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | sed 's/^/        /'
+  fi
 fi
 
 # --------------------------------------------------------------------------
