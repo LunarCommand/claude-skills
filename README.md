@@ -51,8 +51,9 @@ run yourself.
 
 `user-claude-md/CLAUDE.md` — the plan → implement → test → hand-off loop the
 skills assume, with explicit gates where you review before anything is committed
-or pushed. Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you
-want.
+or pushed. It also carries the house style the skills are tuned to: commit
+message, branch naming, PR summary, release and code comment conventions. Adopt
+it as your global `~/.claude/CLAUDE.md`, or lift the parts you want.
 
 ### 3. Per-project settings
 
@@ -96,8 +97,8 @@ Each skill is its own plugin, so you install only what you want:
 Updates arrive through `/plugin marketplace update lunar-skills`. Plugin skills
 are namespaced, so the explicit invocation is `/hyperdx:hyperdx`.
 
-This route does not install the recommended user CLAUDE.md or the per-project
-templates — see [Per-project setup](#per-project-setup) below, and copy
+Like the clone route, this one installs skills and nothing else — see
+[Per-project setup](#per-project-setup) below, and copy
 [`user-claude-md/CLAUDE.md`](user-claude-md/CLAUDE.md) by hand if you want it.
 
 ### Clone and install (all skills at once)
@@ -109,11 +110,11 @@ cd claude-skills
 ```
 
 `install.sh` copies the skills into `~/.claude/skills/<name>/` (backing up any
-existing copy first) and installs the recommended user CLAUDE.md. It never
-overwrites an existing `~/.claude/CLAUDE.md` — if you already have one, it
-writes the recommended version alongside as `CLAUDE.md.recommended` for you to
-merge. It then prints the per-project setup steps. Skills installed this way are
-not namespaced — the explicit invocation is `/hyperdx`.
+existing copy first). Skills are the only thing it installs: the recommended
+user CLAUDE.md is written alongside as `~/.claude/CLAUDE.md.recommended` for you
+to review and merge, never as your live `CLAUDE.md`, and the per-project setup
+steps are printed rather than applied. Skills installed this way are not
+namespaced — the explicit invocation is `/hyperdx`.
 
 ### Per-project setup
 

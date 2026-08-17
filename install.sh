@@ -7,12 +7,13 @@
 # difference is that marketplace skills are namespaced (/hyperdx:hyperdx) while
 # these are not (/hyperdx).
 #
-# Copies each skill into ~/.claude/skills/<name>/ and installs the recommended
-# user CLAUDE.md. Idempotent and non-destructive:
+# Copies each skill into ~/.claude/skills/<name>/. Skills are the only thing it
+# installs; every user- and project-level file here is a template it points you
+# at. Idempotent and non-destructive:
 #   - an existing skill directory is moved to ~/.claude/skill-backups/<stamp>/,
 #     OUTSIDE the scanned skills root — see the comment on BACKUP_ROOT below
-#   - an existing ~/.claude/CLAUDE.md is never overwritten; the recommended
-#     version is written alongside as CLAUDE.md.recommended
+#   - the recommended user CLAUDE.md lands as ~/.claude/CLAUDE.md.recommended,
+#     never as the live CLAUDE.md
 # Per-project setup (.agent.env, project settings) is printed at the end, not
 # applied — those belong to each project, not to ~/.claude.
 #
@@ -63,21 +64,24 @@ for src in "$REPO_DIR"/skills/*/; do
   echo "  + $name"
 done
 
-# Recommended user CLAUDE.md — never clobber an existing one.
+# Written alongside, never as the live ~/.claude/CLAUDE.md. The installer
+# installs skills; every user- and project-level opinion in this repo is a
+# template you adopt deliberately, not something an install applies for you.
 example_claude="$REPO_DIR/user-claude-md/CLAUDE.md"
 if [[ -f "$example_claude" ]]; then
-  if [[ -f "$CLAUDE_DIR/CLAUDE.md" ]]; then
-    cp "$example_claude" "$CLAUDE_DIR/CLAUDE.md.recommended"
-    echo "  ~ ~/.claude/CLAUDE.md exists; wrote recommended version to CLAUDE.md.recommended"
-  else
-    cp "$example_claude" "$CLAUDE_DIR/CLAUDE.md"
-    echo "  + installed recommended ~/.claude/CLAUDE.md"
-  fi
+  cp "$example_claude" "$CLAUDE_DIR/CLAUDE.md.recommended"
+  echo "  ~ recommended user CLAUDE.md written to CLAUDE.md.recommended (not applied)"
 fi
 
 cat <<EOF
 
-Done. Per-project setup (run in each project that uses the skills):
+Done. Skills are installed; everything else here is a template you adopt.
+
+User-level (optional): the recommended CLAUDE.md was written to
+  $CLAUDE_DIR/CLAUDE.md.recommended
+Review it and merge what you want — your own CLAUDE.md was not touched.
+
+Per-project setup (run in each project that uses the skills):
 
   1. Copy the env template and fill in values:
        cp "$REPO_DIR/project-files/.agent.env" <your-project>/.agent.env

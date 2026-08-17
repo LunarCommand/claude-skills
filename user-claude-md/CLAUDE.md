@@ -21,6 +21,55 @@ Follow this loop for any non-trivial change. Stop and wait at each gate.
 **Never without my explicit ack**
 Commit, push, amend, rebase, force-anything, touch files outside the planned scope, install dependencies, run migrations, modify config or secrets, or "clean up" code I didn't ask about. If you find adjacent issues, list them in the handoff.
 
+## Code comments
+
+Comments carry a maintenance cost and rot silently. Write the ones that survive.
+
+**Default to none.** Reach for a clearer name, a smaller function, or an
+extracted helper before reaching for a comment. A comment that exists to explain
+what the code is doing is a signal the code should be simpler. If a block needs a
+paragraph to follow, that paragraph is a bug report about the block.
+
+**Comment the why, never the what or the how.** The code already states what it
+does. Good targets: a non-obvious constraint, a rejected alternative that looks
+correct, an external system's undocumented behaviour, a deliberate trade-off.
+
+**Keep them short.** Two or three lines. Past about five, ask whether it belongs
+somewhere else. A comment longer than the code it describes is a smell.
+
+**Interface documentation is not commentary.** Docstrings, JSDoc/godoc-style API
+docs, file-header purpose and usage blocks, and `--help` text are the public
+description of a thing, and none of the above applies to them. Neither does it
+apply to whatever the project's own conventions require — licence headers,
+generated-file markers, lint directives.
+
+**Do not put these in a comment:**
+
+- *History.* "An earlier version did X", "this was reverted", "previously we".
+  Git holds that. Say what is true now.
+- *Figures that date.* Balances, row counts, dollar amounts, "as of <date>"
+  measurements. They are wrong within weeks and nobody updates them. Describe
+  the shape, not the reading. An issue reference pinned to a workaround is fine
+  — that is a pointer, not a reading — but not one used as status.
+- *Narrative or self-justification.* No explaining your own past mistakes, no
+  arguing with a reviewer, no "do not change this" emphasis. State the
+  constraint plainly and let it stand.
+- *Anything the README or a doc already says.* Point at it instead.
+
+**Where the long-form belongs:** commit messages for why a change was made, an
+underscore-prefixed docs directory (`_docs/`, sibling to the `_reqs/` and
+`_plans/` the feature-planning skill writes) for investigations and decisions,
+the PR description for reviewers, the module README for operators. A file is the
+worst place to keep prose, because it is the place nobody rereads when the code
+changes.
+
+**Sanity check before committing:** review the diff, not the file. If the
+comments this change adds crowd the code they annotate, or any one of them runs
+past about five lines, the new code wants restructuring rather than annotating.
+Comments already in the files you touched are out of scope — don't strip or
+rewrite them as a drive-by; if a file reads as over-commented, say so in the
+handoff and leave it.
+
 ## Git commit messages
 
 Always follow the 50/72 rule:
