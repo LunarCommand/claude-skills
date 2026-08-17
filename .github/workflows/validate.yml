@@ -8,7 +8,13 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    strategy:
+      # Both platforms always report. A macOS-only portability break should not
+      # be hidden by cancelling the run when Linux fails, or the reverse.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,8 +27,30 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Ensure shellcheck
+      - name: Ensure shellcheck (Linux)
+        if: runner.os == 'Linux'
         run: command -v shellcheck || (sudo apt-get update && sudo apt-get install -y shellcheck)
 
+      - name: Ensure shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: command -v shellcheck || brew install shellcheck
+
       - name: Validate
+        if: runner.os == 'Linux'
         run: ./scripts/validate.sh
+
+      # macOS is the reason this job exists: Apple still ships bash 3.2.57, so
+      # bash 4 syntax and GNU-only tool flags fail here and nowhere else. The
+      # runner also has a Homebrew bash 5 earlier on PATH, so `#!/usr/bin/env
+      # bash` would pick that up and the job would pass without testing 3.2 at
+      # all. The shim puts /bin/bash first so every nested `env bash` — this
+      # script, then install.sh under it — resolves to the stock one.
+      - name: Validate (stock bash 3.2)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          export PATH="$RUNNER_TEMP/bash32:$PATH"
+          echo "resolved bash: $(command -v bash)"
+          bash --version | head -1
+          /bin/bash ./scripts/validate.sh

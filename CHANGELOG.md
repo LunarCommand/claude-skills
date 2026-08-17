@@ -27,6 +27,20 @@ plugins that actually changed:
 
 ### Repository
 
+- Fixed `scripts/validate.sh` on macOS. It used `mapfile`, a bash 4 builtin, and
+  macOS ships bash 3.2.57 — so on a Mac the run stopped at the first check and
+  everything after it was skipped. Reported by a downstream user; present since
+  the script was first committed.
+- The portability check no longer exempts `install.sh`, `scripts/` and
+  `.githooks/`, and now covers bash 4 syntax as well as GNU-only tool flags. The
+  old exemption assumed those files never left a machine we control, which a
+  public repo makes false.
+- CI runs on macOS as well as Linux, with the stock bash 3.2 forced onto `PATH`
+  so the job cannot pass by silently using Homebrew's bash 5.
+- The credential and personal-path scans filter `.git` by path rather than by
+  piping through `grep -v './.git/'`, which tested the whole matched line and so
+  discarded any hit whose text happened to contain that string. A committed
+  `AKIA…` key on such a line was reported as clean.
 - Publishing a GitHub Release is now a step in the release process rather than an
   aside. A pushed tag does not create one, and a repository showing tags with no
   Releases reads as a project that does not cut them.
