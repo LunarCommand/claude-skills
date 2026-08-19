@@ -79,10 +79,10 @@ than failing partway through a query.
 
 ## Install
 
-Two routes ship the same skills. **Pick one — they are alternatives, not
-complements.** Both put a skill directory carrying the same plugin name where
-Claude Code looks for plugins, so installing both gives you two copies competing
-for one name: one silently does not load, and which one wins is not something you
+Three routes ship the same skills. **Pick one — they are alternatives, not
+complements.** Each puts a skill directory carrying the same plugin name where
+Claude Code looks for plugins, so using two gives you two copies competing for
+one name: one silently does not load, and which one wins is not something you
 control.
 
 ### Plugin marketplace (per-skill, versioned)
@@ -115,6 +115,36 @@ user CLAUDE.md is written alongside as `~/.claude/CLAUDE.md.recommended` for you
 to review and merge, never as your live `CLAUDE.md`, and the per-project setup
 steps are printed rather than applied. Skills installed this way are not
 namespaced — the explicit invocation is `/hyperdx`.
+
+### Copy a skill by hand
+
+To take one skill without cloning the marketplace or running the installer, copy
+its directory into `~/.claude/skills/<name>/` yourself:
+
+```bash
+cp -R claude-skills/skills/hyperdx/. ~/.claude/skills/hyperdx/
+chmod +x ~/.claude/skills/hyperdx/bin/*.sh
+```
+
+**The trailing `.` is load-bearing.** `.claude-plugin/` is a hidden directory, so
+a `cp -R .../hyperdx/* ...` glob skips it without saying so. Missing that
+manifest, Claude Code treats the directory as an inert folder rather than a
+skills-directory plugin: `bin/` never joins the Bash tool's `PATH`, every
+bare-name call fails with `command not found`, and the permission rules below
+cannot match anything you would actually type. `install.sh` uses the same
+trailing-dot form for exactly this reason.
+
+Restart Claude Code after copying, then confirm the manifest arrived:
+
+```bash
+ls -A ~/.claude/skills/hyperdx/     # want: .claude-plugin  SKILL.md  bin
+```
+
+`which hdx_query.sh` is not a useful test. Claude Code puts `bin/` on its own
+Bash tool's `PATH`, not on your login shell's, so `which` finds nothing on every
+route — including the ones that work. And a bare call that fails with
+`Permission denied` rather than `command not found` means the manifest is fine
+and the executable bit was lost in the copy, which the `chmod` above restores.
 
 ### Per-project setup
 
@@ -151,6 +181,10 @@ LANGFUSE_SECRET_KEY: sk-lf-...
 The skill scripts are on the Bash tool's `PATH`, so the permission rules approve
 them by bare name. Without a rule, every script call prompts — which reads as the
 skill being broken when it is only unapproved.
+
+That `PATH` entry comes from the skill's `.claude-plugin/plugin.json`. If bare
+names fail with `command not found`, the manifest is missing rather than the
+rules being wrong — see [Copy a skill by hand](#copy-a-skill-by-hand).
 
 **To approve just the skill scripts**, add these six rules. They are safe at user
 scope (`~/.claude/settings.json`), which is the right choice for the marketplace

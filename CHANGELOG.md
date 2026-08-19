@@ -27,6 +27,12 @@ plugins that actually changed:
 
 ### Repository
 
+- README documents copying a skill by hand as a third install route. The
+  manifest lives in a hidden `.claude-plugin/` directory, so the obvious
+  `cp -R skills/<name>/* ...` skips it, and without it the copy is an inert
+  folder: `bin/` never reaches the Bash tool's `PATH` and every bare-name call
+  fails. Reported downstream as the permission rules being wrong; the rules were
+  correct and the manifest was missing.
 - Fixed `scripts/validate.sh` on macOS. It used `mapfile`, a bash 4 builtin, and
   macOS ships bash 3.2.57 — so on a Mac the run stopped at the first check and
   everything after it was skipped. Reported by a downstream user; present since
