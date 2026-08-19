@@ -15,6 +15,57 @@ the settings that let them run cleanly are built to fit together. Install it in
 one command and you get the whole setup; take any single piece on its own if
 that's all you want.
 
+## Contents
+
+- [How the skills fit together](#how-the-skills-fit-together)
+- [What's inside](#whats-inside)
+- [Prerequisites](#prerequisites)
+- [Install](#install) — [marketplace](#plugin-marketplace-per-skill-versioned),
+  [clone](#clone-and-install-all-skills-at-once),
+  [by hand](#copy-a-skill-by-hand)
+- [Per-project setup](#per-project-setup)
+- [Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
+- [What an adversarial review costs](#what-an-adversarial-review-costs)
+- [When *not* to use this](#when-not-to-use-this)
+- [Things that surprise people](#things-that-surprise-people)
+- [Never do this](#never-do-this)
+- [How a skill works](#how-a-skill-works)
+
+## How the skills fit together
+
+Each skill stands alone, but they were built as one loop: decide, build, break
+it yourself, then answer the humans.
+
+```mermaid
+flowchart TD
+    idea(["an idea, a PRD, or a bug you traced"])
+    fp1["<b>/feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then asks you questions in the file</i>"]
+    g1{{"GATE 1 &nbsp; reply <b>answered</b>"}}
+    fp2["<b>/feature-planning</b> continues<br/>writes _plans/&lt;slug&gt;-plan.md<br/><i>phases, tests, invariants, coverage</i>"]
+    g2{{"GATE 2 &nbsp; reply <b>approved</b>"}}
+    impl["<b>implementation</b><br/><i>phase by phase, each phase's tests run before the next</i>"]
+    dbg["<b>/hyperdx</b> &middot; <b>/langfuse</b><br/><i>when it misbehaves, query real traces<br/>instead of adding print statements</i>"]
+    adv["<b>/adversarial-review</b><br/><i>try to break it before a human sees it</i>"]
+    pr(["open the PR"])
+    prr["<b>/pr-review</b><br/><i>triage review comments one at a time</i>"]
+    g3{{"GATE 3 &nbsp; approve each reply before it posts"}}
+    merge(["merge"])
+
+    idea --> fp1 --> g1 --> fp2 --> g2 --> impl --> adv --> pr --> prr --> g3 --> merge
+    impl --- dbg
+
+    classDef skill fill:#1f3a5f,stroke:#4a7fb5,color:#e8f0f8
+    classDef gate fill:#5c3a1a,stroke:#c98b3a,stroke-width:2px,color:#fdf0dd
+    classDef artifact fill:#3a3a3a,stroke:#888,color:#eee
+
+    class fp1,fp2,impl,adv,prr,dbg skill
+    class g1,g2,g3 gate
+    class idea,pr,merge artifact
+```
+
+Every gate takes a different word, so one cannot be mistaken for another and
+nothing crosses on momentum.
+
 ## What's inside
 
 Three layers, meant to be used together.
@@ -22,45 +73,128 @@ Three layers, meant to be used together.
 ### 1. Skills
 
 `/`-invokable tools Claude Code loads on demand, grouped by the three concerns
-above.
+above. Each also triggers from a plain description — the slash form is just the
+explicit way to reach for one. It is `/<name>` on the clone and hand-copy
+routes, `/<name>:<name>` via the marketplace.
 
 **Observability** — the prod-local half: real traces and logs from a stack you
 run yourself.
 
-- **hyperdx** — query logs and traces with Lucene syntax, against HyperDX cloud
-  or a local instance in Docker.
-- **langfuse** — inspect LLM traces, observations, sessions, scores, and
-  prompts, self-hosted or cloud. Detects the server's API generation and adapts
-  to either the legacy v1 REST API or the v4 read API.
+#### `/hyperdx` — logs and traces, Lucene syntax
+
+**Use it for:** an agent misbehaving where you would otherwise start adding
+print statements.
+
+```
+/hyperdx errors from the checkout worker in the last hour
+```
+
+Runs the bundled CLI against HyperDX cloud or a local instance in Docker, and
+never raw `curl`:
+
+```bash
+hdx_query.sh --query "level:err"
+hdx_query.sh --local --table traces --query "SpanName:call_model"
+```
+
+#### `/langfuse` — LLM traces, observations, sessions, scores, prompts
+
+**Use it for:** inspecting what a model actually received and returned, on a
+self-hosted or cloud Langfuse.
+
+```
+/langfuse show me the traces for session abc123
+```
+
+```bash
+langfuse_query.sh traces --limit 5
+langfuse_query.sh trace <trace-id>
+```
+
+It detects the server's API generation itself and adapts to either the legacy
+v1 REST API or the v4 read API, which differ enough that a query written for
+one returns nothing on the other.
 
 **Planning** — decide before you build.
 
-- **feature-planning** — a plan-before-code workflow with two human approval
-  gates, driven from a requirements file or a description in chat.
+#### `/feature-planning` — think before building
+
+**Use it for:** anything non-trivial. A feature, a bug you have traced, a
+refactor with consequences.
+
+```
+/feature-planning _reqs/csv-export.md
+/feature-planning I want to add CSV export to the reports page
+```
+
+A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
+asked for, plus its own analysis: what is strong, what worries it, the holes in
+your requirements, and alternatives worth considering — then `_plans/<slug>-plan.md`
+with phases, enumerated tests (`T-<n>`), invariants (`INV-<n>`), and a coverage
+table proving every invariant and success criterion maps to a test.
+
+Two gates, two different words. **Gate 1** happens in the *file*: answer the
+questions in `_reqs/<slug>.md`, then reply `answered`. **Gate 2** is `approved`,
+and no code is written before it.
 
 **Review** — catch what a diff-scoped bot structurally can't.
 
-- **adversarial-review** — multi-lens review that *generates* findings:
-  independent lenses hunt for what breaks, each finding is verified by
-  refutation before it surfaces, and survivors are ranked by severity.
-- **pr-review** — the other half of that loop: triage existing GitHub review
-  threads one at a time, proposing a verdict for each before replying and
-  resolving.
+#### `/adversarial-review` — try to break it before a human does
+
+**Use it for:** before you open the PR, or before you merge. Not a style check —
+independent lenses hunt for what *breaks*, and each finding must survive an
+attempt to refute it before you ever see it.
+
+```
+/adversarial-review
+/adversarial-review PR #123
+/adversarial-review app/services/payments.py — focus on rollback semantics
+```
+
+Given nothing it reviews the uncommitted work, or the branch against its merge
+base if the tree is clean. It reports blocker / should / nit, and says so when
+it found nothing. Read [what it costs](#what-an-adversarial-review-costs) before
+the first PR-sized run.
+
+#### `/pr-review` — work through review comments
+
+**Use it for:** any PR with unresolved threads, from a human or a bot.
+
+```
+/pr-review 123
+```
+
+It walks the threads one at a time, showing the comment, its verdict, the
+reasoning, and the exact reply it proposes — then stops. You answer `yes`,
+`edit` or `skip` per comment; nothing is posted or resolved without that. It is
+allowed to disagree with a reviewer, and should.
 
 ### 2. The recommended user CLAUDE.md
 
-`user-claude-md/CLAUDE.md` — the plan → implement → test → hand-off loop the
-skills assume, with explicit gates where you review before anything is committed
-or pushed. It also carries the house style the skills are tuned to: commit
-message, branch naming, PR summary, release and code comment conventions. Adopt
-it as your global `~/.claude/CLAUDE.md`, or lift the parts you want.
+**Use it for:** making Claude stop and wait at the points you would want to be
+asked, instead of discovering afterwards that it committed.
+
+`user-claude-md/CLAUDE.md` is the plan → implement → test → hand-off loop the
+skills assume, with gates where you review before anything is committed or
+pushed. It carries the house style they are tuned to as well: commit messages,
+branch naming, PR summaries, releases, and code comments.
+
+Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you want. No
+install route writes it for you — see [Install](#install).
 
 ### 3. Per-project settings
 
-`project-files/` — an `.agent.env` template the skill scripts read for
-configuration, and a `.claude/settings.json` permission allowlist that
-pre-approves those scripts while still gating the git operations the workflow
-says to confirm first.
+**Use them for:** pointing the observability skills at your stack, and stopping
+every script call from asking permission.
+
+`project-files/` holds two templates:
+
+- **`.agent.env`** — the per-project config `hdx_query.sh` and
+  `langfuse_query.sh` read: endpoints and API keys, one file per project, loaded
+  from the project root.
+- **`.claude/settings.json`** — the permission rules. Scoped to this toolkit and
+  nothing else, which is what makes it safe to merge at either project or user
+  scope.
 
 ## Prerequisites
 
@@ -218,6 +352,100 @@ decide, and a toolkit has no business asserting them on your behalf.
 A rule approves the command **name**, matching whatever `PATH` resolves it to
 rather than a specific file — which is why the shipped names are distinctive
 enough not to collide with anything you are likely to already have.
+
+## What an adversarial review costs
+
+A PR-sized run typically costs **1.5 to 3 million tokens**. That is a meaningful
+slice of a session limit spent on one command, so check what you have left
+before starting one.
+
+The cost is not obvious from the outside, because the skill escalates: for
+anything PR-sized it hands off to a multi-agent workflow where every lens runs
+as its own agent, findings are merged, and each survivor is then put to further
+agents that try to refute it. A review of a single diff in *this* repository ran
+56 agents. Token cost tracks the lens count and how many findings survive far
+enough to be verified, so a change that turns up a lot of real defects costs
+more than a clean one.
+
+Because cost tracks the lens count, `targetKind` is the lever that matters —
+scoping a pure code change to `code` drops two of the seven lenses, and they are
+two that had nothing to find in code anyway:
+
+| `targetKind` | lenses | use for |
+| --- | --- | --- |
+| `code` | 5 | a pure code change |
+| `spec` | 4 | a spec, RFC, or design doc |
+| `any` (default) | 7 | anything mixing code with specs or docs |
+
+`security` and `whats-missing` are deliberately untagged and run for every
+target — a skipped security lens reads as "no security findings" when it means
+nobody looked.
+
+A stopped run can be resumed and completed agents replay from cache rather than
+re-running, but only within the same session. If you hit your limit the session
+ends, and in practice you start over.
+
+Two moments where it earns the cost: **immediately before opening the PR**,
+while findings are still cheap to act on and no reviewer has spent time yet, and
+**alongside an automated reviewer** once the PR is open, since they look for
+different things and running both means one round of fixes rather than two.
+
+What is not worth it: a single-file change, anything you would call trivial, or
+re-running it after a small fix. For a single file it runs inline and cheaply —
+scope it to the file rather than the PR when that is all you need.
+
+## When *not* to use this
+
+Gates and multi-agent reviews are real overhead, and applying them to everything
+is the failure mode to watch for.
+
+- **feature-planning** earns its two gates when the work has phases, touches
+  data integrity, or would need a diagram to explain to someone else. A change
+  you could describe in one sentence does not need a plan file.
+- **adversarial-review** is for changes whose defects survive ordinary review —
+  concurrency, partial failure, money moving twice. See the costs above.
+- **hyperdx** and **langfuse** assume you have a stack to query. If you have no
+  traces, there is nothing for them to read.
+
+If you are unsure whether a change warrants the full loop, it probably does not.
+
+## Things that surprise people
+
+**"The bare command isn't found."** The skill's `bin/` reaches the Bash tool's
+`PATH` through its `.claude-plugin/plugin.json`. Missing manifest, no `PATH`
+entry — see [Copy a skill by hand](#copy-a-skill-by-hand). And `which` never
+finds these on any route, because that `PATH` belongs to the Bash tool rather
+than your login shell.
+
+**"It asked me a question in a file, not in chat."** That is
+`feature-planning`'s first gate, and it is deliberate. Answers in a file are
+reviewable, greppable, and survive the session.
+
+**"The review is taking forever."** For anything PR-sized it is meant to. It
+escalated to the background workflow and is running dozens of agents.
+
+**"It disagreed with a reviewer."** By design. `pr-review` is explicitly allowed
+to push back, and should — a comment that is wrong gets a reply explaining why,
+not a change made to clear the queue. Check its reasoning; if it is wrong, say
+so and it will change.
+
+**"A script failed, so Claude rewrote it."** It should not. Every skill says a
+failing bundled script is to be fixed, not worked around with raw `curl` or
+`gh api`. If you see that happening, the script's error message is the bug
+report.
+
+## Never do this
+
+**Do not run any of this with `--dangerously-skip-permissions`.** It bypasses
+the `ask` and `deny` lists, not just trust prompting — and the `ask` list is
+where this toolkit puts the destructive git commands `adversarial-review`'s own
+instructions forbid. A review skill with unrestricted shell access can revert
+uncommitted work. That is not hypothetical; it is why the snapshot-and-compare
+step in `adversarial-review` exists.
+
+**Do not install by two routes at once.** Marketplace and `~/.claude/skills/`
+copies carry the same plugin names. One silently loses, and which one wins is
+not yours to control.
 
 ## How a skill works
 

@@ -27,6 +27,13 @@ plugins that actually changed:
 
 ### Repository
 
+- README restructured around using the toolkit rather than listing it: a contents
+  list, a diagram of how the skills chain together, per-skill "use it for" entries
+  with real invocations, and four sections it never had — what an adversarial
+  review costs, when not to use any of this, what surprises people, and what never
+  to do. The cost section is the gap that mattered: a PR-sized adversarial review
+  runs 1.5-3M tokens across dozens of agents, and nothing in the repository said
+  so before installing it.
 - The settings template is now scoped to this toolkit. It was a personal project
   config — `defaultMode: auto`, `Write`, `Edit`, `Agent`, `Bash(make:*)`, `uv`,
   `brew`, `nvidia-smi` — that happened to contain the script rules. Every entry
