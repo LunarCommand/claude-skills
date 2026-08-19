@@ -109,11 +109,27 @@ GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
 GNU_RE="$GNU_RE|(^|[|;&(]|&&|\\\$\\()[[:space:]]*(timeout|realpath)[[:space:]]"
 # bash 4 features. macOS ships 3.2.57 and Apple has not shipped a newer bash
 # since, for licensing reasons, so 3.2 is the floor for anything a Mac runs.
-BASH4_RE="\\bmapfile\\b|\\breadarray\\b|(declare|local|typeset) -A|shopt -s globstar"
+# Word boundaries are spelled out rather than with \b, which is a GNU extension
+# absent from POSIX ERE: on a grep without it the pattern simply stops matching,
+# and a scan that finds nothing is indistinguishable from a clean tree.
+BASH4_RE="(^|[^[:alnum:]_])(mapfile|readarray)([^[:alnum:]_]|$)"
+BASH4_RE="$BASH4_RE|(declare|local|typeset) -A|shopt -s globstar"
 BASH4_RE="$BASH4_RE|^[[:space:]]*coproc[[:space:]]|;;&|wait -n|\\[\\[ -v "
 # ${v,,} and ${v^^} case conversion, with or without an array subscript.
 BASH4_RE="$BASH4_RE|\\\$\\{[A-Za-z_][A-Za-z0-9_]*(\\[[^]]*\\])?[,^]"
 PORT_RE="$GNU_RE|$BASH4_RE"
+
+# Positive control. Every check below reports "nothing found" both when the tree
+# is clean and when the pattern has quietly stopped matching — and the two are
+# indistinguishable in a green run, which is how a GNU-only \b could have gone
+# unnoticed on the one platform this scan exists to protect. So assert the
+# pattern still matches known-bad input before any clean result is believed.
+port_canary='mapfile -t X; declare -A M; find . -printf "%f"; echo "${v,,}"'
+canary_hits=$(printf '%s\n' "$port_canary" | grep -cE "$PORT_RE" || true)
+[[ "$canary_hits" -ge 1 ]] \
+  && pass "portability regex matches its canary (scan is live)" \
+  || fail "portability regex matched NOTHING in known-bad input — this grep lacks a feature the pattern uses, so a clean result below is meaningless"
+
 gnuisms=""
 shopt -s nullglob
 # Every shell artifact in the repo, plus SKILL.md, which ships shell the agent
@@ -124,11 +140,11 @@ for f in skills/*/bin/*.sh skills/*/SKILL.md install.sh scripts/*.sh .githooks/*
   # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
   # every idiom appearing later on such a line. Blank rather than delete, so the
   # line numbers grep reports still match the file. The GNU_RE/BASH4_RE/PORT_RE
-  # assignments are blanked for the same reason: this script defines the patterns
-  # it scans for, so its own definitions match themselves.
+  # assignments, and the canary, are blanked for the same reason: this script
+  # defines the patterns it scans for, so its own definitions match themselves.
   # -E, not BRE with \|: alternation via \| is a GNU sed extension that BSD sed
   # does not have, and it would silently fail to blank on a Mac.
-  hits=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/^(GNU_RE|BASH4_RE|PORT_RE)=.*//' "$f" \
+  hits=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/^(GNU_RE|BASH4_RE|PORT_RE|port_canary)=.*//' "$f" \
     | grep -nE "$PORT_RE" || true)
   [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
 done
