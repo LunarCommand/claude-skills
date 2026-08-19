@@ -27,6 +27,9 @@ plugins that actually changed:
 
 ### Repository
 
+- The recommended user CLAUDE.md allows a `docs/` branch prefix. This repository
+  had already used one for a documentation-only PR, so the convention and the
+  practice disagreed.
 - README restructured around using the toolkit rather than listing it: a contents
   list, a diagram of how the skills chain together, per-skill "use it for" entries
   with real invocations, and four sections it never had — what an adversarial

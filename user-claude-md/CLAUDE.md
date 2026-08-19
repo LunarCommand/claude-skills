@@ -90,6 +90,7 @@ Use a type prefix followed by a short kebab-case description. Allowed prefixes:
 - `fix/` — bug fixes
 - `refactor/` — code restructuring without behavior change
 - `chore/` — tooling, deps, config, housekeeping
+- `docs/` — documentation only, no behaviour change
 - `schema/` — database or data model changes
 
 For ticketed work, embed the ticket ID between the prefix and description: `feature/PROJ-123-user-export`, `schema/PROJ-456-add-indexes`. Keep the descriptive portion concise (3–5 words) and lowercase.
