@@ -44,9 +44,18 @@ section() { printf '\n%s%s%s\n' "$B" "$1" "$N"; }
 # --------------------------------------------------------------------------
 section "Shell scripts"
 # --------------------------------------------------------------------------
-mapfile -t SH_FILES < <(find . -name '*.sh' -not -path './.git/*' | sort)
+# `mapfile` is bash 4; macOS ships 3.2, where it does not exist. With no `set -e`
+# the run continued past the failure into an unset SH_FILES, so every check below
+# this line was skipped on a Mac — reported as a pass on bash 4.4+, which stopped
+# treating an unset array under `set -u` as an error.
+SH_FILES=()
+while IFS= read -r f; do
+  SH_FILES+=("$f")
+done < <(find . -name '*.sh' -not -path './.git/*' | sort)
 
-for f in "${SH_FILES[@]}"; do
+# The ${a[@]+"${a[@]}"} guard is for the same bash 3.2: there, expanding an empty
+# array under `set -u` is itself an "unbound variable" error.
+for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
   if err=$(bash -n "$f" 2>&1); then pass "syntax      $f"
   else fail "syntax      $f"; printf '%s\n' "$err" | sed 's/^/        /'; fi
 done
@@ -55,12 +64,12 @@ if command -v shellcheck >/dev/null 2>&1; then
   # The scripts were clean at `warning` on the first CI run, so that is the
   # gate. Loosen with SHELLCHECK_SEVERITY=error only to stage a noisy import.
   sev="${SHELLCHECK_SEVERITY:-warning}"
-  for f in "${SH_FILES[@]}"; do
+  for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
     if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f"
     else fail "shellcheck  $f"; printf '%s\n' "$out" | sed 's/^/        /'; fi
   done
   if [[ "$sev" == "error" ]]; then
-    for f in "${SH_FILES[@]}"; do
+    for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
       if ! out=$(shellcheck --severity=warning --format=gcc "$f" 2>&1); then
         warn "shellcheck  $f — non-blocking findings:"
         printf '%s\n' "$out" | sed 's/^/        /'
@@ -79,10 +88,15 @@ else
     "Or skip deliberately:  SHELLCHECK_OPTIONAL=1 scripts/validate.sh"
 fi
 
-# GNU-only idioms in shipped scripts. CI and this workstation are Linux, so
-# these pass here and fail on a user's Mac — the one class of bug the local
-# checks structurally cannot catch by running the code. Dev-only scripts
-# (scripts/, install.sh) are exempt; they never leave a machine we control.
+# Non-portable idioms. This workstation is Linux, so these pass locally and fail
+# on a user's Mac. The macOS CI job is what catches them for real; this scan is
+# the local approximation that fires before a push, and it names the idiom
+# instead of leaving you to read a failure log from a machine you do not have.
+# Nothing in this repo is exempt: the earlier carve-out for
+# scripts/ and install.sh assumed they never leave a machine we control, but the
+# repo is public, so install.sh runs on every clone-route user's machine and this
+# script on every contributor's. That exemption is how a bash 4 builtin sat in
+# validate.sh from its first commit until a macOS user reported it.
 # `\\x` covers sed/printf hex escapes: GNU substitutes the byte, BSD emits the
 # literal characters, which is a SILENT wrong answer rather than an error.
 # grep's -P is matched inside a bundled short-option run (-oP, -qP), not just
@@ -93,25 +107,50 @@ GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
 # an error message matches.
 GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
 GNU_RE="$GNU_RE|(^|[|;&(]|&&|\\\$\\()[[:space:]]*(timeout|realpath)[[:space:]]"
+# bash 4 features. macOS ships 3.2.57 and Apple has not shipped a newer bash
+# since, for licensing reasons, so 3.2 is the floor for anything a Mac runs.
+# Word boundaries are spelled out rather than with \b, which is a GNU extension
+# absent from POSIX ERE: on a grep without it the pattern simply stops matching,
+# and a scan that finds nothing is indistinguishable from a clean tree.
+BASH4_RE="(^|[^[:alnum:]_])(mapfile|readarray)([^[:alnum:]_]|$)"
+BASH4_RE="$BASH4_RE|(declare|local|typeset) -A|shopt -s globstar"
+BASH4_RE="$BASH4_RE|^[[:space:]]*coproc[[:space:]]|;;&|wait -n|\\[\\[ -v "
+# ${v,,} and ${v^^} case conversion, with or without an array subscript.
+BASH4_RE="$BASH4_RE|\\\$\\{[A-Za-z_][A-Za-z0-9_]*(\\[[^]]*\\])?[,^]"
+PORT_RE="$GNU_RE|$BASH4_RE"
+
+# Positive control. Every check below reports "nothing found" both when the tree
+# is clean and when the pattern has quietly stopped matching — and the two are
+# indistinguishable in a green run, which is how a GNU-only \b could have gone
+# unnoticed on the one platform this scan exists to protect. So assert the
+# pattern still matches known-bad input before any clean result is believed.
+port_canary='mapfile -t X; declare -A M; find . -printf "%f"; echo "${v,,}"'
+canary_hits=$(printf '%s\n' "$port_canary" | grep -cE "$PORT_RE" || true)
+[[ "$canary_hits" -ge 1 ]] \
+  && pass "portability regex matches its canary (scan is live)" \
+  || fail "portability regex matched NOTHING in known-bad input — this grep lacks a feature the pattern uses, so a clean result below is meaningless"
+
 gnuisms=""
 shopt -s nullglob
-for f in skills/*/bin/*.sh; do
+# Every shell artifact in the repo, plus SKILL.md, which ships shell the agent
+# runs verbatim.
+for f in skills/*/bin/*.sh skills/*/SKILL.md install.sh scripts/*.sh .githooks/*; do
+  [[ -f "$f" ]] || continue
   # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
   # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
-  # every idiom appearing later on such a line.
-  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
-  [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
-done
-# SKILL.md ships shell the agent runs verbatim, so it needs the same scan. Same
-# full-line strip: inside a fenced block that is a shell comment, and outside one
-# it is a Markdown heading, which cannot match these patterns anyway.
-for f in skills/*/SKILL.md; do
-  hits=$(sed 's/^[[:space:]]*#.*//' "$f" | grep -nE "$GNU_RE" || true)
+  # every idiom appearing later on such a line. Blank rather than delete, so the
+  # line numbers grep reports still match the file. The GNU_RE/BASH4_RE/PORT_RE
+  # assignments, and the canary, are blanked for the same reason: this script
+  # defines the patterns it scans for, so its own definitions match themselves.
+  # -E, not BRE with \|: alternation via \| is a GNU sed extension that BSD sed
+  # does not have, and it would silently fail to blank on a Mac.
+  hits=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/^(GNU_RE|BASH4_RE|PORT_RE|port_canary)=.*//' "$f" \
+    | grep -nE "$PORT_RE" || true)
   [[ -n "$hits" ]] && gnuisms+="$f:$hits"$'\n'
 done
 shopt -u nullglob
-[[ -z "$gnuisms" ]] && pass "no GNU-only idioms in skills/*/bin" || {
-  fail "GNU-only idiom in a shipped script (breaks on macOS/BSD):"
+[[ -z "$gnuisms" ]] && pass "no GNU-only or bash-4 idioms in any shell artifact" || {
+  fail "non-portable idiom (breaks on macOS/BSD, or on bash 3.2):"
   printf '%s\n' "$gnuisms" | sed 's/^/        /'
 }
 
@@ -432,15 +471,27 @@ cruft=$(find . \( -name '.DS_Store' -o -name '__MACOSX' \) -not -path './.git/*'
 [[ -z "$cruft" ]] && pass "no macOS cruft" || { fail "macOS cruft committed:"; printf '%s\n' "$cruft" | sed 's/^/        /'; }
 
 # Personal absolute paths. This script names the patterns, so exclude itself.
+# Exclusions are by PATH, not a `grep -v` on the output: that tests the whole
+# matched LINE, so a real hit is dropped whenever its text happens to contain
+# the filter string. That is not hypothetical — it is how a search of this repo
+# for `mapfile` came back empty, the one hit being on a line that itself reads
+# `-not -path './.git/*'`.
+# Self-exclusion is an ANCHORED filter on the path, not `--exclude=validate.sh`:
+# GNU grep lets --include win over --exclude when a file matches both, so the
+# --exclude is silently inert here.
 markers=$(grep -rlnE '/home/|/Users/|~/Sandbox' \
+  --exclude-dir=.git \
   --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v './.git/' | grep -v 'scripts/validate.sh' || true)
+  | grep -v '^\./scripts/validate\.sh$' || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
 
 # Credential shapes — placeholders like 'sk-lf-...' must not become real keys.
+# Same anchored self-exclusion. `-n` puts the matched text in the output, so an
+# unanchored `grep -v` would test the line CONTENT and drop real hits.
 secrets=$(grep -rEn 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' \
+  --exclude-dir=.git \
   --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v './.git/' | grep -v 'scripts/validate.sh' || true)
+  | grep -v '^\./scripts/validate\.sh:' || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
 
 # --------------------------------------------------------------------------

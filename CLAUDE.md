@@ -217,9 +217,11 @@ SKILL.md frontmatter (`name` matching its directory, `description` present),
 plugin and marketplace manifests (valid JSON, names agreeing with directories,
 every skill listed, plus `claude plugin validate` when the CLI is on hand),
 config-template JSON validity, that the settings allowlist and the shipped
-`bin/` scripts name each other exactly, GNU-only shell idioms in shipped scripts
-(this workstation and CI are both Linux, so a `find -printf` passes here and
-fails on a user's Mac — running the code cannot catch it), **plugin version
+`bin/` scripts name each other exactly, non-portable shell idioms in every shell
+artifact — GNU-only tool flags and bash 4 syntax alike, since macOS is stuck on
+bash 3.2 (this workstation is Linux, so a `find -printf` or a `mapfile` passes
+locally; CI runs the suite on macOS too, under the stock bash forced onto `PATH`,
+which is what catches these for real), **plugin version
 bumps** (a skill changed since the last `v<number>` tag must carry a higher
 `version`, or everyone who installed it is stranded — see `docs/RELEASING.md`),
 repo hygiene (no macOS cruft, personal paths, or credential-shaped strings —
