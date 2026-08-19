@@ -93,11 +93,11 @@ Per-project setup (run in each project that uses the skills):
        Bash(hdx_query.sh:*)                 Bash(pr_review_post_reply.sh:*)
        Bash(langfuse_query.sh:*)            Bash(pr_review_resolve_thread.sh:*)
 
-     Those six are safe in ~/.claude/settings.json. The FULL template at
+     The template at
        $REPO_DIR/project-files/.claude/settings.json
-     is a project config — it also sets defaultMode auto and grants Write,
-     Edit, Agent, WebFetch and more, so use it whole only inside a project you
-     trust, never at user scope. See README.md.
+     is those six plus the read-only git and gh commands the skills run, and
+     an ask list for the destructive ones they warn against. It covers this
+     toolkit and nothing else, so it suits either project or user scope.
 
   3. Check the prerequisites for the skills you plan to use (README.md):
        hyperdx    jq, plus curl (cloud mode) or docker (local mode)

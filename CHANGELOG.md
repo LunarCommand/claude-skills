@@ -27,6 +27,12 @@ plugins that actually changed:
 
 ### Repository
 
+- The settings template is now scoped to this toolkit. It was a personal project
+  config — `defaultMode: auto`, `Write`, `Edit`, `Agent`, `Bash(make:*)`, `uv`,
+  `brew`, `nvidia-smi` — that happened to contain the script rules. Every entry
+  now traces to a command a shipped skill runs, which is what makes it safe to
+  suggest at user scope as well as project scope, and the `README`, `CLAUDE.md`
+  and `install.sh` warnings against copying it whole are gone with it.
 - README documents copying a skill by hand as a third install route. The
   manifest lives in a hidden `.claude-plugin/` directory, so the obvious
   `cp -R skills/<name>/* ...` skips it, and without it the copy is an inert

@@ -1,73 +1,52 @@
 {
+  "_comment": [
+    "Permissions for the Claude Skills Toolkit (github.com/LunarCommand/claude-skills).",
+    "Copy to <project>/.claude/settings.json, or merge into ~/.claude/settings.json — it",
+    "covers this toolkit and nothing else, so either scope is reasonable. Without it, every",
+    "bundled script prompts on each call, which reads as the skill being broken.",
+    "Scripts are approved by BARE NAME, never by path: bin/ reaches the Bash tool's PATH",
+    "through the skill's .claude-plugin/plugin.json. A bare name failing with 'command not",
+    "found' means that manifest is missing, not that the rule is wrong.",
+    "The ask list is deliberate, not leftover: the git operations the recommended workflow",
+    "confirms first, plus the destructive ones adversarial-review's own instructions forbid."
+  ],
   "permissions": {
-    "defaultMode": "auto",
     "allow": [
-      "Agent",
-      "Read",
-      "Edit",
-      "Write",
-      "Glob",
-      "Grep",
-      "WebSearch",
-      "WebFetch",
-      "Bash(openspec:*)",
-      "Bash(git status:*)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git mv:*)",
-      "Bash(git fetch:*)",
-      "Bash(git pull:*)",
-      "Bash(git show:*)",
-      "Bash(git -C * show:*)",
-      "Bash(gh repo view:*)",
-      "Bash(gh pr view:*)",
-      "Bash(gh run list:*)",
-      "Bash(gh run view:*)",
       "Bash(adversarial_review_path.sh:*)",
       "Bash(hdx_query.sh:*)",
       "Bash(langfuse_query.sh:*)",
       "Bash(pr_review_parse_comments.sh:*)",
       "Bash(pr_review_post_reply.sh:*)",
       "Bash(pr_review_resolve_thread.sh:*)",
+
+      "Bash(gh repo view:*)",
+      "Bash(gh pr view:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git submodule status:*)",
+
+      "Bash(diff:*)",
+
       "Bash(mkdir:*)",
-      "Bash(ls:*)",
-      "Bash(grep:*)",
-      "Bash(find:*)",
-      "Bash(cat:*)",
-      "Bash(echo:*)",
-      "Bash(tree:*)",
-      "Bash(wc:*)",
-      "Bash(head:*)",
-      "Bash(comm:*)",
-      "Bash(nvidia-smi:*)",
-      "Bash(du:*)",
-      "Bash(brew list:*)",
-      "Bash(uv sync:*)",
-      "Bash(uv add:*)",
-      "Bash(uv pip show:*)",
-      "Bash(uv pip list:*)",
-      "Bash(uv run pytest:*)",
-      "Bash(uv run black:*)",
-      "Bash(uv run ruff:*)",
-      "Bash(uv run pyright:*)",
-      "Bash(make:*)",
-      "mcp__ide__getDiagnostics"
-    ],
-    "deny": [
-      "Bash(sudo:*)",
-      "Bash(ssh:*)"
+      "Bash(tar czf:*)"
     ],
     "ask": [
-      "Bash(git stash:*)",
-      "Bash(git checkout:*)",
-      "Bash(git push:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git push:*)",
       "Bash(gh pr create:*)",
-      "Bash(gh repo create *)",
-      "Bash(rm:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)"
-      ]
+
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git clean:*)",
+
+      "Bash(git submodule foreach:*)"
+    ]
   }
 }

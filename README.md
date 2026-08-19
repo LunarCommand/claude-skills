@@ -186,39 +186,38 @@ That `PATH` entry comes from the skill's `.claude-plugin/plugin.json`. If bare
 names fail with `command not found`, the manifest is missing rather than the
 rules being wrong — see [Copy a skill by hand](#copy-a-skill-by-hand).
 
-**To approve just the skill scripts**, add these six rules. They are safe at user
-scope (`~/.claude/settings.json`), which is the right choice for the marketplace
-route since there is no per-project setup step:
+[`project-files/.claude/settings.json`](project-files/.claude/settings.json) is
+the whole set, and nothing beyond it. Copy it to `<project>/.claude/settings.json`,
+or merge it into `~/.claude/settings.json` if you would rather approve the
+toolkit once for every repository — it is narrow enough for either scope, which
+is the point of keeping it minimal:
 
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(adversarial_review_path.sh:*)",
-      "Bash(hdx_query.sh:*)",
-      "Bash(langfuse_query.sh:*)",
-      "Bash(pr_review_parse_comments.sh:*)",
-      "Bash(pr_review_post_reply.sh:*)",
-      "Bash(pr_review_resolve_thread.sh:*)"
-    ]
-  }
-}
-```
+- **the six bundled scripts**, by bare name
+- **`gh repo view` / `gh pr view`** — pr-review reads the repo and PR in Step 1
+- **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`,
+  `submodule status`: what adversarial-review reads to scope a review
+- **`mkdir`, `tar czf`, `diff`** — the safety snapshot adversarial-review takes
+  before reviewing a dirty tree, and the compare that proves the tree survived.
+  `tar czf` rather than `tar`, so the rule covers writing an archive and not
+  unpacking one
 
-> **Do not copy the whole `permissions` block from
-> `project-files/.claude/settings.json` into your user settings.** That template
-> is a *project* configuration: alongside the script rules it sets
-> `defaultMode: auto` and grants `Write`, `Edit`, `Agent`, `WebFetch`,
-> `Bash(find:*)`, `Bash(make:*)` and more. At user scope those apply in every
-> repository you open — including untrusted ones the review skills exist to
-> inspect. Use it whole only in a project you trust, as
-> `<project>/.claude/settings.json`, where it also gates the git operations the
-> recommended workflow says to confirm first.
+The `ask` list is the other half, and is deliberate rather than leftover. It
+covers the operations the recommended workflow says to confirm — `git add`,
+`git commit`, `git push`, `gh pr create` — and the destructive git commands
+adversarial-review's own instructions forbid: `checkout`, `reset`, `restore`,
+`stash`, `clean`. Those are prose in the skill and a prompt here, which is the
+difference between an instruction an agent should follow and one it cannot
+quietly skip. `git submodule foreach` is there too — the snapshot genuinely runs
+it, but it takes an arbitrary command string, so it asks rather than being waved
+through.
+
+Nothing else is in the file. No `defaultMode`, no tool-level grants like `Write`
+or `Edit`, no rules for tooling this repo does not ship — those are yours to
+decide, and a toolkit has no business asserting them on your behalf.
 
 A rule approves the command **name**, matching whatever `PATH` resolves it to
 rather than a specific file — which is why the shipped names are distinctive
-enough not to collide with anything you are likely to already have. Prefer
-project scope if that trade is one you would rather not make globally.
+enough not to collide with anything you are likely to already have.
 
 ## How a skill works
 
