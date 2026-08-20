@@ -130,6 +130,19 @@ const WORKTREE_REF_MANDATE = !ISOLATE
     '- Unchanged collaborator files ARE valid to read directly: they are the same ' +
     'on both refs. It is the CHANGED files that require the ref.'
 
+// Applies to every angle and severity. A nit panel skips `reproduce`, and an
+// "untested"/"undocumented" finding is exactly the shape a nit takes — so an
+// absence rule living only in that angle never reaches the findings that most
+// need it.
+const ABSENCE_SEARCH_MANDATE =
+  '\n\n## An absence claim has to be searched, not asserted\n' +
+  'If the finding asserts something is ABSENT (untested, unguarded, unhandled, ' +
+  'undocumented), go look for the thing it says is missing before accepting it: ' +
+  'name the test, guard or section that would have to exist, then search for it. ' +
+  'An existing test refutes the finding however indirectly it covers the case, and ' +
+  '"I did not see one" is not a search. Absence claims are the easiest to state ' +
+  'and the least often checked.'
+
 // Verify-stage only. The lenses judge the ref they were given, which is right:
 // that is the artifact under review. But a finding is only worth reporting if it
 // is still true where the work now lives, and a review ref is routinely behind
@@ -413,7 +426,7 @@ const VERDICT_SCHEMA = {
 const ANGLES = [
   {
     key: 'reproduce',
-    ask: 'Reproduce this finding concretely. For a runtime bug: construct the input/state that triggers it — if you cannot, it is likely not real. For a spec/docs/config/prose target: most real defects have NO triggering input, so "reproduce" means show concretely how the artifact misleads a reader, makes two conforming implementations diverge, contradicts another section, or states something false. Do NOT mark real=false merely because there is no runtime trigger. For a finding that asserts something is ABSENT (untested, unguarded, unhandled, undocumented): go look for the thing it says is missing before accepting it — name the test, guard or section that would have to exist, then search for it. A finding that a guard is untested is refuted by an existing test that covers it, however indirectly, and "I did not see one" is not a search. Absence claims are the easiest to state and the least often checked.',
+    ask: 'Reproduce this finding concretely. For a runtime bug: construct the input/state that triggers it — if you cannot, it is likely not real. For a spec/docs/config/prose target: most real defects have NO triggering input, so "reproduce" means show concretely how the artifact misleads a reader, makes two conforming implementations diverge, contradicts another section, or states something false. Do NOT mark real=false merely because there is no runtime trigger.',
   },
   {
     key: 'regress',
@@ -565,6 +578,7 @@ const verified = await parallel(
             'merely because the finding is low-severity or has no runtime reproduction — a factually ' +
             'correct but minor finding is REAL (it stays a nit). Default to real=false only when the ' +
             'claim itself is dubious, never when it is merely minor. Return a verdict.' +
+            ABSENCE_SEARCH_MANDATE +
             TIP_RECHECK_MANDATE +
             READ_ONLY_MANDATE,
           {
