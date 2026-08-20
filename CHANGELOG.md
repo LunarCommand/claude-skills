@@ -35,6 +35,11 @@ plugins that actually changed:
 
 ### adversarial-review — 0.10.0
 
+All three verify-stage changes below apply to `adversarial-review.workflow.js`,
+the code-target engine. The sibling `spec-accept-review.workflow.js` is unchanged
+and still judges nits by a single angle; porting them is outstanding work, and
+`SKILL.md` now says so where the rules are stated.
+
 - Refutation now has to search before it accepts an absence claim. "Untested",
   "unguarded", "unhandled" are the easiest findings to state and the least often
   checked; a verifier must name the test or guard that would have to exist and go
@@ -53,6 +58,10 @@ plugins that actually changed:
   building; `accepted` means the plan is right but stop here. Conflating the two
   made "good plan, not yet" expressible only by interrupting a run that had already
   started writing code.
+- The accepted state is recorded in the plan file as a `## Status` section rather
+  than only in the session, and a later "approved" re-reads the file before
+  implementing. Every reason to choose "accepted" implies the session ends, and the
+  plan is editable while it waits.
 - Implementation tasks carry stable `P<phase>.<task>` IDs, for the same reason
   tests carry `T-<n>`: prose gets reworded, identifiers do not. Numbering within
   the phase means appending a task never renumbers another.

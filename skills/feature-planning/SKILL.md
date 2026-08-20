@@ -349,14 +349,23 @@ Two words open this gate, and they mean different things:
   simply another day. Confirm the plan is final, say nothing about what should happen next,
   and stop.
 
+  **Record it in the plan file before you stop.** Add a `## Status` section reading
+  `Accepted — not yet implemented` with the date. Every reason for choosing "accepted" implies
+  the session ends, and a later session has no memory that the gate was ever opened. The file
+  is the only thing that survives, so if the state is not written there it does not exist.
+
 "done", "answered", "looks good" open neither.
 
 The distinction exists because *the plan is correct* and *start building now* are separate
 decisions, and conflating them means the only way to say "good plan, not yet" is to interrupt
 a run that has already started writing code.
 
-After "accepted", treat a later "approved" as opening Step 5 without re-running the gate — the
-plan has not changed.
+After "accepted", a later "approved" opens Step 5 without re-running Gate 2 — but **re-read the
+plan file from disk first** and confirm it still matches what was accepted. "The plan has not
+changed" is an assumption, not a fact: "accepted" exists precisely so that time can pass, and the
+file is editable by anyone during it. This is the same read-then-write race Gate 1 already guards
+against, on the one gate designed to span days. If the file has changed since it was accepted, say
+what changed and re-present Gate 2.
 If the user requests changes, update the plan file on disk, re-present the gate message, and wait again.
 
 ---
@@ -390,6 +399,7 @@ Implement according to the plan and close the verification loop the plan set up 
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
 - There are two separate gates — Gate 1 ("answered") and Gate 2 ("approved" or "accepted") — they are not interchangeable.
 - **Gate 2 has two exits.** "approved" means start building; "accepted" means the plan is final but do not start. Never treat "accepted" as permission to write code.
+- **"accepted" is written to the plan file, not just remembered**, and a later "approved" re-reads the file before Step 5 — the state has to survive the session, and the plan may have been edited while it waited.
 - "done" does not open either gate.
 - Re-reading the file after answers is mandatory — do not rely on memory of the blank questions, and watch for user edits to the analysis.
 - Writing the plan to disk is mandatory — chat output does not count.
