@@ -318,17 +318,30 @@ Before surfacing anything, try to **refute** each finding — but refute on **va
   refutes the finding even if it covers it indirectly, and "I didn't see one" is not a search.
 - **Re-check against the tip when the reviewed ref is behind it.** A PR reviewed mid-stream, a
   resumed run, or fixes that landed while the review was in flight all leave findings that were true
-  at the reviewed ref and are fixed at the tip. Look for commits after it (`git log --oneline
-  <reviewRef>..`) and re-check there before reporting. Only an actual fix refutes; a finding that is
-  merely harder to see at the tip still stands.
+  at the reviewed ref and are fixed at the tip. Find the branches containing the ref
+  (`git branch -a --contains <reviewRef>`, ignoring this run's own `worktree-*` sandboxes), list true
+  descendants with `git log --oneline --ancestry-path <reviewRef>..<branch>`, and confirm each
+  candidate with `git merge-base --is-ancestor <reviewRef> <tip>` before reading it. **Never write the
+  range with the right side omitted** — a bare `<reviewRef>..` means `<reviewRef>..HEAD`, and under
+  isolation HEAD is the default branch, so it answers a different question and is usually empty. If
+  nothing passes the ancestry check, the check is *skipped*, not passed. Only an actual fix at a
+  verified descendant refutes; a finding merely harder to see at the tip still stands.
 - Confirm the suggested fix would actually work and wouldn't regress something.
 
 This is what stops confidently-**wrong** findings from reaching the author — *wrong*, not merely *minor*.
 
+> **These verify-stage rules are implemented in `adversarial-review.workflow.js`.**
+> The sibling `spec-accept-review.workflow.js`, which Step 3b routes spec and RFC
+> targets to, still judges nits by a single angle and has no absence-search or
+> tip-recheck mandate. Apply the rules above by hand when reviewing a spec through
+> that engine, and treat porting them as outstanding work.
+
 **Judging nits.** Judge a nit by *claim-true* and *regress*, and keep it only if it survives both.
 Skip *reproduce*, which a prose or maintainability nit can never satisfy and which would auto-refute
 it. One angle is close to no verification at all, and a lens capped at `should` puts most of its
-output in this tier.
+output in this tier. "Both" means both verifiers that actually returned a verdict — a verifier that
+never answered abstains, and a panel where nobody answered leaves the finding **unverified**, not
+refuted.
 
 ## Step 5 — Rank and report
 
