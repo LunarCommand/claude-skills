@@ -95,7 +95,7 @@ Per-project setup (run in each project that uses the skills):
 
      The template at
        $REPO_DIR/project-files/.claude/settings.json
-     is those six plus the read-only git and gh commands the skills run, and
+     is those six plus the git, gh and snapshot commands the skills run, and
      an ask list for the destructive ones they warn against. It covers this
      toolkit and nothing else, so it suits either project or user scope.
 
