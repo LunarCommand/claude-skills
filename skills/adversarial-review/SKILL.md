@@ -312,9 +312,23 @@ Before surfacing anything, try to **refute** each finding — but refute on **va
   before killing it. This has already destroyed a real blocker: three verifiers agreed a CI-breaking
   manifest entry was imaginary, because none of them was looking at the branch that had it.
   Refutations that rest on *logic*, *spec text*, or *intended behaviour* are unaffected.
+- **An absence claim has to be searched, not asserted.** "Untested", "unguarded", "unhandled",
+  "undocumented" are the easiest findings to state and the least often checked. Name the test, guard
+  or section that would have to exist, then go look for it. An existing test that covers the guard
+  refutes the finding even if it covers it indirectly, and "I didn't see one" is not a search.
+- **Re-check against the tip when the reviewed ref is behind it.** A PR reviewed mid-stream, a
+  resumed run, or fixes that landed while the review was in flight all leave findings that were true
+  at the reviewed ref and are fixed at the tip. Look for commits after it (`git log --oneline
+  <reviewRef>..`) and re-check there before reporting. Only an actual fix refutes; a finding that is
+  merely harder to see at the tip still stands.
 - Confirm the suggested fix would actually work and wouldn't regress something.
 
 This is what stops confidently-**wrong** findings from reaching the author — *wrong*, not merely *minor*.
+
+**Judging nits.** Judge a nit by *claim-true* and *regress*, and keep it only if it survives both.
+Skip *reproduce*, which a prose or maintainability nit can never satisfy and which would auto-refute
+it. One angle is close to no verification at all, and a lens capped at `should` puts most of its
+output in this tier.
 
 ## Step 5 — Rank and report
 

@@ -23,6 +23,22 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
+## Unreleased
+
+### adversarial-review — 0.10.0
+
+- Refutation now has to search before it accepts an absence claim. "Untested",
+  "unguarded", "unhandled" are the easiest findings to state and the least often
+  checked; a verifier must name the test or guard that would have to exist and go
+  look for it, and "I didn't see one" is not a search.
+- A finding is re-checked against the branch tip before it is reported. A PR
+  reviewed mid-stream or a resumed run leaves findings that were true at the
+  reviewed ref and already fixed at the tip, and reporting those as live costs the
+  reader a triage pass. Only an actual fix refutes.
+- Nits are judged by two verifiers instead of one, and must survive both. A single
+  angle is close to no verification, and `reproduce` is skipped for this tier
+  because a prose nit can never satisfy it and would be auto-refuted.
+
 ## v0.10.0 — 2026-08-19
 
 ### Repository

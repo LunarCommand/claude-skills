@@ -130,6 +130,31 @@ const WORKTREE_REF_MANDATE = !ISOLATE
     '- Unchanged collaborator files ARE valid to read directly: they are the same ' +
     'on both refs. It is the CHANGED files that require the ref.'
 
+// Verify-stage only. The lenses judge the ref they were given, which is right:
+// that is the artifact under review. But a finding is only worth reporting if it
+// is still true where the work now lives, and a review ref is routinely behind
+// the branch tip — a PR reviewed mid-stream, a resumed run, fixes landed while
+// the review was in flight. Reporting an already-fixed defect as live costs the
+// caller a triage pass and erodes trust in the rest of the findings.
+const TIP_RECHECK_MANDATE = !REVIEW_REF
+  ? ''
+  : '\n\n## Check the finding against the current tip, not just the reviewed ref\n' +
+    'The reviewed ref is ' +
+    REVIEW_REF +
+    ', which may be behind the branch tip. Before returning real=true:\n' +
+    '- Look for commits after it: `git log --oneline ' +
+    REVIEW_REF +
+    '..` on each branch that contains it (`git branch -a --contains ' +
+    REVIEW_REF +
+    '`).\n' +
+    '- If there are none, the reviewed ref IS the tip and this check is done.\n' +
+    '- If there are, re-check the finding at the newest descendant with ' +
+    '`git show <tip>:<path>`. If it has already been fixed there, mark real=false ' +
+    'and say which commit fixed it.\n' +
+    'A finding that was true at the reviewed ref and is false at the tip is not a ' +
+    'defect the caller can act on. Do NOT use this to refute a finding that is ' +
+    'merely harder to see at the tip: only an actual fix counts.'
+
 // The refs bounding the review, surfaced whether or not isolation is on.
 // Delta mode passes baseRef/reviewRef with isolation OFF; without this the
 // agents never learn baseRef and silently review the whole artifact instead of
@@ -388,7 +413,7 @@ const VERDICT_SCHEMA = {
 const ANGLES = [
   {
     key: 'reproduce',
-    ask: 'Reproduce this finding concretely. For a runtime bug: construct the input/state that triggers it — if you cannot, it is likely not real. For a spec/docs/config/prose target: most real defects have NO triggering input, so "reproduce" means show concretely how the artifact misleads a reader, makes two conforming implementations diverge, contradicts another section, or states something false. Do NOT mark real=false merely because there is no runtime trigger.',
+    ask: 'Reproduce this finding concretely. For a runtime bug: construct the input/state that triggers it — if you cannot, it is likely not real. For a spec/docs/config/prose target: most real defects have NO triggering input, so "reproduce" means show concretely how the artifact misleads a reader, makes two conforming implementations diverge, contradicts another section, or states something false. Do NOT mark real=false merely because there is no runtime trigger. For a finding that asserts something is ABSENT (untested, unguarded, unhandled, undocumented): go look for the thing it says is missing before accepting it — name the test, guard or section that would have to exist, then search for it. A finding that a guard is untested is refuted by an existing test that covers it, however indirectly, and "I did not see one" is not a search. Absence claims are the easiest to state and the least often checked.',
   },
   {
     key: 'regress',
@@ -511,8 +536,15 @@ const verified = await parallel(
     // A nit is a claim about correctness (consistency / accuracy / parity), not
     // a runtime failure — judge it by 'claim-true' (is it actually true?), NOT by
     // 'reproduce', which a prose/docs nit can never satisfy and which would auto-refute it.
-    const angles = f.severity === 'nit' ? [ANGLES[2]] : ANGLES
-    const need = Math.ceil(angles.length / 2)
+    //
+    // 'regress' as well, so a nit is not decided by a single verifier. One angle
+    // is close to no verification at all, and a lens capped at `should` pushes
+    // most of its output into this tier.
+    const angles = f.severity === 'nit' ? [ANGLES[2], ANGLES[1]] : ANGLES
+    // Majority on the 3-angle panel. UNANIMOUS on the 2-angle nit panel:
+    // `ceil(2/2)` is one affirming vote, which would make two verifiers weaker
+    // than the single one they replace.
+    const need = angles.length === 2 ? 2 : Math.ceil(angles.length / 2)
     return parallel(
       angles.map((ang) => () =>
         agent(
@@ -533,6 +565,7 @@ const verified = await parallel(
             'merely because the finding is low-severity or has no runtime reproduction — a factually ' +
             'correct but minor finding is REAL (it stays a nit). Default to real=false only when the ' +
             'claim itself is dubious, never when it is merely minor. Return a verdict.' +
+            TIP_RECHECK_MANDATE +
             READ_ONLY_MANDATE,
           {
             label: 'verify:' + ang.key + ':' + f.file,
