@@ -180,8 +180,9 @@ asked, instead of discovering afterwards that it committed.
 
 `user-claude-md/CLAUDE.md` is the plan → implement → test → hand-off loop the
 skills assume, with gates where you review before anything is committed or
-pushed. It carries the house style they are tuned to as well: commit messages,
-branch naming, PR summaries, releases, and code comments.
+pushed. It carries the house style they are tuned to as well: how replies are
+written, commit messages, branch naming, PR summaries, releases, and code
+comments.
 
 Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you want. No
 install route writes it for you — see [Install](#install).

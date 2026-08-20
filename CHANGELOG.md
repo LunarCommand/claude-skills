@@ -25,6 +25,14 @@ plugins that actually changed:
 
 ## Unreleased
 
+### Repository
+
+- The recommended user CLAUDE.md opens with a communication-style section: plain
+  register, short sentences, no invented jargon. It states explicitly that this is
+  a register and not a vocabulary limit, so the precise technical term survives —
+  the failure mode of a "keep it simple" instruction is losing precision along
+  with the padding.
+
 ### adversarial-review — 0.10.0
 
 - Refutation now has to search before it accepts an absence claim. "Untested",
