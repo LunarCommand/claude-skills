@@ -27,6 +27,28 @@ plugins that actually changed:
 
 ### Repository
 
+- The recommended user CLAUDE.md allows a `docs/` branch prefix. This repository
+  had already used one for a documentation-only PR, so the convention and the
+  practice disagreed.
+- README restructured around using the toolkit rather than listing it: a contents
+  list, a diagram of how the skills chain together, per-skill "use it for" entries
+  with real invocations, and four sections it never had — what an adversarial
+  review costs, when not to use any of this, what surprises people, and what never
+  to do. The cost section is the gap that mattered: a PR-sized adversarial review
+  runs 1.5-3M tokens across dozens of agents, and nothing in the repository said
+  so before installing it.
+- The settings template is now scoped to this toolkit. It was a personal project
+  config — `defaultMode: auto`, `Write`, `Edit`, `Agent`, `Bash(make:*)`, `uv`,
+  `brew`, `nvidia-smi` — that happened to contain the script rules. Every entry
+  now traces to a command a shipped skill runs, which is what makes it safe to
+  suggest at user scope as well as project scope, and the `README`, `CLAUDE.md`
+  and `install.sh` warnings against copying it whole are gone with it.
+- README documents copying a skill by hand as a third install route. The
+  manifest lives in a hidden `.claude-plugin/` directory, so the obvious
+  `cp -R skills/<name>/* ...` skips it, and without it the copy is an inert
+  folder: `bin/` never reaches the Bash tool's `PATH` and every bare-name call
+  fails. Reported downstream as the permission rules being wrong; the rules were
+  correct and the manifest was missing.
 - Fixed `scripts/validate.sh` on macOS. It used `mapfile`, a bash 4 builtin, and
   macOS ships bash 3.2.57 — so on a Mac the run stopped at the first check and
   everything after it was skipped. Reported by a downstream user; present since

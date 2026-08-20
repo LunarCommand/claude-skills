@@ -130,11 +130,14 @@ Two consequences, both load-bearing when adding a script:
   skills, since bare-name invocation can only ever reach one of them — and on any
   `*.sh` named in the docs that no longer ships, which is how a rename turns into
   a failing check rather than stale prose.
-- **Never tell a user to put the whole settings template at user scope.** It is a
-  project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent` and more;
-  globally that applies to every repo they open, including untrusted ones the
-  review skills exist to inspect. `README.md` lists the six script rules
-  separately for exactly this reason.
+- **The settings template covers this repo's skills and nothing else**, which is
+  what makes it safe to suggest at either project or user scope. It was once a
+  personal project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent`,
+  `Bash(make:*)` and tooling unrelated to these skills — at user scope that
+  applied to every repo the user opened, including untrusted ones the review
+  skills exist to inspect. Keep it minimal: every entry should trace to a command
+  a shipped skill actually runs, and anything broader belongs in the user's own
+  settings, not in a template they copy.
 
 ### `.agent.env` config convention
 
