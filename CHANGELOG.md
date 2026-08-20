@@ -23,7 +23,7 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
-## Unreleased
+## v0.10.0 — 2026-08-19
 
 ### Repository
 
