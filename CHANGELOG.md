@@ -39,6 +39,16 @@ plugins that actually changed:
   angle is close to no verification, and `reproduce` is skipped for this tier
   because a prose nit can never satisfy it and would be auto-refuted.
 
+### feature-planning — 0.10.0
+
+- Gate 2 has a second exit. `approved` means the plan is right *and* start
+  building; `accepted` means the plan is right but stop here. Conflating the two
+  made "good plan, not yet" expressible only by interrupting a run that had already
+  started writing code.
+- Implementation tasks carry stable `P<phase>.<task>` IDs, for the same reason
+  tests carry `T-<n>`: prose gets reworded, identifiers do not. Numbering within
+  the phase means appending a task never renumbers another.
+
 ## v0.10.0 — 2026-08-19
 
 ### Repository
