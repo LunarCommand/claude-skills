@@ -57,6 +57,11 @@ and still judges nits by a single angle; porting them is outstanding work, and
 - A finding no verifier judged is reported as **unverified** rather than refuted,
   in its own bucket and its own line in the run summary. A verify-phase outage
   used to render as a clean review.
+- A `reviewRef` or `baseRef` that cannot safely be interpolated into a command is
+  refused — a leading dash made `git diff --output <path>` reachable, and git's own
+  `check-ref-format` accepts such a branch name. A refused ref is announced in the
+  run log and kept distinguishable from one that was never supplied, because
+  failing silently sent every agent to the pre-change default branch.
 - Confirmed findings carry the panel that judged them (`asked` vs `cast`), so a
   finding confirmed by one surviving verifier is distinguishable from one
   confirmed by three, and the run warns when a finding vanishes mid-verify.
@@ -67,10 +72,11 @@ and still judges nits by a single angle; porting them is outstanding work, and
   building; `accepted` means the plan is right but stop here. Conflating the two
   made "good plan, not yet" expressible only by interrupting a run that had already
   started writing code.
-- The accepted state is recorded in the plan file as a `## Status` section rather
-  than only in the session, and a later "approved" re-reads the file before
-  implementing. Every reason to choose "accepted" implies the session ends, and the
-  plan is editable while it waits.
+- The plan file carries a `## Status` line through its whole lifecycle: `Drafted`
+  at write time, `Accepted — not yet implemented` with a date and a plan sha at
+  Gate 2, `Implemented` when the last phase goes green. The sha is what makes the
+  deferred-start check answerable — re-entry compares against it and re-presents
+  Gate 2 if the plan moved, rather than asserting it did not.
 - Implementation tasks carry stable `P<phase>.<task>` IDs, for the same reason
   tests carry `T-<n>`: prose gets reworded, identifiers do not. Numbering within
   the phase means appending a task never renumbers another.

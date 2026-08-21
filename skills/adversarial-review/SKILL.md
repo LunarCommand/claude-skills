@@ -250,6 +250,15 @@ prose and conformance fixtures — a fixture that can pass wrongly, a stale
 cross-reference, a coverage gap against precedent, a CHANGELOG date that does not
 match the tag day. It takes only two args:
 
+> **The two engines' verify stages are not equivalent.** The refutation rules in
+> Step 4 — the absence search, the tip re-check, and a nit needing every verifier
+> that answered — are implemented in `adversarial-review.workflow.js` only. The
+> spec engine still judges a nit by one angle, and it coerces a missing verdict to
+> `REFUTED` rather than letting a dead verifier abstain, so an agent that fails
+> silently kills the finding. That last one cannot be compensated for by hand.
+> Weigh it when reading a spec review's output; porting the rules is outstanding
+> work.
+
 ```
 Workflow({
   scriptPath: "<path from: adversarial_review_path.sh spec-accept-review.workflow.js>",

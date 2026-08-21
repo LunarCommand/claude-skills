@@ -95,8 +95,26 @@ const ISOLATE = a.isolate === true
 // The ref actually holding the change, and what to diff it against. Load-bearing
 // under isolation: the worktree is cut from the DEFAULT BRANCH, so on a feature
 // branch the agents' checkout does NOT contain the change at all.
-const REVIEW_REF = typeof a.reviewRef === 'string' && a.reviewRef ? a.reviewRef : ''
-const BASE_REF = typeof a.baseRef === 'string' && a.baseRef ? a.baseRef : ''
+// Both refs are interpolated into commands verify agents are told to run, and on
+// a public repo a reviewRef is routinely a contributor-supplied branch name.
+// Two failure modes to avoid, and the first attempt at this hit both:
+//   - a leading `-` makes the ref parse as an OPTION, so `git diff --output <p>`
+//     truncates <p>. `git check-ref-format refs/heads/--output` exits 0, so git
+//     itself will not stop you.
+//   - failing SILENTLY is worse than not checking. A rejected ref became '', and
+//     the no-ref branch below then told every agent "the skill did not pass a
+//     reviewRef" — false, and under isolation it sent them to the pre-change
+//     default branch with nothing logged.
+// So: accept what git accepts (including ~ ^ @ {} for revisions), reject a
+// leading dash and `..`, and when something IS rejected say so loudly and keep
+// that fact distinguishable from "none was supplied".
+const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._\/~^@{}+-]{0,254}$/
+const isSafeRef = (v) => typeof v === 'string' && v !== '' && SAFE_REF.test(v) && v.indexOf('..') === -1
+const REVIEW_REF = isSafeRef(a.reviewRef) ? a.reviewRef : ''
+const BASE_REF = isSafeRef(a.baseRef) ? a.baseRef : ''
+// Supplied but refused — never conflate with "not supplied".
+const REVIEW_REF_REJECTED = !!a.reviewRef && !REVIEW_REF
+const BASE_REF_REJECTED = !!a.baseRef && !BASE_REF
 
 // Appended to every agent prompt when ISOLATE is on.
 //
@@ -117,8 +135,13 @@ const WORKTREE_REF_MANDATE = !ISOLATE
         REVIEW_REF +
         '.\n' +
         (BASE_REF ? 'Diff it against: ' + BASE_REF + '.\n' : '')
-      : 'The skill did not pass a reviewRef; derive it from the scope description ' +
-        'and say so in your finding if you could not.\n') +
+      : (REVIEW_REF_REJECTED
+          ? 'A reviewRef WAS supplied but was refused as unsafe to interpolate ' +
+            'into a command, so it has been dropped. Do not assume the working ' +
+            'copy holds the change: it almost certainly does not. Say in every ' +
+            'finding that the reviewed ref was unavailable.\n'
+          : 'The skill did not pass a reviewRef; derive it from the scope ' +
+            'description and say so in your finding if you could not.\n')) +
     'Therefore:\n' +
     '- Read changed files with `git show <reviewRef>:<path>`, NOT by opening the ' +
     'path directly.\n' +
@@ -481,6 +504,24 @@ const ANGLES = [
 // Each lens returns at most its 6 highest-severity findings to cap the blast
 // radius and force prioritization.
 phase('Review')
+// A refused ref silently disables every check that depends on it, so it is said
+// out loud before the fan-out rather than inferred later from a thin review.
+if (REVIEW_REF_REJECTED || BASE_REF_REJECTED) {
+  log(
+    'WARNING: ' +
+      (REVIEW_REF_REJECTED ? 'reviewRef ' : '') +
+      (REVIEW_REF_REJECTED && BASE_REF_REJECTED ? 'and ' : '') +
+      (BASE_REF_REJECTED ? 'baseRef ' : '') +
+      'was supplied but refused as unsafe to interpolate into a command (a ref ' +
+      'must start alphanumeric and contain no ".."). The checks that depend on ' +
+      'it are DISABLED for this run' +
+      (ISOLATE
+        ? ', and with isolation on the agents are reading a worktree cut from ' +
+          'the default branch — treat this result as unreliable.'
+        : '.')
+  )
+}
+
 log(
   'Adversarial review of ' +
     scope +
