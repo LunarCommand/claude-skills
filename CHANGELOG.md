@@ -35,7 +35,7 @@ plugins that actually changed:
 
 ### adversarial-review — 0.10.0
 
-All three verify-stage changes below apply to `adversarial-review.workflow.js`,
+The verify-stage changes below apply to `adversarial-review.workflow.js`,
 the code-target engine. The sibling `spec-accept-review.workflow.js` is unchanged
 and still judges nits by a single angle; porting them is outstanding work, and
 `SKILL.md` now says so where the rules are stated.
@@ -51,6 +51,15 @@ and still judges nits by a single angle; porting them is outstanding work, and
 - Nits are judged by two verifiers instead of one, and must survive both. A single
   angle is close to no verification, and `reproduce` is skipped for this tier
   because a prose nit can never satisfy it and would be auto-refuted.
+- A verifier that returns no verdict now abstains instead of counting as a
+  refusal. The threshold is taken from the verifiers that actually answered, so a
+  dead agent no longer deletes a finding the survivors affirmed.
+- A finding no verifier judged is reported as **unverified** rather than refuted,
+  in its own bucket and its own line in the run summary. A verify-phase outage
+  used to render as a clean review.
+- Confirmed findings carry the panel that judged them (`asked` vs `cast`), so a
+  finding confirmed by one surviving verifier is distinguishable from one
+  confirmed by three, and the run warns when a finding vanishes mid-verify.
 
 ### feature-planning — 0.10.0
 

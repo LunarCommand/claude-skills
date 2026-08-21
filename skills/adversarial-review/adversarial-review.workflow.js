@@ -49,7 +49,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'one agent per adversarial lens, in parallel' },
     { title: 'Merge', detail: 'cluster raw findings into distinct defects before verifying' },
-    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 1 for nit' },
+    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 2 for nit' },
     { title: 'Synthesize', detail: 'severity-rank the survivors' },
   ],
 }
@@ -457,8 +457,9 @@ const VERDICT_SCHEMA = {
   },
 }
 
-// Diverse refutation angles — a finding must survive a MAJORITY of the angles it
-// is judged by (3 for blocker/should, 1 for nit).
+// Diverse refutation angles. A blocker/should is judged by all three and needs a
+// majority; a nit is judged by claim-true and regress and needs both. Either way
+// the threshold counts only verifiers that returned a verdict — see the tally.
 const ANGLES = [
   {
     key: 'reproduce',
@@ -466,7 +467,7 @@ const ANGLES = [
   },
   {
     key: 'regress',
-    ask: 'Would the implied fix actually resolve this without regressing something else? If the fix is wrong or unnecessary, the finding is not actionable.',
+    ask: 'Would the implied fix actually resolve this without regressing something else? If the fix is wrong or unnecessary, the finding is not actionable. If no fix was proposed, judge whether ANY fix could resolve it; an unclear, multi-option or trivially small fix is a severity judgement, not grounds for real=false.',
   },
   {
     key: 'claim-true',
@@ -576,9 +577,10 @@ if (rawFindings.length > 1) {
 
 // --- Verify (tiered) ---
 // Verify each DISTINCT finding by refutation: the full 3-angle panel for
-// blocker/should, a single verifier for nit (a wrong nit is cheap). Verify agents
-// run at low effort — refutation is a bounded check, not open-ended discovery. A
-// finding survives on a majority of the angles it is judged by.
+// blocker/should, two for a nit (claim-true and regress). Verify agents run at low
+// effort — refutation is a bounded check, not open-ended discovery. A blocker or
+// should survives on a majority of the verifiers that RETURNED A VERDICT; a nit
+// needs all of them. A panel where nobody answered is unverified, not refuted.
 phase('Verify')
 const verified = await parallel(
   distinct.map((f) => () => {
@@ -590,10 +592,8 @@ const verified = await parallel(
     // is close to no verification at all, and a lens capped at `should` pushes
     // most of its output into this tier.
     const angles = f.severity === 'nit' ? [ANGLES[2], ANGLES[1]] : ANGLES
-    // Majority on the 3-angle panel. UNANIMOUS on the 2-angle nit panel:
-    // `ceil(2/2)` is one affirming vote, which would make two verifiers weaker
-    // than the single one they replace.
-    const need = angles.length === 2 ? 2 : Math.ceil(angles.length / 2)
+    // Threshold is computed after the votes are in, from the votes actually cast
+    // — see the tally below.
     return parallel(
       angles.map((ang) => () =>
         agent(
@@ -607,6 +607,12 @@ const verified = await parallel(
             f.line +
             '\nFailure scenario: ' +
             f.failure_scenario +
+            // Only the `regress` angle judges the fix. Appending this to every
+            // angle put "judge whether any fix could resolve this" in front of
+            // claim-true, whose whole job is deciding whether the claim is true.
+            (ang.key === 'regress' && f.suggested_fix
+              ? '\nSuggested fix: ' + f.suggested_fix
+              : '') +
             '\n\n' +
             ang.ask +
             '\n\nJudge VALIDITY, not severity: mark real=false ONLY if the finding is factually wrong, ' +
@@ -627,11 +633,23 @@ const verified = await parallel(
         )
       )
     ).then((votes) => {
+      // agent() returns null on a terminal error or a user skip, so `cast` can be
+      // smaller than `angles` — or empty.
       const cast = votes.filter(Boolean)
       const survived = cast.filter((v) => v.real).length
+      // A nit needs every verifier that answered; blocker/should need a majority
+      // of those. This stops a dead agent being counted as a vote against — but
+      // it does NOT restore the finding's margin: at two votes a majority is
+      // still two, so a degraded panel is a stricter panel. That is why the
+      // degradation is carried forward rather than hidden.
+      const need = cast.length === 0 ? 0 : f.severity === 'nit' ? cast.length : Math.floor(cast.length / 2) + 1
+      const panel = { asked: angles.length, cast: cast.length }
       return {
         finding: f,
-        survives: survived >= need,
+        panel: panel,
+        // Nobody voted. That is not a refutation.
+        unverified: cast.length === 0,
+        survives: cast.length > 0 && survived >= need,
         // Kept so a REFUTED finding stays auditable instead of vanishing.
         // A refutation resting on wrong-tree evidence has already killed a
         // real blocker; without the reasoning surfaced, that is invisible.
@@ -642,10 +660,17 @@ const verified = await parallel(
 )
 
 phase('Synthesize')
-const finalFindings = verified
-  .filter(Boolean)
+const settled = verified.filter(Boolean)
+// A finding nobody voted on is neither confirmed nor refuted. Reporting it as
+// refuted turned a verify-phase outage into a clean review.
+const unverifiedFindings = settled
+  .filter((x) => x.unverified)
+  .map((x) => ({ ...x.finding, panel: x.panel }))
+// Survivors carry their panel, so a blocker confirmed by one surviving verifier
+// is not reported identically to one confirmed by three.
+const finalFindings = settled
   .filter((x) => x.survives)
-  .map((x) => x.finding)
+  .map((x) => ({ ...x.finding, panel: x.panel }))
 
 // Rank most-severe first.
 const order = { blocker: 0, should: 1, nit: 2 }
@@ -654,6 +679,21 @@ finalFindings.sort(
     (order[x.severity] === undefined ? 3 : order[x.severity]) -
     (order[y.severity] === undefined ? 3 : order[y.severity])
 )
+
+// Reconcile: anything that entered Verify must leave it in exactly one bucket.
+// A per-finding task returning null was previously dropped by both filters, so a
+// run that lost a blocker to a panel-level failure looked like a clean review.
+const lost = distinct.length - settled.length
+if (lost > 0) {
+  log(
+    'WARNING: ' +
+      lost +
+      ' of ' +
+      distinct.length +
+      ' findings vanished in the verify phase (panel-level failure). They are ' +
+      'neither confirmed nor refuted — the result below is incomplete.'
+  )
+}
 
 const counts = {
   blocker: finalFindings.filter((f) => f.severity === 'blocker').length,
@@ -666,9 +706,8 @@ const counts = {
 // confirmed CI-breaking blocker was lost on one run, refuted by three
 // agents reading the wrong git ref. Surfacing each refutation's reasoning
 // lets the caller spot-check the ones that rest on file contents.
-const refutedFindings = verified
-  .filter(Boolean)
-  .filter((x) => !x.survives)
+const refutedFindings = settled
+  .filter((x) => !x.survives && !x.unverified)
   .map((x) => ({
     summary: x.finding.summary,
     file: x.finding.file,
@@ -689,6 +728,9 @@ log(
     ' nit' +
     (refutedFindings.length
       ? '; ' + refutedFindings.length + ' refuted (returned for spot-checking)'
+      : '') +
+    (unverifiedFindings.length
+      ? '; ' + unverifiedFindings.length + ' UNVERIFIED (no verifier returned a verdict)'
       : '')
 )
 
@@ -698,4 +740,8 @@ return {
   findings: finalFindings,
   refutedCount: refutedFindings.length,
   refuted: refutedFindings,
+  // Neither confirmed nor refuted: no verifier returned a verdict on these. Their
+  // own bucket, so a verify-phase outage cannot render as a clean review.
+  unverifiedCount: unverifiedFindings.length,
+  unverified: unverifiedFindings,
 }
