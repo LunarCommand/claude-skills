@@ -21,12 +21,132 @@ const CONTEXT = (args && args.context) ||
   'plus the unchanged sections of the spec the change depends on (cross-referenced clauses, tables, and any ' +
   'companion documents it binds to).'
 
+// Sandbox + ref support, kept byte-identical to adversarial-review.workflow.js.
+// scripts/validate.sh asserts these constants match across both engines: with no
+// import mechanism in the Workflow runtime they must be duplicated, and the two
+// have drifted before — twice shipping docs that apologised for the difference.
+const ISOLATE = args && args.isolate === true
+const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._\/~^@{}+-]{0,254}$/
+const isSafeRef = (v) => typeof v === 'string' && v !== '' && SAFE_REF.test(v) && v.indexOf('..') === -1
+const REVIEW_REF = args && isSafeRef(args.reviewRef) ? args.reviewRef : ''
+const BASE_REF = args && isSafeRef(args.baseRef) ? args.baseRef : ''
+const REVIEW_REF_REJECTED = !!(args && args.reviewRef) && !REVIEW_REF
+const BASE_REF_REJECTED = !!(args && args.baseRef) && !BASE_REF
+
+const WORKTREE_REF_MANDATE = !ISOLATE
+  ? ''
+  : '\n\n## Your checkout probably does NOT contain the change (critical)\n' +
+    'You are running in an isolated git worktree cut from the repository\'s ' +
+    'DEFAULT BRANCH, not from the branch under review. If the change lives on a ' +
+    'feature branch, the files in your working directory are the PRE-CHANGE ' +
+    'versions.\n' +
+    (REVIEW_REF
+      ? 'The change under review is at ref: ' +
+        REVIEW_REF +
+        '.\n' +
+        (BASE_REF ? 'Diff it against: ' + BASE_REF + '.\n' : '')
+      : (REVIEW_REF_REJECTED
+          ? 'A reviewRef WAS supplied but was refused as unsafe to interpolate ' +
+            'into a command, so it has been dropped. Do not assume the working ' +
+            'copy holds the change: it almost certainly does not. Say in every ' +
+            'finding that the reviewed ref was unavailable.\n'
+          : 'The skill did not pass a reviewRef; derive it from the scope ' +
+            'description and say so in your finding if you could not.\n')) +
+    'Therefore:\n' +
+    '- Read changed files with `git show <reviewRef>:<path>`, NOT by opening the ' +
+    'path directly.\n' +
+    '- Get the diff with `git diff <baseRef> <reviewRef>`.\n' +
+    '- NEVER conclude "the file does not contain X", "that entry is absent", or ' +
+    '"the premise is factually false" from your working copy. Re-check against ' +
+    'the ref first. Refuting a real finding on wrong-tree evidence is the single ' +
+    'most damaging thing you can do here.\n' +
+    '- Unchanged collaborator files ARE valid to read directly: they are the same ' +
+    'on both refs. It is the CHANGED files that require the ref.'
+
+const ABSENCE_SEARCH_MANDATE =
+  '\n\n## An absence claim has to be searched, not asserted\n' +
+  'If the finding asserts something is ABSENT (untested, unguarded, unhandled, ' +
+  'undocumented), go look for the thing it says is missing before accepting it: ' +
+  'name the test, guard or section that would have to exist, then search for it. ' +
+  'An existing test refutes the finding only if it covers the thing the finding ' +
+  'names, though it may cover it indirectly, and "I did not see one" is not a ' +
+  'search. Absence claims are the easiest to state and the least often checked.' +
+  (!REVIEW_REF
+    ? ''
+    : '\nSearch at the reviewed ref, not your working copy: list with ' +
+      '`git ls-tree -r --name-only ' +
+      REVIEW_REF +
+      '` and read with `git show ' +
+      REVIEW_REF +
+      ':<path>`. A search of the wrong tree refutes nothing, in either ' +
+      'direction — what you find there may not exist in the reviewed state, and ' +
+      'what you fail to find may have been added by the change.')
+
+const TIP_RECHECK_MANDATE = !REVIEW_REF
+  ? ''
+  : '\n\n## Check the finding against the current tip, not just the reviewed ref\n' +
+    'The reviewed ref is ' +
+    REVIEW_REF +
+    ', which may be behind the branch tip. Before returning real=true:\n' +
+    '- Find the branches that contain it: `git branch -a --contains ' +
+    REVIEW_REF +
+    '`. Ignore any `worktree-*` entry: those are this run\'s own sandboxes.\n' +
+    '- The branch under review is authoritative. Another branch may also contain ' +
+    'the ref — a colleague\'s spike, a merge into the default branch — and a fix ' +
+    'that exists only there does NOT help the caller, who is about to merge the ' +
+    'branch under review. Re-check on that branch, not on whichever one is newest.\n' +
+    '- List its true descendants: `git log --oneline --ancestry-path ' +
+    REVIEW_REF +
+    '..<branch>`, naming the branch explicitly.\n' +
+    '- **If that prints nothing, the reviewed ref IS that branch\'s tip. The check ' +
+    'is DONE and the finding stands on its own merits — say nothing further about ' +
+    'the tip.** A commit is not its own descendant, so an empty list here is the ' +
+    'normal, healthy case, not a failure.\n' +
+    '- If it does list commits, confirm the candidate before reading it: ' +
+    '`git merge-base --is-ancestor ' +
+    REVIEW_REF +
+    ' <tip>` must succeed. A tip that fails is not a descendant, the change was ' +
+    'never on it, and the finding will look absent there because you are reading ' +
+    'the wrong tree — which refutes NOTHING.\n' +
+    '- Only then re-check with `git show <tip>:<path>`. If it has genuinely been ' +
+    'fixed, mark real=false and name the commit that fixed it.\n' +
+    '- If no branch contains the ref, or a command errors, the check is SKIPPED, ' +
+    'not passed. Say so and judge the finding on the reviewed ref alone. An error ' +
+    'is not a negative result.\n' +
+    (ISOLATE
+      ? 'Never write the range with the right side omitted: a bare `' +
+        REVIEW_REF +
+        '..` means `' +
+        REVIEW_REF +
+        '..HEAD`, and under isolation HEAD is the DEFAULT BRANCH, not the branch ' +
+        'under review, so it answers a different question.\n'
+      : 'Name the right side of the range explicitly rather than relying on HEAD, ' +
+        'so the check does not depend on which branch happens to be checked out.\n') +
+    'Only an actual fix on the branch under review refutes. Do not use this ' +
+    'against a finding that is merely harder to see at the tip, and never on ' +
+    'evidence from a tree that does not descend from the reviewed ref: only an ' +
+    'actual fix counts.'
+
+const REF_SCOPE_MANDATE = !(REVIEW_REF || BASE_REF)
+  ? ''
+  : '\n\n## The refs that bound this review\n' +
+    (REVIEW_REF ? 'The change under review is at ref: ' + REVIEW_REF + '.\n' : '') +
+    (BASE_REF ? 'Its already-reviewed baseline is: ' + BASE_REF + '.\n' : '') +
+    (REVIEW_REF && BASE_REF
+      ? 'Scope your review to `git diff ' + BASE_REF + ' ' + REVIEW_REF + '`. ' +
+        'Anything outside that diff is context you may read, not the change ' +
+        'under review.\n'
+      : '')
+
 // Appended to EVERY prompt below (both stages build from PREAMBLE, so there is
 // no call site to keep in sync).
 //
-// This workflow is the HIGHEST-RISK configuration in the skill: it reviews
-// UNCOMMITTED work, in the user's real tree, with no worktree isolation
-// available (a worktree can only hold committed work). There is no undo.
+// Without isolation this workflow is the HIGHEST-RISK configuration in the skill:
+// it reviews UNCOMMITTED work, in the user's real tree, and there is no undo.
+// With args.isolate it runs in throwaway worktrees like the code engine, and the
+// warning below is then belt-and-braces rather than the only guard. It is still
+// emitted in both modes: a submodule working tree is not sandboxed, and agents
+// have been seen acting on the real repo path rather than their worktree.
 //
 // It exists because a generic "report, don't fix" instruction is not enough: an
 // agent comparing before/after reaches for `git checkout <file>` and does not
@@ -66,6 +186,10 @@ const PREAMBLE = [
   'Read the diff and collaborators FULLY before forming findings. Verify claims against the actual spec text',
   "and the template/precedent fixtures — do not trust the change's own prose.",
   READ_ONLY_MANDATE,
+  // REF_SCOPE_MANDATE names the review's boundaries in BOTH modes; the other
+  // three are self-gating and collapse to '' when their precondition is absent.
+  REF_SCOPE_MANDATE,
+  WORKTREE_REF_MANDATE,
 ].join('\n')
 
 const FINDING_SCHEMA = {
@@ -195,7 +319,7 @@ const lensFailures = []
 async function runLens(lens, attempt) {
   try {
     const r = await agent(PREAMBLE + '\n\n' + lens.prompt,
-      { label: 'lens:' + lens.key + (attempt > 1 ? ' (retry)' : ''), phase: 'Lenses', schema: FINDING_SCHEMA })
+      { label: 'lens:' + lens.key + (attempt > 1 ? ' (retry)' : ''), phase: 'Lenses', isolation: ISOLATE ? 'worktree' : undefined, schema: FINDING_SCHEMA })
     if (!r) throw new Error('no result')
     return (r.findings || []).map(f => ({ ...f, lens: lens.key }))
   } catch (e) {
@@ -231,7 +355,7 @@ if (rawFindings.length > 1) {
     '`lenses`. Do NOT drop any distinct defect, and do NOT merge findings that are genuinely different defects ' +
     '(same file or section is NOT enough — they must share a root cause). Findings:\n\n' +
     JSON.stringify(rawFindings, null, 2),
-    { label: 'merge', phase: 'Merge', schema: MERGE_SCHEMA, effort: 'low' }
+    { label: 'merge', phase: 'Merge', isolation: ISOLATE ? 'worktree' : undefined, schema: MERGE_SCHEMA, effort: 'low' }
   )
   if (merged && merged.findings && merged.findings.length) distinct = merged.findings
 }
@@ -243,8 +367,10 @@ log('merged to ' + distinct.length + ' distinct defect(s)')
 // of the angles that judged it.
 phase('Verify')
 const verified = await parallel(distinct.map(f => () => {
-  const angles = f.severity === 'nit' ? [ANGLES[2]] : ANGLES
-  const need = Math.ceil(angles.length / 2)
+  // A nit is judged by claim-true and regress, never by reproduce, which a prose
+  // nit can never satisfy and which would auto-refute it. The threshold is
+  // computed after the votes are in — see the tally.
+  const angles = f.severity === 'nit' ? [ANGLES[2], ANGLES[1]] : ANGLES
   return parallel(angles.map(ang => () =>
     agent(
       PREAMBLE +
@@ -262,14 +388,20 @@ const verified = await parallel(distinct.map(f => () => {
       'on "I looked and it is not there" without confirming you read the reviewed state of the file. ' +
       'CONFIRM if the claim holds under a plain reading. PARTIAL if the core holds but the framing or severity ' +
       'is overstated, and then set `adjusted_severity` to what you actually believe. Cite the specific ' +
-      'spec/fixture text you relied on.',
-      { label: 'verify:' + ang.key + ':' + String(f.location || '').slice(0, 40), phase: 'Verify', schema: VERDICT_SCHEMA, effort: 'low' }
-    ).then(v => ({
-      angle: ang.key,
-      verdict: v?.verdict || 'REFUTED',
-      reasoning: v?.reasoning || '',
-      adjusted: v?.adjusted_severity,
-    }))
+      'spec/fixture text you relied on.' +
+      ABSENCE_SEARCH_MANDATE +
+      TIP_RECHECK_MANDATE,
+      { label: 'verify:' + ang.key + ':' + String(f.location || '').slice(0, 40), phase: 'Verify', isolation: ISOLATE ? 'worktree' : undefined, schema: VERDICT_SCHEMA, effort: 'low' }
+    ).then(v =>
+      // A null agent (terminal error, user skip) ABSTAINS. Coercing it to
+      // REFUTED made a dead verifier an active vote AGAINST — and on the
+      // one-angle nit panel this engine used to run, that killed the finding
+      // outright. The `votes.filter(Boolean)` below was a no-op while this
+      // returned an object unconditionally.
+      v
+        ? { angle: ang.key, verdict: v.verdict, reasoning: v.reasoning || '', adjusted: v.adjusted_severity }
+        : null
+    )
   )).then(votes => {
     const cast = votes.filter(Boolean)
     const kept = cast.filter(v => v.verdict === 'CONFIRMED' || v.verdict === 'PARTIAL')
@@ -282,9 +414,15 @@ const verified = await parallel(distinct.map(f => () => {
         severity = v.adjusted
       }
     }
+    // Nits need every verifier that answered; blocker/should need a majority of
+    // those. Computed from cast, so an abstention is not a vote against.
+    const need = cast.length === 0 ? 0 : f.severity === 'nit' ? cast.length : Math.floor(cast.length / 2) + 1
     return {
       finding: { ...f, severity, severity_as_raised: f.severity },
-      survives: kept.length >= need,
+      panel: { asked: angles.length, cast: cast.length },
+      // Nobody returned a verdict. That is not a refutation.
+      unverified: cast.length === 0,
+      survives: cast.length > 0 && kept.length >= need,
       // Votes are surfaced WITH reasoning so the caller can audit a wrong
       // refutation, which is the recurring failure mode, instead of re-deriving it.
       votes: cast.map(v => ({ angle: v.angle, verdict: v.verdict, reasoning: v.reasoning })),
@@ -294,10 +432,16 @@ const verified = await parallel(distinct.map(f => () => {
 
 phase('Synthesize')
 const judged = verified.filter(Boolean)
-const survivors = judged.filter(x => x.survives).map(x => ({ ...x.finding, votes: x.votes }))
+const survivors = judged.filter(x => x.survives).map(x => ({ ...x.finding, votes: x.votes, panel: x.panel }))
+// Neither confirmed nor refuted: no verifier returned a verdict. Its own bucket,
+// so a verify-phase outage cannot render as a clean review.
+const unjudged = judged.filter(x => x.unverified).map(x => ({ ...x.finding, panel: x.panel }))
 const order = { blocker: 0, should: 1, nit: 2 }
 survivors.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
-log(distinct.length + ' distinct defect(s) judged; ' + survivors.length + ' survived verification')
+log(
+  distinct.length + ' distinct defect(s) judged; ' + survivors.length + ' survived verification' +
+  (unjudged.length ? '; ' + unjudged.length + ' UNVERIFIED (no verifier returned a verdict)' : '')
+)
 
 return {
   raw_raised: rawFindings.length,
@@ -323,7 +467,9 @@ return {
   })),
   // Refuted defects are returned WITH every angle's reasoning so the caller can audit a
   // wrong refutation, the recurring failure mode, instead of re-deriving from scratch.
-  refuted: judged.filter(x => !x.survives).map(x => ({
+  unverified_count: unjudged.length,
+  unverified: unjudged,
+  refuted: judged.filter(x => !x.survives && !x.unverified).map(x => ({
     title: x.finding.title, severity: x.finding.severity,
     lenses: x.finding.lenses || (x.finding.lens ? [x.finding.lens] : []),
     votes: x.votes,

@@ -81,6 +81,28 @@ and still judges nits by a single angle; porting them is outstanding work, and
   tests carry `T-<n>`: prose gets reworded, identifiers do not. Numbering within
   the phase means appending a task never renumbers another.
 
+## Unreleased
+
+### adversarial-review — 0.11.0
+
+- The spec/RFC engine can review committed work in a sandbox. It accepts
+  `isolate`, `reviewRef` and `baseRef` like the code engine and runs every lens,
+  merge and verify agent in a throwaway worktree. Without them it could only
+  review uncommitted work in the real tree — the highest-risk configuration in the
+  skill — which pushed people to the code engine for spec targets just to get
+  isolation, trading the right lenses for the right safety.
+- Its verify stage matches the code engine's. A verifier that returns nothing now
+  abstains: the engine coerced a missing verdict to `REFUTED`, so a dead agent
+  voted against, and on the one-angle nit panel it used to run that killed the
+  finding outright. Nits are judged by claim-true and regress, the threshold comes
+  from the verifiers that answered, and a finding nobody judged is reported as
+  unverified rather than refuted.
+- The absence-search and tip-recheck mandates apply on the spec path too.
+- The shared refutation mandates are checked for drift. The Workflow runtime has
+  no import mechanism, so the two engines must duplicate them; validation now
+  asserts they are byte-identical, because the pair has already shipped twice with
+  documentation apologising for a rule one had and the other did not.
+
 ## v0.10.0 — 2026-08-19
 
 ### Repository

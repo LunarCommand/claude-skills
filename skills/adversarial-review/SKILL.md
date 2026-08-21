@@ -248,16 +248,16 @@ For a spec or RFC change about to be committed, tagged, or published, use
 `spec-accept-review.workflow.js` instead. It carries lenses tuned to normative
 prose and conformance fixtures — a fixture that can pass wrongly, a stale
 cross-reference, a coverage gap against precedent, a CHANGELOG date that does not
-match the tag day. It takes only two args:
+match the tag day.
 
-> **The two engines' verify stages are not equivalent.** The refutation rules in
-> Step 4 — the absence search, the tip re-check, and a nit needing every verifier
-> that answered — are implemented in `adversarial-review.workflow.js` only. The
-> spec engine still judges a nit by one angle, and it coerces a missing verdict to
-> `REFUTED` rather than letting a dead verifier abstain, so an agent that fails
-> silently kills the finding. That last one cannot be compensated for by hand.
-> Weigh it when reading a spec review's output; porting the rules is outstanding
-> work.
+Its verify stage now matches the code engine's: the same refutation mandates, a
+nit judged by claim-true and regress, and a verifier that returns nothing
+abstaining rather than refuting. The repo's validation suite asserts those
+shared mandates stay byte-identical between the two engines, because the Workflow
+runtime has no import mechanism and duplication is the only way to share them.
+
+It takes the same isolation args as the code engine:
+
 
 ```
 Workflow({
@@ -266,15 +266,26 @@ Workflow({
     scope: "<short human label for the change>",
     context: "<the assembled diff, new/changed fixtures and examples, the unchanged
                sections the change depends on, and today's date — plus any
-               load-bearing claim you want verified against source>"
+               load-bearing claim you want verified against source>",
+    isolate: true | false,                            // Step 0: true when the
+    reviewRef: "<sha or branch holding the change>",  // reviewed state is
+    baseRef: "<sha or branch to diff against>"        // committed
   }
 })
 ```
 
-There is no `isolate` option, and that is deliberate: this engine reviews
-**uncommitted** work in the real tree, and a git worktree can only hold committed
-work. Nothing enforces read-only here except the prompt mandate, so Step 0's
-snapshot is not optional on this path — take it before you call.
+**Pass `isolate` whenever the spec change is committed.** This engine used to
+review only uncommitted work in the real tree, which made it the highest-risk
+configuration in the skill and pushed people toward the code engine for spec
+targets just to get a sandbox — trading the right lenses for the right safety.
+It now takes the same three args, so a tagged or PR-scale spec change can be
+reviewed in throwaway worktrees.
+
+Isolation does **not** deliver the change, here or on the code path: the
+worktree is cut from the default branch, so pass `reviewRef` alongside it. For a
+genuinely uncommitted review leave `isolate` false — a worktree can only hold
+committed work — and then Step 0's snapshot is not optional, because nothing but
+the prompt mandate enforces read-only.
 
 **On worktree isolation.** Set `args.isolate: true` and the workflow runs every
 lens, merge, and verify agent in its own throwaway git worktree — via the
