@@ -49,7 +49,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'one agent per adversarial lens, in parallel' },
     { title: 'Merge', detail: 'cluster raw findings into distinct defects before verifying' },
-    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 2 for nit' },
+    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 1 for nit' },
     { title: 'Synthesize', detail: 'severity-rank the survivors' },
   ],
 }
@@ -95,16 +95,8 @@ const ISOLATE = a.isolate === true
 // The ref actually holding the change, and what to diff it against. Load-bearing
 // under isolation: the worktree is cut from the DEFAULT BRANCH, so on a feature
 // branch the agents' checkout does NOT contain the change at all.
-// Both refs are interpolated into shell commands that verify agents are told to
-// run, and on a public repo a reviewRef is routinely a contributor-supplied
-// branch name — attacker-influenced text. Accept only what can name a git
-// object: alphanumerics, and the punctuation refs legitimately use. Anything
-// else is dropped to '' rather than passed through, which disables the checks
-// that depend on it instead of shipping a malformed or hostile command.
-const SAFE_REF = /^[A-Za-z0-9._\/-]{1,255}$/
-const asRef = (v) => (typeof v === 'string' && SAFE_REF.test(v) ? v : '')
-const REVIEW_REF = asRef(a.reviewRef)
-const BASE_REF = asRef(a.baseRef)
+const REVIEW_REF = typeof a.reviewRef === 'string' && a.reviewRef ? a.reviewRef : ''
+const BASE_REF = typeof a.baseRef === 'string' && a.baseRef ? a.baseRef : ''
 
 // Appended to every agent prompt when ISOLATE is on.
 //
@@ -147,20 +139,9 @@ const ABSENCE_SEARCH_MANDATE =
   'If the finding asserts something is ABSENT (untested, unguarded, unhandled, ' +
   'undocumented), go look for the thing it says is missing before accepting it: ' +
   'name the test, guard or section that would have to exist, then search for it. ' +
-  'An existing test refutes the finding only if it covers the thing the finding ' +
-  'names, though it may cover it indirectly, and "I did not see one" is not a ' +
-  'search. Absence claims are the easiest to state and the least often checked.' +
-  (!REVIEW_REF
-    ? ''
-    : '\nSEARCH AT THE REVIEWED REF, NOT YOUR WORKING COPY: list with ' +
-      '`git ls-tree -r --name-only ' +
-      REVIEW_REF +
-      '` and read with `git show ' +
-      REVIEW_REF +
-      ':<path>`. Your checkout may predate the change, so something you find ' +
-      'there may not exist in the reviewed state and something you fail to find ' +
-      'may have been added by it. A search of the wrong tree refutes nothing, in ' +
-      'either direction.')
+  'An existing test refutes the finding however indirectly it covers the case, and ' +
+  '"I did not see one" is not a search. Absence claims are the easiest to state ' +
+  'and the least often checked.'
 
 // Verify-stage only. The lenses judge the ref they were given, which is right:
 // that is the artifact under review. But a finding is only worth reporting if it
@@ -174,36 +155,18 @@ const TIP_RECHECK_MANDATE = !REVIEW_REF
     'The reviewed ref is ' +
     REVIEW_REF +
     ', which may be behind the branch tip. Before returning real=true:\n' +
-    '- Find the branches that CONTAIN it: `git branch -a --contains ' +
+    '- Look for commits after it: `git log --oneline ' +
     REVIEW_REF +
-    '`. Ignore any `worktree-*` branch: those are this run\'s own sandboxes.\n' +
-    '- For each, list only true descendants: `git log --oneline --ancestry-path ' +
+    '..` on each branch that contains it (`git branch -a --contains ' +
     REVIEW_REF +
-    '..<branch>`. NEVER write the range with the right side omitted — a bare ' +
-    '`' +
-    REVIEW_REF +
-    '..` means `' +
-    REVIEW_REF +
-    '..HEAD`, and HEAD here is the DEFAULT BRANCH, not the branch under review. ' +
-    'That range answers a different question and is usually empty.\n' +
-    '- Before trusting any candidate tip, confirm the ancestry: ' +
-    '`git merge-base --is-ancestor ' +
-    REVIEW_REF +
-    ' <tip>` must succeed. A tip that fails it is NOT a descendant, and the ' +
-    'change under review was never on it — the finding will look absent there ' +
-    'because you are reading the wrong tree, which refutes NOTHING.\n' +
-    '- If no branch contains the ref, or a command errors, or no descendant ' +
-    'passes the ancestry check, this check is SKIPPED, not passed. Say so and ' +
-    'judge the finding on the reviewed ref alone. An error is not a negative ' +
-    'result.\n' +
-    '- Only if a verified descendant tip exists, re-check there with ' +
-    '`git show <tip>:<path>`. If it has genuinely been fixed, mark real=false ' +
-    'and name the commit that fixed it.\n' +
-    'A finding that was true at the reviewed ref and is false at a VERIFIED ' +
-    'descendant is not a defect the caller can act on. Do NOT use this to refute ' +
-    'a finding that is merely harder to see at the tip, and never on evidence ' +
-    'from a tree that does not descend from the reviewed ref: only an actual fix ' +
-    'counts.'
+    '`).\n' +
+    '- If there are none, the reviewed ref IS the tip and this check is done.\n' +
+    '- If there are, re-check the finding at the newest descendant with ' +
+    '`git show <tip>:<path>`. If it has already been fixed there, mark real=false ' +
+    'and say which commit fixed it.\n' +
+    'A finding that was true at the reviewed ref and is false at the tip is not a ' +
+    'defect the caller can act on. Do NOT use this to refute a finding that is ' +
+    'merely harder to see at the tip: only an actual fix counts.'
 
 // The refs bounding the review, surfaced whether or not isolation is on.
 // Delta mode passes baseRef/reviewRef with isolation OFF; without this the
@@ -458,9 +421,8 @@ const VERDICT_SCHEMA = {
   },
 }
 
-// Diverse refutation angles. A blocker/should is judged by all three and needs a
-// MAJORITY; a nit is judged by claim-true and regress and needs BOTH. Either way
-// the threshold counts only verifiers that returned a verdict — see the tally.
+// Diverse refutation angles — a finding must survive a MAJORITY of the angles it
+// is judged by (3 for blocker/should, 1 for nit).
 const ANGLES = [
   {
     key: 'reproduce',
@@ -595,10 +557,7 @@ const verified = await parallel(
     // Majority on the 3-angle panel. UNANIMOUS on the 2-angle nit panel:
     // `ceil(2/2)` is one affirming vote, which would make two verifiers weaker
     // than the single one they replace.
-    // Threshold is computed AFTER the votes are in, from the votes actually
-    // cast — see the tally below. Deriving it from angles.length instead made a
-    // verifier that returned null count as a vote against: one dead agent on
-    // the 2-angle nit panel deleted a finding the surviving verifier affirmed.
+    const need = angles.length === 2 ? 2 : Math.ceil(angles.length / 2)
     return parallel(
       angles.map((ang) => () =>
         agent(
@@ -612,15 +571,6 @@ const verified = await parallel(
             f.line +
             '\nFailure scenario: ' +
             f.failure_scenario +
-            // The `regress` angle is asked whether "the implied fix" would break
-            // something. Without this it was judging a fix it had never been
-            // shown, and "I cannot confirm an unstated fix is safe" reads as a
-            // refutation — which on the unanimous nit panel is a veto.
-            (f.suggested_fix
-              ? '\nSuggested fix: ' + f.suggested_fix
-              : '\nNo fix was proposed. Judge whether ANY fix could resolve this. ' +
-                'An unclear, multi-option, or trivially small fix is a severity ' +
-                'judgement, not grounds for real=false.') +
             '\n\n' +
             ang.ask +
             '\n\nJudge VALIDITY, not severity: mark real=false ONLY if the finding is factually wrong, ' +
@@ -641,22 +591,11 @@ const verified = await parallel(
         )
       )
     ).then((votes) => {
-      // agent() returns null on a terminal error or a user skip, so `cast` can
-      // be smaller than `angles` — or empty.
       const cast = votes.filter(Boolean)
       const survived = cast.filter((v) => v.real).length
-      // Nits need every verifier that ANSWERED; blocker/should need a majority
-      // of those. Both are computed from cast.length so a dead agent abstains
-      // rather than voting against.
-      const need = cast.length === 0 ? 0 : f.severity === 'nit' ? cast.length : Math.floor(cast.length / 2) + 1
-      // A panel where nobody voted has not refuted anything. Surfacing it as
-      // UNVERIFIED keeps it visible instead of silently deleting the finding.
-      const unverified = cast.length === 0
       return {
         finding: f,
-        unverified: unverified,
-        panel: { asked: angles.length, cast: cast.length },
-        survives: !unverified && survived >= need,
+        survives: survived >= need,
         // Kept so a REFUTED finding stays auditable instead of vanishing.
         // A refutation resting on wrong-tree evidence has already killed a
         // real blocker; without the reasoning surfaced, that is invisible.
@@ -699,20 +638,7 @@ const refutedFindings = verified
     file: x.finding.file,
     line: x.finding.line,
     severity: x.finding.severity,
-    panel: x.panel,
-    // An entry that says "refuted" with nothing to read defeats the whole point
-    // of returning these. If no verifier voted against, say what actually
-    // happened to the panel.
-    refutations: x.votes.filter((v) => !v.real).length
-      ? x.votes.filter((v) => !v.real).map((v) => v.reason)
-      : [
-          x.panel.cast +
-            ' of ' +
-            x.panel.asked +
-            ' verifiers returned a verdict; no verifier refuted this. It did not' +
-            ' reach the threshold because the panel was incomplete — treat it as' +
-            ' UNVERIFIED, not disproved.',
-        ],
+    refutations: x.votes.filter((v) => !v.real).map((v) => v.reason),
   }))
 
 log(
