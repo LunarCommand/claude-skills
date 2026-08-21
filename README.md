@@ -42,7 +42,7 @@ flowchart TD
     fp1["<b>/feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then asks you questions in the file</i>"]
     g1{{"GATE 1 &nbsp; reply <b>answered</b>"}}
     fp2["<b>/feature-planning</b> continues<br/>writes _plans/&lt;slug&gt;-plan.md<br/><i>phases, tests, invariants, coverage</i>"]
-    g2{{"GATE 2 &nbsp; reply <b>approved</b>"}}
+    g2{{"GATE 2 &nbsp; reply <b>approved</b> to build now<br/>or <b>accepted</b> to stop here"}}
     impl["<b>implementation</b><br/><i>phase by phase, each phase's tests run before the next</i>"]
     dbg["<b>/hyperdx</b> &middot; <b>/langfuse</b><br/><i>when it misbehaves, query real traces<br/>instead of adding print statements</i>"]
     adv["<b>/adversarial-review</b><br/><i>try to break it before a human sees it</i>"]
@@ -130,12 +130,16 @@ refactor with consequences.
 A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
 asked for, plus its own analysis: what is strong, what worries it, the holes in
 your requirements, and alternatives worth considering — then `_plans/<slug>-plan.md`
-with phases, enumerated tests (`T-<n>`), invariants (`INV-<n>`), and a coverage
-table proving every invariant and success criterion maps to a test.
+with phases, tasks carrying `P<phase>.<task>` IDs, enumerated tests (`T-<n>`),
+invariants (`INV-<n>`), and a coverage table proving every invariant and success
+criterion maps to a test. The identifiers exist so a commit message or a review
+comment can name one thing unambiguously — prose gets reworded, IDs do not.
 
 Two gates, two different words. **Gate 1** happens in the *file*: answer the
-questions in `_reqs/<slug>.md`, then reply `answered`. **Gate 2** is `approved`,
-and no code is written before it.
+questions in `_reqs/<slug>.md`, then reply `answered`. **Gate 2** has two exits:
+`approved` means the plan is right *and* start building; `accepted` means the plan
+is right but stop here. No code is written before `approved` — which is what lets
+you say "good plan, not yet" without interrupting a run already writing code.
 
 **Review** — catch what a diff-scoped bot structurally can't.
 
@@ -176,8 +180,9 @@ asked, instead of discovering afterwards that it committed.
 
 `user-claude-md/CLAUDE.md` is the plan → implement → test → hand-off loop the
 skills assume, with gates where you review before anything is committed or
-pushed. It carries the house style they are tuned to as well: commit messages,
-branch naming, PR summaries, releases, and code comments.
+pushed. It carries the house style they are tuned to as well: how replies are
+written, commit messages, branch naming, PR summaries, releases, and code
+comments.
 
 Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you want. No
 install route writes it for you — see [Install](#install).

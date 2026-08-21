@@ -23,6 +23,64 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
+## Unreleased
+
+### Repository
+
+- The recommended user CLAUDE.md opens with a communication-style section: plain
+  register, short sentences, no invented jargon. It states explicitly that this is
+  a register and not a vocabulary limit, so the precise technical term survives —
+  the failure mode of a "keep it simple" instruction is losing precision along
+  with the padding.
+
+### adversarial-review — 0.10.0
+
+The verify-stage changes below apply to `adversarial-review.workflow.js`,
+the code-target engine. The sibling `spec-accept-review.workflow.js` is unchanged
+and still judges nits by a single angle; porting them is outstanding work, and
+`SKILL.md` now says so where the rules are stated.
+
+- Refutation now has to search before it accepts an absence claim. "Untested",
+  "unguarded", "unhandled" are the easiest findings to state and the least often
+  checked; a verifier must name the test or guard that would have to exist and go
+  look for it, and "I didn't see one" is not a search.
+- A finding is re-checked against the branch tip before it is reported. A PR
+  reviewed mid-stream or a resumed run leaves findings that were true at the
+  reviewed ref and already fixed at the tip, and reporting those as live costs the
+  reader a triage pass. Only an actual fix refutes.
+- Nits are judged by two verifiers instead of one, and must survive both. A single
+  angle is close to no verification, and `reproduce` is skipped for this tier
+  because a prose nit can never satisfy it and would be auto-refuted.
+- A verifier that returns no verdict now abstains instead of counting as a
+  refusal. The threshold is taken from the verifiers that actually answered, so a
+  dead agent no longer deletes a finding the survivors affirmed.
+- A finding no verifier judged is reported as **unverified** rather than refuted,
+  in its own bucket and its own line in the run summary. A verify-phase outage
+  used to render as a clean review.
+- A `reviewRef` or `baseRef` that cannot safely be interpolated into a command is
+  refused — a leading dash made `git diff --output <path>` reachable, and git's own
+  `check-ref-format` accepts such a branch name. A refused ref is announced in the
+  run log and kept distinguishable from one that was never supplied, because
+  failing silently sent every agent to the pre-change default branch.
+- Confirmed findings carry the panel that judged them (`asked` vs `cast`), so a
+  finding confirmed by one surviving verifier is distinguishable from one
+  confirmed by three, and the run warns when a finding vanishes mid-verify.
+
+### feature-planning — 0.10.0
+
+- Gate 2 has a second exit. `approved` means the plan is right *and* start
+  building; `accepted` means the plan is right but stop here. Conflating the two
+  made "good plan, not yet" expressible only by interrupting a run that had already
+  started writing code.
+- The plan file carries a `## Status` line through its whole lifecycle: `Drafted`
+  at write time, `Accepted — not yet implemented` with a date and a plan sha at
+  Gate 2, `Implemented` when the last phase goes green. The sha is what makes the
+  deferred-start check answerable — re-entry compares against it and re-presents
+  Gate 2 if the plan moved, rather than asserting it did not.
+- Implementation tasks carry stable `P<phase>.<task>` IDs, for the same reason
+  tests carry `T-<n>`: prose gets reworded, identifiers do not. Numbering within
+  the phase means appending a task never renumbers another.
+
 ## v0.10.0 — 2026-08-19
 
 ### Repository

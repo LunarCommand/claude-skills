@@ -49,7 +49,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'one agent per adversarial lens, in parallel' },
     { title: 'Merge', detail: 'cluster raw findings into distinct defects before verifying' },
-    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 1 for nit' },
+    { title: 'Verify', detail: 'refute each distinct defect; 3 angles for blocker/should, 2 for nit' },
     { title: 'Synthesize', detail: 'severity-rank the survivors' },
   ],
 }
@@ -95,8 +95,26 @@ const ISOLATE = a.isolate === true
 // The ref actually holding the change, and what to diff it against. Load-bearing
 // under isolation: the worktree is cut from the DEFAULT BRANCH, so on a feature
 // branch the agents' checkout does NOT contain the change at all.
-const REVIEW_REF = typeof a.reviewRef === 'string' && a.reviewRef ? a.reviewRef : ''
-const BASE_REF = typeof a.baseRef === 'string' && a.baseRef ? a.baseRef : ''
+// Both refs are interpolated into commands verify agents are told to run, and on
+// a public repo a reviewRef is routinely a contributor-supplied branch name.
+// Two failure modes to avoid, and the first attempt at this hit both:
+//   - a leading `-` makes the ref parse as an OPTION, so `git diff --output <p>`
+//     truncates <p>. `git check-ref-format refs/heads/--output` exits 0, so git
+//     itself will not stop you.
+//   - failing SILENTLY is worse than not checking. A rejected ref became '', and
+//     the no-ref branch below then told every agent "the skill did not pass a
+//     reviewRef" — false, and under isolation it sent them to the pre-change
+//     default branch with nothing logged.
+// So: accept what git accepts (including ~ ^ @ {} for revisions), reject a
+// leading dash and `..`, and when something IS rejected say so loudly and keep
+// that fact distinguishable from "none was supplied".
+const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._\/~^@{}+-]{0,254}$/
+const isSafeRef = (v) => typeof v === 'string' && v !== '' && SAFE_REF.test(v) && v.indexOf('..') === -1
+const REVIEW_REF = isSafeRef(a.reviewRef) ? a.reviewRef : ''
+const BASE_REF = isSafeRef(a.baseRef) ? a.baseRef : ''
+// Supplied but refused — never conflate with "not supplied".
+const REVIEW_REF_REJECTED = !!a.reviewRef && !REVIEW_REF
+const BASE_REF_REJECTED = !!a.baseRef && !BASE_REF
 
 // Appended to every agent prompt when ISOLATE is on.
 //
@@ -117,8 +135,13 @@ const WORKTREE_REF_MANDATE = !ISOLATE
         REVIEW_REF +
         '.\n' +
         (BASE_REF ? 'Diff it against: ' + BASE_REF + '.\n' : '')
-      : 'The skill did not pass a reviewRef; derive it from the scope description ' +
-        'and say so in your finding if you could not.\n') +
+      : (REVIEW_REF_REJECTED
+          ? 'A reviewRef WAS supplied but was refused as unsafe to interpolate ' +
+            'into a command, so it has been dropped. Do not assume the working ' +
+            'copy holds the change: it almost certainly does not. Say in every ' +
+            'finding that the reviewed ref was unavailable.\n'
+          : 'The skill did not pass a reviewRef; derive it from the scope ' +
+            'description and say so in your finding if you could not.\n')) +
     'Therefore:\n' +
     '- Read changed files with `git show <reviewRef>:<path>`, NOT by opening the ' +
     'path directly.\n' +
@@ -129,6 +152,80 @@ const WORKTREE_REF_MANDATE = !ISOLATE
     'most damaging thing you can do here.\n' +
     '- Unchanged collaborator files ARE valid to read directly: they are the same ' +
     'on both refs. It is the CHANGED files that require the ref.'
+
+// Applies to every angle and severity. A nit panel skips `reproduce`, and an
+// "untested"/"undocumented" finding is exactly the shape a nit takes — so an
+// absence rule living only in that angle never reaches the findings that most
+// need it.
+const ABSENCE_SEARCH_MANDATE =
+  '\n\n## An absence claim has to be searched, not asserted\n' +
+  'If the finding asserts something is ABSENT (untested, unguarded, unhandled, ' +
+  'undocumented), go look for the thing it says is missing before accepting it: ' +
+  'name the test, guard or section that would have to exist, then search for it. ' +
+  'An existing test refutes the finding only if it covers the thing the finding ' +
+  'names, though it may cover it indirectly, and "I did not see one" is not a ' +
+  'search. Absence claims are the easiest to state and the least often checked.' +
+  (!REVIEW_REF
+    ? ''
+    : '\nSearch at the reviewed ref, not your working copy: list with ' +
+      '`git ls-tree -r --name-only ' +
+      REVIEW_REF +
+      '` and read with `git show ' +
+      REVIEW_REF +
+      ':<path>`. A search of the wrong tree refutes nothing, in either ' +
+      'direction — what you find there may not exist in the reviewed state, and ' +
+      'what you fail to find may have been added by the change.')
+
+// Verify-stage only. The lenses judge the ref they were given, which is right:
+// that is the artifact under review. But a finding is only worth reporting if it
+// is still true where the work now lives, and a review ref is routinely behind
+// the branch tip — a PR reviewed mid-stream, a resumed run, fixes landed while
+// the review was in flight. Reporting an already-fixed defect as live costs the
+// caller a triage pass and erodes trust in the rest of the findings.
+const TIP_RECHECK_MANDATE = !REVIEW_REF
+  ? ''
+  : '\n\n## Check the finding against the current tip, not just the reviewed ref\n' +
+    'The reviewed ref is ' +
+    REVIEW_REF +
+    ', which may be behind the branch tip. Before returning real=true:\n' +
+    '- Find the branches that contain it: `git branch -a --contains ' +
+    REVIEW_REF +
+    '`. Ignore any `worktree-*` entry: those are this run\'s own sandboxes.\n' +
+    '- The branch under review is authoritative. Another branch may also contain ' +
+    'the ref — a colleague\'s spike, a merge into the default branch — and a fix ' +
+    'that exists only there does NOT help the caller, who is about to merge the ' +
+    'branch under review. Re-check on that branch, not on whichever one is newest.\n' +
+    '- List its true descendants: `git log --oneline --ancestry-path ' +
+    REVIEW_REF +
+    '..<branch>`, naming the branch explicitly.\n' +
+    '- **If that prints nothing, the reviewed ref IS that branch\'s tip. The check ' +
+    'is DONE and the finding stands on its own merits — say nothing further about ' +
+    'the tip.** A commit is not its own descendant, so an empty list here is the ' +
+    'normal, healthy case, not a failure.\n' +
+    '- If it does list commits, confirm the candidate before reading it: ' +
+    '`git merge-base --is-ancestor ' +
+    REVIEW_REF +
+    ' <tip>` must succeed. A tip that fails is not a descendant, the change was ' +
+    'never on it, and the finding will look absent there because you are reading ' +
+    'the wrong tree — which refutes NOTHING.\n' +
+    '- Only then re-check with `git show <tip>:<path>`. If it has genuinely been ' +
+    'fixed, mark real=false and name the commit that fixed it.\n' +
+    '- If no branch contains the ref, or a command errors, the check is SKIPPED, ' +
+    'not passed. Say so and judge the finding on the reviewed ref alone. An error ' +
+    'is not a negative result.\n' +
+    (ISOLATE
+      ? 'Never write the range with the right side omitted: a bare `' +
+        REVIEW_REF +
+        '..` means `' +
+        REVIEW_REF +
+        '..HEAD`, and under isolation HEAD is the DEFAULT BRANCH, not the branch ' +
+        'under review, so it answers a different question.\n'
+      : 'Name the right side of the range explicitly rather than relying on HEAD, ' +
+        'so the check does not depend on which branch happens to be checked out.\n') +
+    'Only an actual fix on the branch under review refutes. Do not use this ' +
+    'against a finding that is merely harder to see at the tip, and never on ' +
+    'evidence from a tree that does not descend from the reviewed ref: only an ' +
+    'actual fix counts.'
 
 // The refs bounding the review, surfaced whether or not isolation is on.
 // Delta mode passes baseRef/reviewRef with isolation OFF; without this the
@@ -383,8 +480,9 @@ const VERDICT_SCHEMA = {
   },
 }
 
-// Diverse refutation angles — a finding must survive a MAJORITY of the angles it
-// is judged by (3 for blocker/should, 1 for nit).
+// Diverse refutation angles. A blocker/should is judged by all three and needs a
+// majority; a nit is judged by claim-true and regress and needs both. Either way
+// the threshold counts only verifiers that returned a verdict — see the tally.
 const ANGLES = [
   {
     key: 'reproduce',
@@ -392,7 +490,7 @@ const ANGLES = [
   },
   {
     key: 'regress',
-    ask: 'Would the implied fix actually resolve this without regressing something else? If the fix is wrong or unnecessary, the finding is not actionable.',
+    ask: 'Would the implied fix actually resolve this without regressing something else? If the fix is wrong or unnecessary, the finding is not actionable. If no fix was proposed, judge whether ANY fix could resolve it; an unclear, multi-option or trivially small fix is a severity judgement, not grounds for real=false.',
   },
   {
     key: 'claim-true',
@@ -406,6 +504,24 @@ const ANGLES = [
 // Each lens returns at most its 6 highest-severity findings to cap the blast
 // radius and force prioritization.
 phase('Review')
+// A refused ref silently disables every check that depends on it, so it is said
+// out loud before the fan-out rather than inferred later from a thin review.
+if (REVIEW_REF_REJECTED || BASE_REF_REJECTED) {
+  log(
+    'WARNING: ' +
+      (REVIEW_REF_REJECTED ? 'reviewRef ' : '') +
+      (REVIEW_REF_REJECTED && BASE_REF_REJECTED ? 'and ' : '') +
+      (BASE_REF_REJECTED ? 'baseRef ' : '') +
+      'was supplied but refused as unsafe to interpolate into a command (a ref ' +
+      'must start alphanumeric and contain no ".."). The checks that depend on ' +
+      'it are DISABLED for this run' +
+      (ISOLATE
+        ? ', and with isolation on the agents are reading a worktree cut from ' +
+          'the default branch — treat this result as unreliable.'
+        : '.')
+  )
+}
+
 log(
   'Adversarial review of ' +
     scope +
@@ -502,17 +618,23 @@ if (rawFindings.length > 1) {
 
 // --- Verify (tiered) ---
 // Verify each DISTINCT finding by refutation: the full 3-angle panel for
-// blocker/should, a single verifier for nit (a wrong nit is cheap). Verify agents
-// run at low effort — refutation is a bounded check, not open-ended discovery. A
-// finding survives on a majority of the angles it is judged by.
+// blocker/should, two for a nit (claim-true and regress). Verify agents run at low
+// effort — refutation is a bounded check, not open-ended discovery. A blocker or
+// should survives on a majority of the verifiers that RETURNED A VERDICT; a nit
+// needs all of them. A panel where nobody answered is unverified, not refuted.
 phase('Verify')
 const verified = await parallel(
   distinct.map((f) => () => {
     // A nit is a claim about correctness (consistency / accuracy / parity), not
     // a runtime failure — judge it by 'claim-true' (is it actually true?), NOT by
     // 'reproduce', which a prose/docs nit can never satisfy and which would auto-refute it.
-    const angles = f.severity === 'nit' ? [ANGLES[2]] : ANGLES
-    const need = Math.ceil(angles.length / 2)
+    //
+    // 'regress' as well, so a nit is not decided by a single verifier. One angle
+    // is close to no verification at all, and a lens capped at `should` pushes
+    // most of its output into this tier.
+    const angles = f.severity === 'nit' ? [ANGLES[2], ANGLES[1]] : ANGLES
+    // Threshold is computed after the votes are in, from the votes actually cast
+    // — see the tally below.
     return parallel(
       angles.map((ang) => () =>
         agent(
@@ -526,6 +648,12 @@ const verified = await parallel(
             f.line +
             '\nFailure scenario: ' +
             f.failure_scenario +
+            // Only the `regress` angle judges the fix. Appending this to every
+            // angle put "judge whether any fix could resolve this" in front of
+            // claim-true, whose whole job is deciding whether the claim is true.
+            (ang.key === 'regress' && f.suggested_fix
+              ? '\nSuggested fix: ' + f.suggested_fix
+              : '') +
             '\n\n' +
             ang.ask +
             '\n\nJudge VALIDITY, not severity: mark real=false ONLY if the finding is factually wrong, ' +
@@ -533,6 +661,8 @@ const verified = await parallel(
             'merely because the finding is low-severity or has no runtime reproduction — a factually ' +
             'correct but minor finding is REAL (it stays a nit). Default to real=false only when the ' +
             'claim itself is dubious, never when it is merely minor. Return a verdict.' +
+            ABSENCE_SEARCH_MANDATE +
+            TIP_RECHECK_MANDATE +
             READ_ONLY_MANDATE,
           {
             label: 'verify:' + ang.key + ':' + f.file,
@@ -544,11 +674,23 @@ const verified = await parallel(
         )
       )
     ).then((votes) => {
+      // agent() returns null on a terminal error or a user skip, so `cast` can be
+      // smaller than `angles` — or empty.
       const cast = votes.filter(Boolean)
       const survived = cast.filter((v) => v.real).length
+      // A nit needs every verifier that answered; blocker/should need a majority
+      // of those. This stops a dead agent being counted as a vote against — but
+      // it does NOT restore the finding's margin: at two votes a majority is
+      // still two, so a degraded panel is a stricter panel. That is why the
+      // degradation is carried forward rather than hidden.
+      const need = cast.length === 0 ? 0 : f.severity === 'nit' ? cast.length : Math.floor(cast.length / 2) + 1
+      const panel = { asked: angles.length, cast: cast.length }
       return {
         finding: f,
-        survives: survived >= need,
+        panel: panel,
+        // Nobody voted. That is not a refutation.
+        unverified: cast.length === 0,
+        survives: cast.length > 0 && survived >= need,
         // Kept so a REFUTED finding stays auditable instead of vanishing.
         // A refutation resting on wrong-tree evidence has already killed a
         // real blocker; without the reasoning surfaced, that is invisible.
@@ -559,10 +701,17 @@ const verified = await parallel(
 )
 
 phase('Synthesize')
-const finalFindings = verified
-  .filter(Boolean)
+const settled = verified.filter(Boolean)
+// A finding nobody voted on is neither confirmed nor refuted. Reporting it as
+// refuted turned a verify-phase outage into a clean review.
+const unverifiedFindings = settled
+  .filter((x) => x.unverified)
+  .map((x) => ({ ...x.finding, panel: x.panel }))
+// Survivors carry their panel, so a blocker confirmed by one surviving verifier
+// is not reported identically to one confirmed by three.
+const finalFindings = settled
   .filter((x) => x.survives)
-  .map((x) => x.finding)
+  .map((x) => ({ ...x.finding, panel: x.panel }))
 
 // Rank most-severe first.
 const order = { blocker: 0, should: 1, nit: 2 }
@@ -571,6 +720,21 @@ finalFindings.sort(
     (order[x.severity] === undefined ? 3 : order[x.severity]) -
     (order[y.severity] === undefined ? 3 : order[y.severity])
 )
+
+// Reconcile: anything that entered Verify must leave it in exactly one bucket.
+// A per-finding task returning null was previously dropped by both filters, so a
+// run that lost a blocker to a panel-level failure looked like a clean review.
+const lost = distinct.length - settled.length
+if (lost > 0) {
+  log(
+    'WARNING: ' +
+      lost +
+      ' of ' +
+      distinct.length +
+      ' findings vanished in the verify phase (panel-level failure). They are ' +
+      'neither confirmed nor refuted — the result below is incomplete.'
+  )
+}
 
 const counts = {
   blocker: finalFindings.filter((f) => f.severity === 'blocker').length,
@@ -583,9 +747,8 @@ const counts = {
 // confirmed CI-breaking blocker was lost on one run, refuted by three
 // agents reading the wrong git ref. Surfacing each refutation's reasoning
 // lets the caller spot-check the ones that rest on file contents.
-const refutedFindings = verified
-  .filter(Boolean)
-  .filter((x) => !x.survives)
+const refutedFindings = settled
+  .filter((x) => !x.survives && !x.unverified)
   .map((x) => ({
     summary: x.finding.summary,
     file: x.finding.file,
@@ -606,6 +769,9 @@ log(
     ' nit' +
     (refutedFindings.length
       ? '; ' + refutedFindings.length + ' refuted (returned for spot-checking)'
+      : '') +
+    (unverifiedFindings.length
+      ? '; ' + unverifiedFindings.length + ' UNVERIFIED (no verifier returned a verdict)'
       : '')
 )
 
@@ -615,4 +781,8 @@ return {
   findings: finalFindings,
   refutedCount: refutedFindings.length,
   refuted: refutedFindings,
+  // Neither confirmed nor refuted: no verifier returned a verdict on these. Their
+  // own bucket, so a verify-phase outage cannot render as a clean review.
+  unverifiedCount: unverifiedFindings.length,
+  unverified: unverifiedFindings,
 }

@@ -250,6 +250,15 @@ prose and conformance fixtures — a fixture that can pass wrongly, a stale
 cross-reference, a coverage gap against precedent, a CHANGELOG date that does not
 match the tag day. It takes only two args:
 
+> **The two engines' verify stages are not equivalent.** The refutation rules in
+> Step 4 — the absence search, the tip re-check, and a nit needing every verifier
+> that answered — are implemented in `adversarial-review.workflow.js` only. The
+> spec engine still judges a nit by one angle, and it coerces a missing verdict to
+> `REFUTED` rather than letting a dead verifier abstain, so an agent that fails
+> silently kills the finding. That last one cannot be compensated for by hand.
+> Weigh it when reading a spec review's output; porting the rules is outstanding
+> work.
+
 ```
 Workflow({
   scriptPath: "<path from: adversarial_review_path.sh spec-accept-review.workflow.js>",
@@ -312,9 +321,30 @@ Before surfacing anything, try to **refute** each finding — but refute on **va
   before killing it. This has already destroyed a real blocker: three verifiers agreed a CI-breaking
   manifest entry was imaginary, because none of them was looking at the branch that had it.
   Refutations that rest on *logic*, *spec text*, or *intended behaviour* are unaffected.
+- **An absence claim has to be searched, not asserted.** "Untested", "unguarded", "unhandled",
+  "undocumented" are the easiest findings to state and the least often checked. Name the test, guard
+  or section that would have to exist, then go look for it. An existing test that covers the guard
+  refutes the finding even if it covers it indirectly, and "I didn't see one" is not a search.
+- **Re-check against the tip when the reviewed ref is behind it.** A PR reviewed mid-stream, a
+  resumed run, or fixes that landed while the review was in flight all leave findings that were true
+  at the reviewed ref and are fixed at the tip. Find the containing branches
+  (`git branch -a --contains <reviewRef>`, ignoring this run's own `worktree-*` sandboxes) and work
+  on **the branch under review** — a fix on someone else's spike does not help the caller about to
+  merge this one. List its descendants with `git log --oneline --ancestry-path <reviewRef>..<branch>`,
+  naming the branch explicitly rather than leaving the right side to default to `HEAD`. **An empty
+  list means the reviewed ref is that branch's tip: the check is done and passed**, which is the
+  normal case, since a commit is not its own descendant. Otherwise confirm each candidate with
+  `git merge-base --is-ancestor <reviewRef> <tip>` before reading it. No containing branch or a
+  command error means *skipped*, not passed. Only an actual fix refutes; a finding merely harder to
+  see at the tip still stands.
 - Confirm the suggested fix would actually work and wouldn't regress something.
 
 This is what stops confidently-**wrong** findings from reaching the author — *wrong*, not merely *minor*.
+
+**Judging nits.** Judge a nit by *claim-true* and *regress*, and keep it only if it survives both.
+Skip *reproduce*, which a prose or maintainability nit can never satisfy and which would auto-refute
+it. One angle is close to no verification at all, and a lens capped at `should` puts most of its
+output in this tier.
 
 ## Step 5 — Rank and report
 

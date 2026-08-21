@@ -1,3 +1,13 @@
+## Communication style
+
+Write plainly. Short sentences, ordinary words, no invented jargon, and no
+metaphor doing work that a direct description would do better.
+
+This is a register, not a vocabulary limit. Keep the precise technical term when
+it is the right one — the goal is prose a tired reader gets on the first pass,
+not prose with the precision removed. If a sentence needs a comma to survive, it
+probably wants to be two sentences.
+
 ## Workflow
 
 Follow this loop for any non-trivial change. Stop and wait at each gate.

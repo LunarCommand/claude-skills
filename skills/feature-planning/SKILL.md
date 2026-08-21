@@ -251,13 +251,13 @@ Explain why this beats the alternatives considered. Reference the trade-offs.
 ## Implementation Plan
 
 ### Phase 1: <n>
-- [ ] Task 1
-- [ ] Task 2
+- [ ] **P1.1** Task 1
+- [ ] **P1.2** Task 2
 
 **Verified by:** T-1, T-2 _(the test IDs from Test Definitions that prove this phase is done)_
 
 ### Phase 2: <n>
-- [ ] Task 3
+- [ ] **P2.1** Task 3
 
 **Verified by:** T-3
 
@@ -331,25 +331,69 @@ What explicitly will NOT be addressed in this implementation.
 
 ## Open Questions
 Any unresolved questions to revisit later.
+
+## Status
+`Drafted` — set at Gate 2 to `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`,
+and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. One line, always last, never duplicated.
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
 
 After writing the file, tell the user:
 
-> "Plan written to `/_plans/<feature-name>-plan.md`. Please review it and reply **'approved'** to start implementing, or tell me what you'd like to change."
+> "Plan written to `/_plans/<feature-name>-plan.md`. Please review it and reply **'approved'** to start implementing now, or **'accepted'** if the plan is right but you don't want implementation to start yet. Or tell me what you'd like to change."
 
 ⛔ **GATE 2 — STOP. Do not write any code. Do not begin Step 5.**
-"done", "answered", "looks good" do NOT open this gate. Only "approved" does.
+
+Two words open this gate, and they mean different things:
+
+- **"approved"** — the plan is right *and* start building. Proceed to Step 5.
+- **"accepted"** — the plan is right, **stop here**. Do NOT begin Step 5. The plan is final
+  and something else happens before implementation: scheduling, waiting on a dependency, or
+  simply another day. Confirm the plan is final, say nothing about what should happen next,
+  and stop.
+
+  **Record it in the plan file before you stop.** Rewrite the existing `## Status` line — the
+  last section of the template, so there is one and only one — to
+  `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is
+  `git hash-object /_plans/<feature-name>-plan.md` taken *before* you write the Status line,
+  and it is what makes the Gate 2 re-entry check below possible: without a recorded baseline,
+  "has the plan changed" has nothing to compare against. If the repo is not a git repo, write
+  `plan unversioned` and say that the check will be by eye.
+
+  Every reason for choosing "accepted" implies the session ends, and a later session has no
+  memory that the gate was ever opened. The file is the only thing that survives.
+
+"done", "answered", "looks good" open neither.
+
+The distinction exists because *the plan is correct* and *start building now* are separate
+decisions, and conflating them means the only way to say "good plan, not yet" is to interrupt
+a run that has already started writing code.
+
+After "accepted", a later "approved" opens Step 5 without re-running Gate 2 — but **re-read the
+plan file from disk first and verify it against the sha recorded in `## Status`**. Strip the
+Status line, run `git hash-object` on the rest, and compare. "The plan has not changed" is an
+assumption, not a fact: "accepted" exists precisely so time can pass, and the file is editable by
+anyone during it. This is the read-then-write race Gate 1 already guards against, on the one gate
+designed to span days.
+
+If the shas differ, show `git diff` of the plan file, say what changed, and re-present Gate 2.
+If `## Status` records no sha, say the baseline is missing and re-present Gate 2 rather than
+proceeding on an unverifiable claim.
 If the user requests changes, update the plan file on disk, re-present the gate message, and wait again.
 
 ---
 
 ### Step 5 — Implement & Verify
 
-⚠️ **Only begin after the user has explicitly said "approved" in Step 4.**
+⚠️ **Only begin after the user has explicitly said "approved" in Step 4.** "accepted" does
+NOT open this step — it means the plan is final but implementation waits.
 
 Implement according to the plan and close the verification loop the plan set up — don't just write code and check boxes.
+
+**When the final phase is green, set `## Status` to `Implemented (<YYYY-MM-DD>)`.** A plan that
+ships while still reading "Accepted — not yet implemented" tells the next session the work never
+started, and sends it back through the Gate 2 re-entry check for a feature already built.
 
 **Work phase by phase, in order.** For each phase:
 1. Implement the phase's tasks, checking them off as you go.
@@ -371,11 +415,21 @@ Implement according to the plan and close the verification loop the plan set up 
 - **Be opinionated in the Approach Analysis.** "It depends" is not a recommendation. Pick one and defend it.
 - **Poke holes in the requirements and surface missed opportunities.** The analysis must critique the reqs *as written* (gaps, ambiguities, unstated assumptions, contradictions) and flag opportunities the user didn't ask for — not just evaluate the proposed approach. If there are genuinely none, say so explicitly. Opportunities are flagged, not assumed into scope; the user decides at Gate 1.
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
-- There are two separate gates — Gate 1 ("answered") and Gate 2 ("approved") — they are not interchangeable.
+- There are two separate gates — Gate 1 ("answered") and Gate 2 ("approved" or "accepted") — they are not interchangeable.
+- **Gate 2 has two exits.** "approved" means start building; "accepted" means the plan is final but do not start. Never treat "accepted" as permission to write code.
+- **`## Status` is a single line in the plan file that every gate maintains** — `Drafted` at
+  write time, `Accepted — not yet implemented` with a date and a plan sha at Gate 2, `Implemented`
+  when Step 5 finishes. The state has to survive the session, the sha is what makes "has this
+  changed" answerable, and a stale Status is worse than none because it is believed.
 - "done" does not open either gate.
 - Re-reading the file after answers is mandatory — do not rely on memory of the blank questions, and watch for user edits to the analysis.
 - Writing the plan to disk is mandatory — chat output does not count.
 - **The plan must define invariants with stable `INV-<n>` IDs** — properties that must always hold, distinct from success criteria and risks. Surface unstated invariants the reqs only imply, and verify each with a test.
+- **Every implementation task carries a stable `P<phase>.<task>` ID**, for the same reason
+  tests carry `T-<n>`: prose gets reworded, identifiers do not. Anything that needs to refer
+  to a specific task — a commit message, a review comment, a progress note — can then do so
+  unambiguously. Number within the phase (`P1.1`, `P1.2`, `P2.1`), so appending a task to one
+  phase never renumbers another.
 - **The plan must include enumerated test definitions with stable `T-<n>` IDs**, not a prose "we'll write tests" narrative. Every Success Criteria behavior and every invariant maps to at least one test ID, and every implementation phase cites the test IDs that verify it. Cover edge cases and failure modes, not just the happy path.
 - **Run the coverage self-check before presenting the plan.** The `## Coverage` rollup must show every invariant, success criterion, measurable NFR, and phase mapped to a test — no silent gaps. Close or explicitly mark any uncovered row before Gate 2.
 - Never write any code before hearing "approved" for the plan.
