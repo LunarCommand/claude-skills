@@ -181,6 +181,52 @@ for f in skills/*/*.workflow.js; do
 done
 shopt -u nullglob
 
+# The two adversarial-review engines duplicate their shared refutation mandates,
+# because the Workflow runtime has no import mechanism — a script is one file with
+# no filesystem access. Duplication drifts: these two have already shipped with
+# docs apologising for a rule one had and the other did not. So assert the shared
+# constants are byte-identical, and make the next drift a failing build instead of
+# a paragraph explaining itself.
+if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skills/adversarial-review/spec-accept-review.workflow.js ]]; then
+  # Not "nothing to do": the check vanishing silently is how an invariant stops
+  # being enforced while the suite stays green. If an engine was renamed, this
+  # check needs updating with it.
+  fail "engine parity an engine file is missing — the parity check cannot run (renamed?)"
+else
+  if out=$(python3 - <<'PARITY' 2>&1
+import re, sys, pathlib
+CODE = pathlib.Path('skills/adversarial-review/adversarial-review.workflow.js').read_text()
+SPEC = pathlib.Path('skills/adversarial-review/spec-accept-review.workflow.js').read_text()
+SHARED = ['WORKTREE_REF_MANDATE', 'ABSENCE_SEARCH_MANDATE', 'TIP_RECHECK_MANDATE', 'REF_SCOPE_MANDATE']
+
+def body(src, name):
+    # Capture to the next TOP-LEVEL statement, not to the first blank line. The
+    # blank-line form silently shrank the compared region the moment anyone put a
+    # blank line inside a constant for readability, and drift past that point then
+    # passed green — a check that quietly stops checking.
+    m = re.search(r'^const ' + name + r'\b.*?(?=\n(?:const |// |phase\(|\Z))', src, re.S | re.M)
+    return m.group(0) if m else None
+
+bad = []
+for name in SHARED:
+    a, b = body(CODE, name), body(SPEC, name)
+    if a is None:
+        bad.append(name + ': missing from adversarial-review.workflow.js')
+    elif b is None:
+        bad.append(name + ': missing from spec-accept-review.workflow.js')
+    elif a != b:
+        bad.append(name + ': differs between the two engines')
+if bad:
+    print('\n'.join(bad))
+    sys.exit(1)
+PARITY
+  ); then
+    pass "engine parity shared refutation mandates identical in both engines"
+  else
+    fail "engine parity the two engines have drifted:"; printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+fi
+
 # --------------------------------------------------------------------------
 section "Skills"
 # --------------------------------------------------------------------------

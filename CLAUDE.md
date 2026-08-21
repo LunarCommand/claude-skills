@@ -201,10 +201,17 @@ node). Hard constraints, stated in their headers and enforced by the runtime:
 - They orchestrate many parallel subagents (review lenses → merge → refute-verify
   → severity-rank). `args` carries `scope`/`context`/`invariants`; several fields
   (`isolate`, `reviewRef`) exist to handle git-worktree isolation safely.
-- `spec-accept-review.workflow.js` reviews **uncommitted** work in the real tree
-  with no worktree isolation possible — its header flags this as the
-  highest-risk configuration and mandates read-only agent behavior (no
-  `git checkout`/`git stash`). Respect that when editing.
+- Both engines take `isolate`/`reviewRef`/`baseRef`. Without `isolate`,
+  `spec-accept-review.workflow.js` reviews **uncommitted** work in the real tree —
+  the highest-risk configuration, since a worktree can only hold committed work —
+  and its read-only mandate is then the only guard. Its risk framing is
+  conditional on `ISOLATE`; keep it that way when editing, and never let the
+  isolated branch claim protections a submodule working tree does not have.
+- The two engines duplicate four refutation mandates verbatim, because the
+  Workflow runtime gives a script no imports and no filesystem. `scripts/validate.sh`
+  asserts they stay byte-identical: the pair drifted twice before the check
+  existed, each time shipping docs that apologised for the difference. Change a
+  mandate in one engine and you must change it in the other.
 - Both are reachable from `SKILL.md` Step 3b, which picks between them by target
   (code vs spec/RFC). Adding a third engine means adding it there too. An engine
   no step routes to still runs when a user names it directly — which is how

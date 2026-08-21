@@ -32,13 +32,19 @@ plugins that actually changed:
   a register and not a vocabulary limit, so the precise technical term survives —
   the failure mode of a "keep it simple" instruction is losing precision along
   with the padding.
+- The shared refutation mandates are checked for drift, and the check cannot
+  silently stop checking: it compares each constant to the next top-level
+  statement rather than to the first blank line, and a missing engine file fails
+  the run instead of skipping it. The Workflow runtime has
+  no import mechanism, so the two engines must duplicate them; validation now
+  asserts they are byte-identical, because the pair has already shipped twice with
+  documentation apologising for a rule one had and the other did not.
 
-### adversarial-review — 0.10.0
+### adversarial-review — 0.11.0
 
-The verify-stage changes below apply to `adversarial-review.workflow.js`,
-the code-target engine. The sibling `spec-accept-review.workflow.js` is unchanged
-and still judges nits by a single angle; porting them is outstanding work, and
-`SKILL.md` now says so where the rules are stated.
+Two batches ship under one version: the code engine's verify-stage work,
+and the spec engine catching up to it. adversarial-review 0.10.0 was never
+tagged, so nothing was ever released under that number.
 
 - Refutation now has to search before it accepts an absence claim. "Untested",
   "unguarded", "unhandled" are the easiest findings to state and the least often
@@ -65,6 +71,20 @@ and still judges nits by a single angle; porting them is outstanding work, and
 - Confirmed findings carry the panel that judged them (`asked` vs `cast`), so a
   finding confirmed by one surviving verifier is distinguishable from one
   confirmed by three, and the run warns when a finding vanishes mid-verify.
+
+- The spec/RFC engine can review committed work in a sandbox. It accepts
+  `isolate`, `reviewRef` and `baseRef` like the code engine and runs every lens,
+  merge and verify agent in a throwaway worktree. Without them it could only
+  review uncommitted work in the real tree — the highest-risk configuration in the
+  skill — which pushed people to the code engine for spec targets just to get
+  isolation, trading the right lenses for the right safety.
+- Its verify stage matches the code engine's. A verifier that returns nothing now
+  abstains: the engine coerced a missing verdict to `REFUTED`, so a dead agent
+  voted against, and on the one-angle nit panel it used to run that killed the
+  finding outright. Nits are judged by claim-true and regress, the threshold comes
+  from the verifiers that answered, and a finding nobody judged is reported as
+  unverified rather than refuted.
+- The absence-search and tip-recheck mandates apply on the spec path too.
 
 ### feature-planning — 0.10.0
 

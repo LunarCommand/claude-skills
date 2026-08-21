@@ -506,6 +506,15 @@ const ANGLES = [
 phase('Review')
 // A refused ref silently disables every check that depends on it, so it is said
 // out loud before the fan-out rather than inferred later from a thin review.
+if (ISOLATE && !REVIEW_REF && !REVIEW_REF_REJECTED) {
+  log(
+    'WARNING: isolate is on but no reviewRef was passed. Every agent is running in ' +
+    'a worktree cut from the DEFAULT BRANCH, which does not contain the change — ' +
+    'they are reviewing pre-change files. Findings from this run are unreliable ' +
+    'unless the change was supplied in full via args.context.'
+  )
+}
+
 if (REVIEW_REF_REJECTED || BASE_REF_REJECTED) {
   log(
     'WARNING: ' +
