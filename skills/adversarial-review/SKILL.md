@@ -221,9 +221,12 @@ Workflow({
     isolate: true | false,                // Step 0: true when the reviewed state
                                           // is committed, false for in-place work
     reviewRef: "<sha or branch holding the change>",  // REQUIRED when isolate is
-    baseRef: "<sha or branch to diff against>"        // true — the worktree is at
-                                          // the DEFAULT BRANCH, so without these
+                                          // true — the worktree is at
+                                          // the DEFAULT BRANCH, so without it
                                           // the agents never see the change
+    baseRef: "<sha or branch to diff against>"        // OPTIONAL — bounds the
+                                          // review to a delta; absent means
+                                          // the whole change at reviewRef
   }
 })
 ```
@@ -268,8 +271,14 @@ Workflow({
                sections the change depends on, and today's date — plus any
                load-bearing claim you want verified against source>",
     isolate: true | false,                            // Step 0: true when the
-    reviewRef: "<sha or branch holding the change>",  // REQUIRED when isolate
-    baseRef: "<sha or branch to diff against>"        // is true
+                                                      // reviewed state is committed
+    reviewRef: "<sha or branch holding the change>",  // REQUIRED when isolate is
+                                                      // true: the worktree is at the
+                                                      // DEFAULT BRANCH, so without it
+                                                      // agents never see the change
+    baseRef: "<sha or branch to diff against>"        // OPTIONAL — bounds the review
+                                                      // to a delta; absent means the
+                                                      // whole change at reviewRef
   }
 })
 ```

@@ -328,6 +328,15 @@ const LENSES = [
 // nothing." One retry, then record the failure.
 // A refused ref silently disables every check that depends on it, so it is said
 // out loud before the fan-out rather than inferred later from a thin review.
+if (ISOLATE && !REVIEW_REF && !REVIEW_REF_REJECTED) {
+  log(
+    'WARNING: isolate is on but no reviewRef was passed. Every agent is running in ' +
+    'a worktree cut from the DEFAULT BRANCH, which does not contain the change — ' +
+    'they are reviewing pre-change files. Findings from this run are unreliable ' +
+    'unless the change was supplied in full via args.context.'
+  )
+}
+
 if (REVIEW_REF_REJECTED || BASE_REF_REJECTED) {
   log(
     'WARNING: ' +
@@ -392,9 +401,10 @@ if (rawFindings.length > 1) {
 log('merged to ' + distinct.length + ' distinct defect(s)')
 
 // --- Verify (tiered, multi-angle) ---
-// Full 3-angle panel for blocker/should, single claim-true verifier for a nit (a
-// wrong nit is cheap; a wrongly-confirmed blocker is not). Survives on a majority
-// of the angles that judged it.
+// Full 3-angle panel for blocker/should, two for a nit (claim-true + regress).
+// A blocker or should survives on a majority of the verifiers that RETURNED A
+// VERDICT; a nit needs all of them. A panel where nobody answered is unverified,
+// not refuted.
 phase('Verify')
 const verified = await parallel(distinct.map(f => () => {
   // A nit is judged by claim-true and regress, never by reproduce, which a prose
