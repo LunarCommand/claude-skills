@@ -187,7 +187,12 @@ shopt -u nullglob
 # docs apologising for a rule one had and the other did not. So assert the shared
 # constants are byte-identical, and make the next drift a failing build instead of
 # a paragraph explaining itself.
-if [[ -f skills/adversarial-review/adversarial-review.workflow.js && -f skills/adversarial-review/spec-accept-review.workflow.js ]]; then
+if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skills/adversarial-review/spec-accept-review.workflow.js ]]; then
+  # Not "nothing to do": the check vanishing silently is how an invariant stops
+  # being enforced while the suite stays green. If an engine was renamed, this
+  # check needs updating with it.
+  fail "engine parity an engine file is missing — the parity check cannot run (renamed?)"
+else
   if out=$(python3 - <<'PARITY' 2>&1
 import re, sys, pathlib
 CODE = pathlib.Path('skills/adversarial-review/adversarial-review.workflow.js').read_text()
@@ -195,7 +200,11 @@ SPEC = pathlib.Path('skills/adversarial-review/spec-accept-review.workflow.js').
 SHARED = ['WORKTREE_REF_MANDATE', 'ABSENCE_SEARCH_MANDATE', 'TIP_RECHECK_MANDATE', 'REF_SCOPE_MANDATE']
 
 def body(src, name):
-    m = re.search(r'^const ' + name + r'\b.*?(?=\n\n)', src, re.S | re.M)
+    # Capture to the next TOP-LEVEL statement, not to the first blank line. The
+    # blank-line form silently shrank the compared region the moment anyone put a
+    # blank line inside a constant for readability, and drift past that point then
+    # passed green — a check that quietly stops checking.
+    m = re.search(r'^const ' + name + r'\b.*?(?=\n(?:const |// |phase\(|\Z))', src, re.S | re.M)
     return m.group(0) if m else None
 
 bad = []

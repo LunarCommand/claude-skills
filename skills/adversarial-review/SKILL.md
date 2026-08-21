@@ -268,8 +268,8 @@ Workflow({
                sections the change depends on, and today's date — plus any
                load-bearing claim you want verified against source>",
     isolate: true | false,                            // Step 0: true when the
-    reviewRef: "<sha or branch holding the change>",  // reviewed state is
-    baseRef: "<sha or branch to diff against>"        // committed
+    reviewRef: "<sha or branch holding the change>",  // REQUIRED when isolate
+    baseRef: "<sha or branch to diff against>"        // is true
   }
 })
 ```
@@ -281,11 +281,10 @@ targets just to get a sandbox — trading the right lenses for the right safety.
 It now takes the same three args, so a tagged or PR-scale spec change can be
 reviewed in throwaway worktrees.
 
-Isolation does **not** deliver the change, here or on the code path: the
-worktree is cut from the default branch, so pass `reviewRef` alongside it. For a
-genuinely uncommitted review leave `isolate` false — a worktree can only hold
-committed work — and then Step 0's snapshot is not optional, because nothing but
-the prompt mandate enforces read-only.
+For a genuinely uncommitted spec review leave `isolate` false — a worktree can
+only hold committed work — and then Step 0's snapshot is not optional, because
+nothing but the prompt mandate enforces read-only. The isolation rules that apply
+to both engines are below and are not repeated here.
 
 **On worktree isolation.** Set `args.isolate: true` and the workflow runs every
 lens, merge, and verify agent in its own throwaway git worktree — via the
@@ -397,7 +396,13 @@ reverted file is a worse outcome than any finding in the report is a good one.
 Before deleting anything an agent created, look at it: confirm it is review
 debris and not something of the user's, and say what it was.
 
-**Second, sanity-check the refutations you're about to trust.** The workflow
+**Second, read the `unverified` bucket before anything else.** Both engines return
+findings nobody judged — every verifier on that panel died or was skipped —
+separately from `refuted`. They are not disproved, and a run with a verify-phase
+outage otherwise reads as a clean review. Say how many there are and treat each as
+an open question, not a pass.
+
+**Third, sanity-check the refutations you're about to trust.** The workflow
 returns a `refuted` array alongside `findings`, each entry carrying the
 refutation reasoning — read it. Scan for any refutation resting on **file
 contents** ("that entry doesn't exist", "the premise is factually false", "that

@@ -5,26 +5,32 @@ export const meta = {
   phases: [
     { title: 'Lenses', detail: 'independent adversarial passes over the change' },
     { title: 'Merge', detail: 'cluster raw findings into distinct defects before verifying' },
-    { title: 'Verify', detail: 'refute each distinct defect on VALIDITY not severity; 3 angles for blocker/should, 1 for nit' },
+    { title: 'Verify', detail: 'refute each distinct defect on VALIDITY not severity; 3 angles for blocker/should, 2 for nit' },
     { title: 'Synthesize', detail: 'rank survivors; keep refuted-with-reasoning for audit' },
   ],
 }
 
 // USAGE: assemble context inline (the diff + new fixtures/examples + unchanged collaborators + today's date),
-// then Workflow({ scriptPath: <this file>, args: { scope: '...', context: '<assembled text + file paths>' } }).
+// then Workflow({ scriptPath: <this file>, args: { scope, context, isolate, reviewRef, baseRef } }).
 // args.context should point the lens agents at the assembled files AND name any load-bearing claims to
 // verify against source. args.scope is a short human label.
+// args.isolate runs every agent in a throwaway worktree — set it whenever the reviewed state is
+// COMMITTED, and pass args.reviewRef with it: the worktree is cut from the DEFAULT BRANCH, so without
+// the ref the agents open pre-change files. args.baseRef bounds the review to a delta. Leave isolate
+// false for genuinely uncommitted work, which a worktree cannot hold.
 
 const SCOPE = (args && args.scope) || 'spec/RFC change under review'
 const CONTEXT = (args && args.context) ||
-  'No context supplied. Read the uncommitted git diff and any new/changed conformance fixtures or examples, ' +
+  'No context supplied. Read the change (the diff at the refs if given, else the uncommitted git diff) ' +
+  'and any new/changed conformance fixtures or examples, ' +
   'plus the unchanged sections of the spec the change depends on (cross-referenced clauses, tables, and any ' +
   'companion documents it binds to).'
 
-// Sandbox + ref support, kept byte-identical to adversarial-review.workflow.js.
-// scripts/validate.sh asserts these constants match across both engines: with no
-// import mechanism in the Workflow runtime they must be duplicated, and the two
-// have drifted before — twice shipping docs that apologised for the difference.
+// Sandbox + ref support, ported from adversarial-review.workflow.js. The four
+// MANDATE constants below it are byte-identical and the validation suite asserts
+// that; this block is NOT, because that engine reads a normalized local alias
+// where this one reads the `args` global. Keep the two in step by hand, and keep
+// the semantics identical even where the accessor differs.
 const ISOLATE = args && args.isolate === true
 const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._\/~^@{}+-]{0,254}$/
 const isSafeRef = (v) => typeof v === 'string' && v !== '' && SAFE_REF.test(v) && v.indexOf('..') === -1
@@ -157,14 +163,20 @@ const REF_SCOPE_MANDATE = !(REVIEW_REF || BASE_REF)
 const READ_ONLY_MANDATE = [
   '',
   '## You are READ-ONLY (non-negotiable)',
-  'You are reviewing an UNCOMMITTED diff in the real working tree. There is no backup and no',
-  'isolation: anything you revert or overwrite is gone permanently, including the change under review',
-  'itself.',
+  ISOLATE
+    ? 'You are in a throwaway git worktree, so a stray write cannot reach the user\'s tree — but a ' +
+      'submodule working tree is NOT sandboxed, and agents have been seen acting on the real repo ' +
+      'path rather than their own checkout. Treat the rules below as binding anyway.'
+    : 'You are reviewing an UNCOMMITTED diff in the real working tree. There is no backup and no ' +
+      'isolation: anything you revert or overwrite is gone permanently, including the change under ' +
+      'review itself.',
   'NEVER run: git checkout, git restore, git stash, git reset, git clean, git apply, git revert,',
   'or any other command that writes to the working tree. Do not create, edit, move, or delete',
   'files. Do not run formatters or any tool that rewrites fixtures.',
   'To read a different version of a file, use `git show <ref>:<path>` — it writes nothing. To see',
-  'what changed, use `git diff` / `git log -p`. Both read the uncommitted state correctly.',
+  ISOLATE
+    ? 'what changed, use `git diff ' + (BASE_REF || '<base>') + ' ' + (REVIEW_REF || '<review>') + '`.'
+    : 'what changed, use `git diff` / `git log -p`. Both read the uncommitted state correctly.',
   'If verifying a claim seems to REQUIRE mutating the tree, do not do it: lower your confidence,',
   'say in the finding what you could not verify and why, and move on. An honestly-hedged finding',
   'is worth far more than a destroyed change under review.',
@@ -314,6 +326,24 @@ const LENSES = [
 // spec-reconciliation lens mid-response, it contributed zero findings, and the
 // result payload gave no hint — which reads exactly like "that lens found
 // nothing." One retry, then record the failure.
+// A refused ref silently disables every check that depends on it, so it is said
+// out loud before the fan-out rather than inferred later from a thin review.
+if (REVIEW_REF_REJECTED || BASE_REF_REJECTED) {
+  log(
+    'WARNING: ' +
+      (REVIEW_REF_REJECTED ? 'reviewRef ' : '') +
+      (REVIEW_REF_REJECTED && BASE_REF_REJECTED ? 'and ' : '') +
+      (BASE_REF_REJECTED ? 'baseRef ' : '') +
+      'was supplied but refused as unsafe to interpolate into a command (a ref ' +
+      'must start alphanumeric and contain no ".."). The checks that depend on ' +
+      'it are DISABLED for this run' +
+      (ISOLATE
+        ? ', and with isolation on the agents are reading a worktree cut from ' +
+          'the default branch — treat this result as unreliable.'
+        : '.')
+  )
+}
+
 phase('Lenses')
 const lensFailures = []
 async function runLens(lens, attempt) {
@@ -432,6 +462,16 @@ const verified = await parallel(distinct.map(f => () => {
 
 phase('Synthesize')
 const judged = verified.filter(Boolean)
+// Anything that entered Verify must leave it in exactly one bucket. A
+// per-finding task returning null was dropped by this filter while the summary
+// below still counted it as judged.
+const lost = distinct.length - judged.length
+if (lost > 0) {
+  log(
+    'WARNING: ' + lost + ' of ' + distinct.length + ' defect(s) vanished in the verify ' +
+    'phase (panel-level failure). Neither confirmed nor refuted — this result is incomplete.'
+  )
+}
 const survivors = judged.filter(x => x.survives).map(x => ({ ...x.finding, votes: x.votes, panel: x.panel }))
 // Neither confirmed nor refuted: no verifier returned a verdict. Its own bucket,
 // so a verify-phase outage cannot render as a clean review.
@@ -439,7 +479,7 @@ const unjudged = judged.filter(x => x.unverified).map(x => ({ ...x.finding, pane
 const order = { blocker: 0, should: 1, nit: 2 }
 survivors.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
 log(
-  distinct.length + ' distinct defect(s) judged; ' + survivors.length + ' survived verification' +
+  judged.length + ' of ' + distinct.length + ' distinct defect(s) judged; ' + survivors.length + ' survived verification' +
   (unjudged.length ? '; ' + unjudged.length + ' UNVERIFIED (no verifier returned a verdict)' : '')
 )
 
@@ -464,6 +504,10 @@ return {
     // Which lenses independently converged on it. Multiple lenses is stronger evidence.
     lenses: f.lenses || (f.lens ? [f.lens] : []),
     votes: f.votes,
+    // Which panel judged it. Attached upstream and dropped here before: a
+    // blocker confirmed by one surviving verifier must not read like one
+    // confirmed by three.
+    panel: f.panel,
   })),
   // Refuted defects are returned WITH every angle's reasoning so the caller can audit a
   // wrong refutation, the recurring failure mode, instead of re-deriving from scratch.
