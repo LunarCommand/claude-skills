@@ -23,7 +23,7 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
-## Unreleased
+## v0.11.0 — 2026-08-21
 
 ### Repository
 
@@ -32,13 +32,13 @@ plugins that actually changed:
   a register and not a vocabulary limit, so the precise technical term survives —
   the failure mode of a "keep it simple" instruction is losing precision along
   with the padding.
-- The shared refutation mandates are checked for drift, and the check cannot
-  silently stop checking: it compares each constant to the next top-level
-  statement rather than to the first blank line, and a missing engine file fails
-  the run instead of skipping it. The Workflow runtime has
-  no import mechanism, so the two engines must duplicate them; validation now
-  asserts they are byte-identical, because the pair has already shipped twice with
-  documentation apologising for a rule one had and the other did not.
+- The two review engines are checked for drift. The Workflow runtime gives a
+  script no imports, so they must duplicate their shared refutation mandates, and
+  the pair has already shipped twice with documentation apologising for a rule one
+  had and the other did not. Validation now asserts the four constants are
+  byte-identical — and the check cannot quietly stop checking: it compares each
+  constant to the next top-level statement rather than to the first blank line,
+  and a missing engine file fails the run instead of skipping it.
 
 ### adversarial-review — 0.11.0
 
@@ -71,7 +71,6 @@ tagged, so nothing was ever released under that number.
 - Confirmed findings carry the panel that judged them (`asked` vs `cast`), so a
   finding confirmed by one surviving verifier is distinguishable from one
   confirmed by three, and the run warns when a finding vanishes mid-verify.
-
 - The spec/RFC engine can review committed work in a sandbox. It accepts
   `isolate`, `reviewRef` and `baseRef` like the code engine and runs every lens,
   merge and verify agent in a throwaway worktree. Without them it could only
@@ -85,6 +84,10 @@ tagged, so nothing was ever released under that number.
   from the verifiers that answered, and a finding nobody judged is reported as
   unverified rather than refuted.
 - The absence-search and tip-recheck mandates apply on the spec path too.
+- Both engines warn when `isolate` is on and no `reviewRef` was passed at all. The
+  refusal warning covered only a ref that was supplied and rejected, so the missing
+  case ran silently while every agent read a worktree cut from the default branch —
+  the configuration that has already made three verifiers refute a real blocker.
 
 ### feature-planning — 0.10.0
 
