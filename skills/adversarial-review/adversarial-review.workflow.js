@@ -139,9 +139,19 @@ const ABSENCE_SEARCH_MANDATE =
   'If the finding asserts something is ABSENT (untested, unguarded, unhandled, ' +
   'undocumented), go look for the thing it says is missing before accepting it: ' +
   'name the test, guard or section that would have to exist, then search for it. ' +
-  'An existing test refutes the finding however indirectly it covers the case, and ' +
-  '"I did not see one" is not a search. Absence claims are the easiest to state ' +
-  'and the least often checked.'
+  'An existing test refutes the finding only if it covers the thing the finding ' +
+  'names, though it may cover it indirectly, and "I did not see one" is not a ' +
+  'search. Absence claims are the easiest to state and the least often checked.' +
+  (!REVIEW_REF
+    ? ''
+    : '\nSearch at the reviewed ref, not your working copy: list with ' +
+      '`git ls-tree -r --name-only ' +
+      REVIEW_REF +
+      '` and read with `git show ' +
+      REVIEW_REF +
+      ':<path>`. A search of the wrong tree refutes nothing, in either ' +
+      'direction — what you find there may not exist in the reviewed state, and ' +
+      'what you fail to find may have been added by the change.')
 
 // Verify-stage only. The lenses judge the ref they were given, which is right:
 // that is the artifact under review. But a finding is only worth reporting if it
@@ -155,18 +165,44 @@ const TIP_RECHECK_MANDATE = !REVIEW_REF
     'The reviewed ref is ' +
     REVIEW_REF +
     ', which may be behind the branch tip. Before returning real=true:\n' +
-    '- Look for commits after it: `git log --oneline ' +
+    '- Find the branches that contain it: `git branch -a --contains ' +
     REVIEW_REF +
-    '..` on each branch that contains it (`git branch -a --contains ' +
+    '`. Ignore any `worktree-*` entry: those are this run\'s own sandboxes.\n' +
+    '- The branch under review is authoritative. Another branch may also contain ' +
+    'the ref — a colleague\'s spike, a merge into the default branch — and a fix ' +
+    'that exists only there does NOT help the caller, who is about to merge the ' +
+    'branch under review. Re-check on that branch, not on whichever one is newest.\n' +
+    '- List its true descendants: `git log --oneline --ancestry-path ' +
     REVIEW_REF +
-    '`).\n' +
-    '- If there are none, the reviewed ref IS the tip and this check is done.\n' +
-    '- If there are, re-check the finding at the newest descendant with ' +
-    '`git show <tip>:<path>`. If it has already been fixed there, mark real=false ' +
-    'and say which commit fixed it.\n' +
-    'A finding that was true at the reviewed ref and is false at the tip is not a ' +
-    'defect the caller can act on. Do NOT use this to refute a finding that is ' +
-    'merely harder to see at the tip: only an actual fix counts.'
+    '..<branch>`, naming the branch explicitly.\n' +
+    '- **If that prints nothing, the reviewed ref IS that branch\'s tip. The check ' +
+    'is DONE and the finding stands on its own merits — say nothing further about ' +
+    'the tip.** A commit is not its own descendant, so an empty list here is the ' +
+    'normal, healthy case, not a failure.\n' +
+    '- If it does list commits, confirm the candidate before reading it: ' +
+    '`git merge-base --is-ancestor ' +
+    REVIEW_REF +
+    ' <tip>` must succeed. A tip that fails is not a descendant, the change was ' +
+    'never on it, and the finding will look absent there because you are reading ' +
+    'the wrong tree — which refutes NOTHING.\n' +
+    '- Only then re-check with `git show <tip>:<path>`. If it has genuinely been ' +
+    'fixed, mark real=false and name the commit that fixed it.\n' +
+    '- If no branch contains the ref, or a command errors, the check is SKIPPED, ' +
+    'not passed. Say so and judge the finding on the reviewed ref alone. An error ' +
+    'is not a negative result.\n' +
+    (ISOLATE
+      ? 'Never write the range with the right side omitted: a bare `' +
+        REVIEW_REF +
+        '..` means `' +
+        REVIEW_REF +
+        '..HEAD`, and under isolation HEAD is the DEFAULT BRANCH, not the branch ' +
+        'under review, so it answers a different question.\n'
+      : 'Name the right side of the range explicitly rather than relying on HEAD, ' +
+        'so the check does not depend on which branch happens to be checked out.\n') +
+    'Only an actual fix on the branch under review refutes. Do not use this ' +
+    'against a finding that is merely harder to see at the tip, and never on ' +
+    'evidence from a tree that does not descend from the reviewed ref: only an ' +
+    'actual fix counts.'
 
 // The refs bounding the review, surfaced whether or not isolation is on.
 // Delta mode passes baseRef/reviewRef with isolation OFF; without this the

@@ -318,9 +318,16 @@ Before surfacing anything, try to **refute** each finding — but refute on **va
   refutes the finding even if it covers it indirectly, and "I didn't see one" is not a search.
 - **Re-check against the tip when the reviewed ref is behind it.** A PR reviewed mid-stream, a
   resumed run, or fixes that landed while the review was in flight all leave findings that were true
-  at the reviewed ref and are fixed at the tip. Look for commits after it (`git log --oneline
-  <reviewRef>..`) and re-check there before reporting. Only an actual fix refutes; a finding that is
-  merely harder to see at the tip still stands.
+  at the reviewed ref and are fixed at the tip. Find the containing branches
+  (`git branch -a --contains <reviewRef>`, ignoring this run's own `worktree-*` sandboxes) and work
+  on **the branch under review** — a fix on someone else's spike does not help the caller about to
+  merge this one. List its descendants with `git log --oneline --ancestry-path <reviewRef>..<branch>`,
+  naming the branch explicitly rather than leaving the right side to default to `HEAD`. **An empty
+  list means the reviewed ref is that branch's tip: the check is done and passed**, which is the
+  normal case, since a commit is not its own descendant. Otherwise confirm each candidate with
+  `git merge-base --is-ancestor <reviewRef> <tip>` before reading it. No containing branch or a
+  command error means *skipped*, not passed. Only an actual fix refutes; a finding merely harder to
+  see at the tip still stands.
 - Confirm the suggested fix would actually work and wouldn't regress something.
 
 This is what stops confidently-**wrong** findings from reaching the author — *wrong*, not merely *minor*.
