@@ -30,6 +30,11 @@
       "name": "pr-review",
       "source": "./skills/pr-review",
       "category": "review"
+    },
+    {
+      "name": "mutation-test",
+      "source": "./skills/mutation-test",
+      "description": "Breaks code on purpose to find out whether the tests notice: prove one assertion is not vacuous, or scope a whole diff and report what the suite failed to catch."
     }
   ]
 }

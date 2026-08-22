@@ -23,6 +23,46 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
+## Unreleased
+
+### mutation-test — 0.9.0
+
+New skill. Breaks code on purpose to find out whether the tests notice, merging
+two skills that were solving halves of the same problem.
+
+- **Two paths, one skill.** Path A takes a single claim — an assertion or fixture
+  just written — and runs one mutation by hand, no tooling. Path B takes a scope
+  (a PR, a diff, a file, a dead-code claim), resolves it to changed lines, and
+  runs a chosen set of mutants. Separately they competed on triggers; a user
+  asking "are these tests real?" has not classified their question yet.
+- **The runner takes a baseline.** It runs the suite unmutated before scoring
+  anything and aborts if that is not green. A command that fails for its own
+  reasons — a bad flag, a missing dependency, the wrong working directory — exits
+  non-zero for every mutant and reports a clean sweep proving nothing. Reported
+  downstream after a runner appended pytest flags to vitest and claimed 15 of 15
+  killed.
+- **`--timeout` does something.** It was documented, parsed and never read, so a
+  caller asking for a guard against a mutant that hangs the suite got none — and
+  an inverted loop condition is a routine way to produce one. It resolves
+  `timeout` or `gtimeout` and says so when neither is present rather than
+  dropping the guard silently.
+- Mutants run in a subshell, so a `cd` in the test command cannot escape and
+  break the restore, and the pytest-specific flags apply only to pytest.
+- The dry-run reads the same map shape as the live run. It read `.[$f][$l]` while
+  the live path read `.[$f].tests[$l]`, so every mutant printed "0 covering
+  test(s)" and anyone sizing a run concluded the whole diff was uncovered. It now
+  also names an import-time line as such rather than lumping it with the
+  genuinely unexecuted ones, which is the strongest finding the tool makes.
+
+### Repository
+
+- The settings template approves the three `mutation_test_*` scripts.
+- Validation runs the mutation-test dry-run against a fixture map and requires it
+  to tell covered, import-time and unexecuted lines apart. Three defect reports on
+  that script have now been the same shape — one place updated and a second left
+  behind — and a regex over accessor spellings would only have caught the last
+  one's wording.
+
 ## v0.11.0 — 2026-08-21
 
 ### Repository

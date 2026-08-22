@@ -160,6 +160,26 @@ base if the tree is clean. It reports blocker / should / nit, and says so when
 it found nothing. Read [what it costs](#what-an-adversarial-review-costs) before
 the first PR-sized run.
 
+#### `/mutation-test` — are these tests real?
+
+**Use it for:** a test you just wrote and doubt, or a whole diff you want to know
+is actually pinned by its suite.
+
+```
+/mutation-test is that new fixture actually asserting anything
+/mutation-test pr 55
+/mutation-test apps/web/src/payments/reconciliation.ts
+```
+
+A green test run is the null result: a dead assertion and a live one produce
+identical output. This breaks the code on purpose and reports what the suite
+failed to notice. One claim runs by hand in a minute; a scope resolves to changed
+lines and runs a chosen set of mutants — ten chosen beat a hundred generated.
+
+It reports and does not fix, deliberately: a test written to kill a mutant tends
+to test the mutant rather than the behaviour. It also answers "is this code
+dead?" on evidence — delete it, run the tests, see what breaks.
+
 #### `/pr-review` — work through review comments
 
 **Use it for:** any PR with unresolved threads, from a human or a bot.
@@ -212,6 +232,7 @@ Claude Code, plus whatever the skills you actually install shell out to:
 | **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
 | **adversarial-review** | nothing beyond Claude Code |
 | **feature-planning** | nothing beyond Claude Code |
+| **mutation-test** | `jq`; `timeout` for `--timeout`; the line→test map is Python-only |
 
 Each script checks its own dependencies first and names what's missing, rather
 than failing partway through a query.
@@ -232,7 +253,8 @@ control.
 ```
 
 Each skill is its own plugin, so you install only what you want:
-`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`.
+`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`,
+`mutation-test`.
 Updates arrive through `/plugin marketplace update lunar-skills`. Plugin skills
 are namespaced, so the explicit invocation is `/hyperdx:hyperdx`.
 
