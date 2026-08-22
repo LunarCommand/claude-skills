@@ -227,6 +227,51 @@ PARITY
   fi
 fi
 
+# mutation-test: the dry-run and the live run must read the SAME map shape.
+# Three defect reports have landed on this script, all the same shape — one place
+# updated and a second left behind. The last: the dry-run read `.[$f][$l]` while
+# the live path read `.[$f].tests[$l]`, so every mutant printed "0 covering
+# test(s)" and anyone sizing a run concluded the whole diff was uncovered.
+# A regex over accessor spellings would only catch that one wording, so this is a
+# behavioural check: run --dry-run against a fixture map holding one covered
+# line, one import-time line and one never-executed line, and require it to tell
+# all three apart. Any shape change on either path fails here.
+MT_RUN="skills/mutation-test/bin/mutation_test_run_mutants.sh"
+if [[ -f "$MT_RUN" ]]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    warn "mutation-test dry-run contract NOT CHECKED — jq is missing, so the behavioural check did not run"
+  else
+    mt_tmp=$(mktemp -d)
+    cat >"$mt_tmp/map.json" <<'MTMAP'
+{ "m.py": { "executed": [2, 5], "tests": { "2": ["test_a", "test_b"] } } }
+MTMAP
+    cat >"$mt_tmp/spec.json" <<'MTSPEC'
+[{"file":"m.py","line":2,"find":"a","replace":"b","desc":"covered"},
+ {"file":"m.py","line":5,"find":"a","replace":"b","desc":"import-time"},
+ {"file":"m.py","line":9,"find":"a","replace":"b","desc":"never-executed"}]
+MTSPEC
+    mt_out=$("$MT_RUN" --spec "$mt_tmp/spec.json" --map "$mt_tmp/map.json" --test-cmd 'true' --dry-run 2>&1 || true)
+    mt_bad=""
+    printf '%s' "$mt_out" | grep -q 'covered.*2 covering test' \
+      || mt_bad="$mt_bad
+        a line WITH per-test contexts did not report its test count (the .tests lookup is wrong)"
+    printf '%s' "$mt_out" | grep -qi 'import-time.*import-time' \
+      || mt_bad="$mt_bad
+        an executed line with no contexts was not identified as import-time (the .executed lookup is wrong)"
+    printf '%s' "$mt_out" | grep -q 'never-executed.*nothing executes' \
+      || mt_bad="$mt_bad
+        an unexecuted line was not reported as uncovered — the strongest finding this tool makes"
+    rm -rf "$mt_tmp"
+    if [[ -z "$mt_bad" ]]; then
+      pass "mutation-test dry-run tells covered / import-time / uncovered apart"
+    else
+      fail "mutation-test dry-run cannot distinguish coverage states:"
+      printf '%s\n' "$mt_bad" | sed 's/^/  /'
+      printf '%s\n' "$mt_out" | sed 's/^/        > /'
+    fi
+  fi
+fi
+
 # --------------------------------------------------------------------------
 section "Skills"
 # --------------------------------------------------------------------------

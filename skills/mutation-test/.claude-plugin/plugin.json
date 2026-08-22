@@ -1,0 +1,13 @@
+{
+  "name": "mutation-test",
+  "description": "Breaks code on purpose to find out whether the tests notice: prove one assertion is not vacuous, or scope a whole diff and report what the suite failed to catch.",
+  "version": "0.9.0",
+  "author": {
+    "name": "LunarCommand",
+    "url": "https://github.com/LunarCommand"
+  },
+  "homepage": "https://github.com/LunarCommand/claude-skills",
+  "repository": "https://github.com/LunarCommand/claude-skills",
+  "license": "MIT",
+  "keywords": ["mutation-testing", "test-quality", "coverage", "dead-code", "verification"]
+}
