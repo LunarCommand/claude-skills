@@ -18,9 +18,6 @@
       "Bash(pr_review_parse_comments.sh:*)",
       "Bash(pr_review_post_reply.sh:*)",
       "Bash(pr_review_resolve_thread.sh:*)",
-      "Bash(mutation_test_changed_lines.sh:*)",
-      "Bash(mutation_test_build_map.sh:*)",
-      "Bash(mutation_test_run_mutants.sh:*)",
 
       "Bash(gh repo view:*)",
       "Bash(gh pr view:*)",
