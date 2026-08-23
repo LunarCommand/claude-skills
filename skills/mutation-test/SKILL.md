@@ -181,3 +181,12 @@ tooling and cannot lose your work.
 Until it lands: for a diff, pick the two or three claims that actually carry risk
 and run them by hand. That is slower per line and better per finding — ten chosen
 mutants beat a hundred generated ones anyway.
+
+**What a batch runner has to prove before it ships.** Round-trip integrity, on a
+fixture tree built to break it: two paths that collide under whatever key the
+backup uses (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path with a
+space, a symlink, a file named after the runner's own scratch file, and two runs
+against the same tree at once. Every file byte-identical afterwards, or the run
+says so loudly. The restore path is the whole product here — a mutation tool that
+loses work is worse than no mutation tool, and "all files restored" printed over
+a corrupted tree is worse still.

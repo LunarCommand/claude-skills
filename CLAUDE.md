@@ -238,6 +238,19 @@ repo hygiene (no macOS cruft, personal paths, or credential-shaped strings —
 this repo is public), and an end-to-end `install.sh` run into a temp
 `CLAUDE_HOME`.
 
+**Every check here is syntactic.** shellcheck, the portability scan, the manifest
+and allowlist agreement, `bash -n` — they test spelling, not meaning, and none of
+them can tell you whether a script does what it claims. `tr '/' '_'` is valid
+shell and passes all of them; it is also not injective, which is how a bundled
+runner came to restore one file's contents over another and print "all files
+restored" with exit 0.
+
+So a green suite is not evidence of correctness. For anything that **writes to
+the user's tree**, read its backup-and-restore path by hand before adopting it —
+that was twenty lines here — and run `adversarial-review` on external code when
+it arrives, not after building on it. Reviewing late meant three fixes got built
+on a broken foundation, and two of those fixes were themselves blockers.
+
 ```bash
 scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # skips the install integration test
