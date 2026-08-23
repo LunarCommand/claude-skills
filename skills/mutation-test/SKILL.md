@@ -38,6 +38,12 @@ checking individually rather than implying a sweep happened.
   The files this skill is pointed at are usually the ones just written, so they
   hold uncommitted work — `git checkout`, `git restore` and `git stash` destroy it
   rather than restoring it. `cp <file> <file>.mtbak`, mutate, then `mv` it back.
+- **Never overwrite an existing backup.** If `<file>.mtbak` is already there when
+  you go to make one, a previous run was interrupted: that file is the only
+  pristine copy left and the working file is probably still mutated. Recover from
+  it, verify with `cmp`, delete it, and start again. Copying over it destroys the
+  original permanently — the same way a colliding backup key destroyed one in the
+  batch runner this version withholds.
 - **Verify the restore by content, not by `git status`.** On an already-dirty file
   `git status` says "modified" before and after the mutation and `git diff` shows a
   diff either way, so neither can tell a restored file from a still-mutated one.
@@ -64,7 +70,9 @@ mutation-tested, because you do not know what to break.
 ### 2. Take a copy, then choose the mutation
 
 Copy first — that copy is the only thing standing between a mutation and lost
-work. Then prefer the smallest mutation that violates the claim and nothing else.
+work. Check it does not already exist before you write it: `[[ -e <file>.mtbak ]]`
+means a previous run was interrupted and left the original there, so recover from
+it before doing anything else. Never copy over it. Then prefer the smallest mutation that violates the claim and nothing else.
 If the claim is "X is absent when Y", make X present when Y. If it is a pair of
 opposite claims (X true here, false there), you need **both directions**: a
 one-way mutation can only ever kill one of them, and the survivor is not evidence
@@ -80,26 +88,39 @@ Good targets, in rough order of value:
 - **Deleted stores** — remove a write, see if any test observes it
 - **Error paths** — swallow a raise, drop a rollback, skip a cleanup
 
-### 3. Confirm the mutation landed — before running anything
+### 3. Run the test unmodified — confirm it is green
+
+Before touching anything, run the test that claims to cover the behaviour. If it
+is already failing, **stop and say so.** A red starting point makes the whole
+exercise unable to answer the question: the test fails identically with and
+without the mutation, so "it went red" is not evidence the mutation caused it,
+and a dead assertion is indistinguishable from a live one.
+
+Knowing the test was green beforehand is what licenses the inference. Discovering
+it afterwards means running the whole thing again.
+
+### 4. Apply the mutation, and confirm it landed — before running anything
 
 This is the step that is skipped, and skipping it produces false "survivors".
 Read the mutated line back. A find/replace that matched nothing, matched in the
 wrong place, or matched inside a comment leaves the behaviour intact, and the
 green run that follows means nothing at all.
 
-### 4. Run, and read the failure message
+### 5. Run, and read the failure message
 
 Not just that it went red — *why*. A test that fails with an import error or a
 fixture error when you expected an assertion failure did not exercise the claim;
 it broke on the way there.
 
-### 5. Restore, and verify by content
+### 6. Restore, and verify by content
 
-`mv <file>.mtbak <file>`, then `cmp` against the checksum you took, then delete
-the copy. Do this before reporting anything, not after. A stray mutation left
+`cp <file>.mtbak <file>` — copy rather than move, so the backup survives a failed
+restore — then `cmp <file> <file>.mtbak`. Delete the backup **only** once they
+match. If `cmp` disagrees, leave it in place and say so: it is still the only
+pristine copy, and removing it on the way past is how the original gets lost. Do this before reporting anything, not after. A stray mutation left
 behind is worse than every finding is good.
 
-### 6. Report the two claims separately
+### 7. Report the two claims separately
 
 "The mutation landed" and "the test caught it" are different findings. Say both.
 A reader cannot tell a live assertion from a skipped step otherwise.
@@ -109,7 +130,7 @@ A reader cannot tell a live assertion from a skipped step otherwise.
 A mutation that leaves the suite green means one of:
 
 - **The assertion is dead** — it exists but is not pointed at anything.
-- **The mutation did not land** — check step 3 again before concluding anything.
+- **The mutation did not land** — check step 4 again before concluding anything.
 - **The mutation was not a violation** — you broke something the claim does not
   actually cover. Sharpen the claim or the mutation.
 - **The claim is a negative control** — it fails only for a non-conforming

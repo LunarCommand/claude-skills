@@ -34,7 +34,7 @@
     {
       "name": "mutation-test",
       "source": "./skills/mutation-test",
-      "description": "Breaks code on purpose to find out whether the tests notice: prove one assertion is not vacuous, or scope a whole diff and report what the suite failed to catch."
+      "description": "Proves a test actually checks something by breaking the behaviour it covers and confirming it goes red \u2014 one claim at a time, by hand. Also answers whether code is dead by deleting it and seeing what breaks."
     }
   ]
 }
