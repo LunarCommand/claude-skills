@@ -23,7 +23,19 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
-## Unreleased
+## v0.12.0 — 2026-08-23
+
+### Repository
+
+- `CLAUDE.md` records what the checks cannot do. Every check in
+  `scripts/validate.sh` is syntactic — shellcheck, the portability scan,
+  `bash -n`, the manifest and allowlist agreement — so a green run says the
+  artifacts are spelled correctly and nothing about whether they do what they
+  claim. The defect that prompted this passed all of them: `tr '/' '_'` is valid
+  shell, and also not injective, which let one file's backup overwrite another's.
+  Anything that writes to a user's tree needs its backup-and-restore path read by
+  hand, and external code needs reviewing when it arrives rather than after three
+  fixes are built on it.
 
 ### mutation-test — 0.9.0
 
@@ -45,7 +57,10 @@ claims to cover and confirming it goes red.
   along with a concurrency race and two paths that eval attacker-influenced
   strings. Shipping that behind a permission rule that lets it run without
   prompting would have been worse than shipping nothing. The SKILL.md says what is
-  missing rather than implying a sweep happened.
+  missing rather than implying a sweep happened, and
+  [#13](https://github.com/LunarCommand/claude-skills/issues/13) tracks the
+  rebuild — around a throwaway `git worktree` rather than mutate-and-restore, so
+  the defect class cannot recur.
 
 ## v0.11.0 — 2026-08-21
 
