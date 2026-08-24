@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Permissions for the Claude Skills Toolkit (github.com/LunarCommand/claude-skills).",
-    "Copy to <project>/.claude/settings.json, or merge into ~/.claude/settings.json \u2014 it",
+    "Copy to <project>/.claude/settings.json, or merge into ~/.claude/settings.json — it",
     "covers this toolkit and nothing else, so either scope is reasonable. Without it, every",
     "bundled script prompts on each call, which reads as the skill being broken.",
     "Scripts are approved by BARE NAME, never by path: bin/ reaches the Bash tool's PATH",
@@ -19,15 +19,19 @@
       "Bash(pr_review_parse_comments.sh:*)",
       "Bash(pr_review_post_reply.sh:*)",
       "Bash(pr_review_resolve_thread.sh:*)",
+
       "Bash(gh repo view:*)",
       "Bash(gh pr view:*)",
+
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
       "Bash(git ls-files:*)",
       "Bash(git submodule status:*)",
+
       "Bash(diff:*)",
+
       "Bash(mkdir:*)",
       "Bash(tar czf:*)"
     ],
@@ -36,11 +40,13 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(gh pr create:*)",
+
       "Bash(git checkout:*)",
       "Bash(git reset:*)",
       "Bash(git restore:*)",
       "Bash(git stash:*)",
       "Bash(git clean:*)",
+
       "Bash(git submodule foreach:*)"
     ]
   }
