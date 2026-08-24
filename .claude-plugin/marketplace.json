@@ -30,6 +30,11 @@
       "name": "pr-review",
       "source": "./skills/pr-review",
       "category": "review"
+    },
+    {
+      "name": "mutation-test",
+      "source": "./skills/mutation-test",
+      "description": "Proves a test actually checks something by breaking the behaviour it covers and confirming it goes red \u2014 one claim at a time, by hand. Also answers whether code is dead by deleting it and seeing what breaks."
     }
   ]
 }

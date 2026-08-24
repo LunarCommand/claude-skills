@@ -23,6 +23,30 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
+## Unreleased
+
+### mutation-test — 0.9.0
+
+New skill: proves a test actually checks something, by breaking the behaviour it
+claims to cover and confirming it goes red.
+
+- It supersedes an unreleased `prove-it-fails` and takes its name from the
+  technique, which is what people search for. A green run is the null result — a
+  dead assertion and a live one produce identical output — so this establishes the
+  one thing that discriminates.
+- Restore is by file copy and verified by content. The files this skill is pointed
+  at are the ones just written, so they hold uncommitted work: `git checkout` and
+  `git stash` destroy it rather than restore it, and on an already-dirty file
+  `git status` cannot tell a restored file from a still-mutated one.
+- **Scoped runs are deliberately not in this version.** A batch runner that
+  resolves a PR to changed lines and mutates them was written and then held back:
+  an adversarial review found its restore path could write one file's contents
+  over another — reproduced, with the run still reporting "all files restored" —
+  along with a concurrency race and two paths that eval attacker-influenced
+  strings. Shipping that behind a permission rule that lets it run without
+  prompting would have been worse than shipping nothing. The SKILL.md says what is
+  missing rather than implying a sweep happened.
+
 ## v0.11.0 — 2026-08-21
 
 ### Repository

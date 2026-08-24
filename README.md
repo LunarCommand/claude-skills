@@ -160,6 +160,29 @@ base if the tree is clean. It reports blocker / should / nit, and says so when
 it found nothing. Read [what it costs](#what-an-adversarial-review-costs) before
 the first PR-sized run.
 
+#### `/mutation-test` — are these tests real?
+
+**Use it for:** a test, fixture or guard you just wrote and want evidence for,
+rather than a green run you have to take on trust.
+
+```
+/mutation-test is that new fixture actually asserting anything
+/mutation-test prove the retry guard fails when I break it
+```
+
+A green test run is the null result: a dead assertion and a live one produce
+identical output. This breaks the behaviour on purpose and confirms the test goes
+red — and reads the failure message, because a test that dies on an import error
+never reached the claim.
+
+It reports and does not fix, deliberately: a test written to kill a mutant tends
+to test the mutant rather than the behaviour. It also answers "is this code dead?"
+on evidence — delete it, run the tests, see what breaks.
+
+**This version runs one claim at a time, by hand.** Scoped runs over a whole PR or
+diff are not shipped yet; the SKILL.md says so rather than implying a sweep
+happened.
+
 #### `/pr-review` — work through review comments
 
 **Use it for:** any PR with unresolved threads, from a human or a bot.
@@ -212,6 +235,7 @@ Claude Code, plus whatever the skills you actually install shell out to:
 | **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
 | **adversarial-review** | nothing beyond Claude Code |
 | **feature-planning** | nothing beyond Claude Code |
+| **mutation-test** | nothing beyond Claude Code |
 
 Each script checks its own dependencies first and names what's missing, rather
 than failing partway through a query.
@@ -232,7 +256,8 @@ control.
 ```
 
 Each skill is its own plugin, so you install only what you want:
-`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`.
+`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`,
+`mutation-test`.
 Updates arrive through `/plugin marketplace update lunar-skills`. Plugin skills
 are namespaced, so the explicit invocation is `/hyperdx:hyperdx`.
 
