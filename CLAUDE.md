@@ -126,10 +126,15 @@ Two consequences, both load-bearing when adding a script:
   plugin does not. So shipped basenames must be distinctive enough that nothing
   else plausibly owns them — this is why the pr-review scripts carry a
   `pr_review_` prefix rather than bare names like `post_reply` or
-  `resolve_thread`. `scripts/validate.sh` fails on a basename shipped by two
-  skills, since bare-name invocation can only ever reach one of them — and on any
-  `*.sh` named in the docs that no longer ships, which is how a rename turns into
-  a failing check rather than stale prose.
+  `resolve_thread`. The skill directories are appended to the *end* of `PATH`,
+  after `/usr/bin` and everything else, so a collision is not a coin toss: a
+  same-named executable anywhere earlier wins outright and the skill's copy is
+  never reached, while the permission rule keeps approving the call. A generic
+  basename therefore fails silently and looks like the skill misbehaving.
+  `scripts/validate.sh` fails on a basename shipped by two skills, since
+  bare-name invocation can only ever reach one of them — and on any `*.sh` named
+  in the docs that no longer ships, which is how a rename turns into a failing
+  check rather than stale prose.
 - **The settings template covers this repo's skills and nothing else**, which is
   what makes it safe to suggest at either project or user scope. It was once a
   personal project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent`,
