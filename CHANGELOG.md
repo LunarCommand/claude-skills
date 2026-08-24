@@ -32,6 +32,13 @@ plugins that actually changed:
   runner that uses it is not here yet. Every blocker that held the first attempt
   back lived in a back-up-and-restore path, and a tree you never write to cannot
   have them.
+- The manual path gains the rule that makes its backup discipline
+  load-bearing: mutate the file in place, never a copy in a worktree or a
+  scratch checkout. An editable install records an absolute path to the original
+  source, so a mutation made elsewhere is never imported, every mutant passes,
+  and the run reads as missing coverage rather than as a tool that did nothing.
+  Reported from a real run where the worktree shortcut looked like the tidier
+  option.
 - It refuses to hand back a worktree unless the baseline is green **and** a
   change to the target file provably reaches the test command. The second gate
   is the one that matters: a Python editable install records an absolute path,

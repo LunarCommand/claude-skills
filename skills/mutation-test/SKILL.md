@@ -38,6 +38,18 @@ checking individually rather than implying a sweep happened.
   The files this skill is pointed at are usually the ones just written, so they
   hold uncommitted work — `git checkout`, `git restore` and `git stash` destroy it
   rather than restoring it. `cp <file> <file>.mtbak`, mutate, then `mv` it back.
+- **Mutate the file where the tests actually load it from — in place.** The
+  tempting shortcut is to mutate a copy instead, so the real tree stays clean: a
+  `git worktree`, a scratch checkout, a second clone. By default that does not
+  work, and it fails silently. A Python editable install records an *absolute*
+  path to the original source; configured source roots, prebuilt artifacts and
+  installed packages behave the same way. The tests go on importing the file you
+  did not touch, so every mutant passes — which is indistinguishable from a real
+  coverage gap, and reads as "nothing covers this line" when the truth is
+  "nothing ran your change". This is what makes the backup rule above
+  load-bearing rather than merely tidy. If you do need an isolated tree, prove it
+  before you score anything: corrupt the target file, confirm the test command
+  goes red, then restore and begin.
 - **Never overwrite an existing backup.** If `<file>.mtbak` is already there when
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from
