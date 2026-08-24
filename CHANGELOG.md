@@ -39,17 +39,35 @@ plugins that actually changed:
   and the run reads as missing coverage rather than as a tool that did nothing.
   Reported from a real run where the worktree shortcut looked like the tidier
   option.
-- It refuses to hand back a worktree unless the baseline is green **and** a
-  change to the target file provably reaches the test command. The second gate
-  is the one that matters: a Python editable install records an absolute path,
-  so an environment reused from the host resolves imports to the *original*
-  tree. The mutant then runs against unmutated source, every test passes, and
-  the run reports "no covering tests" with exit 0 — a clean-looking result that
-  is entirely false. Bootstrapping inside the worktree costs about three
-  seconds and is now required rather than optional.
+- It refuses to hand back a worktree unless the baseline is green **and** the
+  mutation provably reaches the step that judges it. That takes two probes, not
+  one: breaking the file's syntax proves only that something *read* it, so a
+  lint or type-check step in a compound command such as `ruff check . && pytest`
+  objects and goes red while pytest still imports the original tree — the very
+  trap the gate exists to catch, passing it. The second probe empties the file
+  instead, which parses fine and can only be noticed by code that runs. The
+  suite must also return to green afterwards, which rejects a command that is
+  not idempotent or is flaky. Bootstrapping inside the worktree costs about
+  three seconds and is required rather than optional.
+- `destroy` deletes only a worktree this tool created, checked by name, by
+  location, and by whether git reports it as a *linked* worktree rather than a
+  main one. The first version checked none of that: `destroy <repo>` deleted a
+  repository — `.git` and uncommitted work included — and printed "removed" with
+  exit 0. `git worktree remove` had refused, and that refusal was discarded.
+- The probe write is confined to the worktree. A tracked symlink pointing out of
+  the checkout is a write straight through it, and the test for an ordinary file
+  follows symlinks, so a repository tracking one could have had a file outside
+  it corrupted.
 
 ### Repository
 
+- The settings template approves the read-only git commands the review engines
+  actually mandate: `git ls-tree`, `git merge-base`, and `git branch -a
+  --contains`. The absence-search and tip-recheck rules added in 0.11.0 tell
+  every verifier to run these, and every one of them prompted — dozens of times
+  in a single review, since the tip-recheck runs per finding per verifier. The
+  template is meant to cover exactly what the shipped skills run, and for three
+  releases it did not.
 - `CLAUDE.md` states where a skill's `bin/` lands on `PATH`: at the end, after
   `/usr/bin` and everything else. The bare-name rule already required distinctive
   basenames, but framed a collision as a question of which copy gets reached. The
