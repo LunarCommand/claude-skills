@@ -23,6 +23,17 @@ plugins that actually changed:
 - Fixed local multi-term queries returning zero rows on macOS.
 -->
 
+## Unreleased
+
+### Repository
+
+- `CLAUDE.md` states where a skill's `bin/` lands on `PATH`: at the end, after
+  `/usr/bin` and everything else. The bare-name rule already required distinctive
+  basenames, but framed a collision as a question of which copy gets reached. The
+  order makes it one-sided — a same-named executable anywhere earlier shadows the
+  shipped script outright, the permission rule keeps approving the call, and the
+  failure reads as the skill misbehaving.
+
 ## v0.12.0 — 2026-08-23
 
 ### Repository
