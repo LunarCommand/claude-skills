@@ -493,7 +493,7 @@ if out=$(python3 - <<'PY' 2>&1
 import glob, os, re, sys
 shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
 # The repo's own tooling, named in docs but never installed as a skill script.
-own = {'install.sh', 'validate.sh', 'pre-commit.sh'}
+own = {'install.sh', 'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh'}
 bad = []
 for md in sorted(glob.glob('*.md') + glob.glob('skills/*/SKILL.md') + glob.glob('docs/**/*.md', recursive=True)):
     for n, line in enumerate(open(md), 1):
@@ -582,6 +582,24 @@ section "Install integration"
   else
     fail "re-install left $actual dirs / $manifests manifests in the skills root (expected $expected / $expected):"
     find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | sed 's/^/        /'
+  fi
+fi
+
+# --------------------------------------------------------------------------
+if [[ "$QUICK" == false ]]; then
+section "Mutation-test acceptance (behaviour, not spelling)"
+# --------------------------------------------------------------------------
+  # Everything above this line is syntactic. This is the one suite that runs an
+  # artifact and asserts on what it does: it builds a repository designed to
+  # break a mutation runner -- colliding paths, a space, a symlink, and a test
+  # command wired to an absolute path the way an editable install is -- and
+  # checks the worktree foundation refuses each one.
+  if out=$(./scripts/mutation-test-acceptance.sh 2>&1); then
+    printf '%s\n' "$out" | grep -E '^  (ok|FAIL)' | sed 's/^  /  /'
+    pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
+  else
+    fail "mutation-test acceptance suite failed:"
+    printf '%s\n' "$out" | sed 's/^/        /'
   fi
 fi
 

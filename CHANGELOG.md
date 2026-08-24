@@ -25,6 +25,22 @@ plugins that actually changed:
 
 ## Unreleased
 
+### mutation-test — 0.10.0
+
+- Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
+  `git worktree` to mutate in, so the tool never writes to your source tree. The
+  runner that uses it is not here yet. Every blocker that held the first attempt
+  back lived in a back-up-and-restore path, and a tree you never write to cannot
+  have them.
+- It refuses to hand back a worktree unless the baseline is green **and** a
+  change to the target file provably reaches the test command. The second gate
+  is the one that matters: a Python editable install records an absolute path,
+  so an environment reused from the host resolves imports to the *original*
+  tree. The mutant then runs against unmutated source, every test passes, and
+  the run reports "no covering tests" with exit 0 — a clean-looking result that
+  is entirely false. Bootstrapping inside the worktree costs about three
+  seconds and is now required rather than optional.
+
 ### Repository
 
 - `CLAUDE.md` states where a skill's `bin/` lands on `PATH`: at the end, after
