@@ -16,7 +16,13 @@
 #
 # Usage:
 #   scripts/validate.sh            # everything
-#   scripts/validate.sh --quick    # skip the install integration test (pre-commit hook)
+#   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
+#
+# --quick skips BOTH slow sections: the install integration test and the
+# mutation-test acceptance suite. What remains is entirely syntactic, so a green
+# --quick run says the artifacts are spelled correctly and nothing about whether
+# they behave. The acceptance suite is ~37s of the ~43s full run, which is why
+# the hook does not carry it; CI does.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
