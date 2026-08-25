@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
 # mutation-test-acceptance.sh — behavioural tests for mutation_test_worktree.sh.
 #
-# The rest of scripts/validate.sh is syntactic: it checks that artifacts are
-# spelled correctly, not that they do what they claim. That gap is why a
-# non-injective backup key shipped once and passed every check.
+# Everything else in scripts/validate.sh is syntactic. This file runs the
+# artifact and asserts on what it does.
 #
-# The first version of THIS file had the same disease. It built hostile
-# fixtures -- a symlink, a path with a space, a/b.py beside a_b.py -- and then
-# never passed any of them as --probe. It called destroy only on paths create
-# had just returned, so a destroy that rm -rf'd whole repositories passed it.
-# It compared content-only manifests, which cannot see a file written and then
-# restored: the predecessor's entire failure mode. Every one of those was found
-# by review, not by the suite.
+# Two earlier versions of this file passed while the script under test deleted
+# repositories. The reasons are worth keeping in view, because they are the
+# design rules here:
 #
-# So the rules here are: use the hostile fixtures as INPUTS, feed each guard the
-# thing it refuses, and assert on the REASON, not just the exit code -- an
-# assertion that stays green when you delete the guard it names is not a test.
+#   * an assertion must be able to KILL the guard it names. Six assertions in
+#     the last version could not: three destroy guards, the containment block,
+#     the breakage check, and — worst — the "file outside the repo untouched"
+#     check, which compared content that every code path restored before it ran.
+#   * feed each guard the thing it refuses, not a thing something else refuses.
+#   * assert on the REASON, not just the exit code.
+#   * do not filter away your own evidence. The previous version excluded
+#     .stamp and .bootstrapped from the arrived-files check; those are precisely
+#     the two files whose presence in the source tree would prove a command
+#     escaped the worktree.
 set -uo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 WT_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_worktree.sh"
 
-# Preflight. Without this the manifest silently produces nothing and the canary
-# below reports "not collecting a/b.py", sending the reader after a collector
-# bug instead of an absent interpreter.
 for c in git python3 cmp; do
   command -v "$c" >/dev/null 2>&1 || {
     echo "  FAIL  missing required command: $c (install it; this suite cannot run without it)" >&2
@@ -36,11 +35,16 @@ pass_n=0; fail_n=0
 pass() { pass_n=$((pass_n + 1)); printf '  ok    %s\n' "$*"; }
 fail() { fail_n=$((fail_n + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# pwd -P throughout: on macOS $TMPDIR is under /var -> /private/var, and git
+# reports the resolved form. Comparing a resolved path against an unresolved
+# one made the previous leak assertion incapable of failing there.
 FIXTURE=$(mktemp -d "${TMPDIR:-/tmp}/mt-acceptance.XXXXXX") || exit 1
+FIXTURE=$(cd "$FIXTURE" && pwd -P)
+TMPRES=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 cleanup() {
-  [ -d "$FIXTURE/repo" ] && git -C "$FIXTURE/repo" worktree prune >/dev/null 2>&1
-  for d in "${TMPDIR:-/tmp}"/mutation-test-wt.*; do
-    [ -d "$d" ] && case $(git -C "$d" rev-parse --absolute-git-dir 2>/dev/null) in
+  for d in "$TMPRES"/mutation-test-wt.*; do
+    [ -d "$d" ] || continue
+    case $(git -C "$d" rev-parse --git-common-dir 2>/dev/null) in
       "$FIXTURE"/*) rm -rf "$d" ;;
     esac
   done
@@ -49,33 +53,62 @@ cleanup() {
 trap cleanup EXIT
 
 REPO="$FIXTURE/repo"
-mkdir -p "$REPO/src/pkg" "$REPO/tests" "$REPO/a"
+mkdir -p "$REPO/src/pkg" "$REPO/tests" "$REPO/a" "$REPO/sub" "$REPO/realdir"
 
-printf 'def f():\n    return 1\n'                             > "$REPO/src/pkg/__init__.py"
+printf 'def f():\n    return 1\n'                                    > "$REPO/src/pkg/__init__.py"
 printf 'import sys\nimport pkg\nsys.exit(0 if pkg.f() == 1 else 1)\n' > "$REPO/tests/check.py"
+printf 'def g():\n    return 2\n'                                    > "$REPO/realdir/target.py"
 
-# Correct wiring: PYTHONPATH resolves at run time, so it follows the worktree.
-printf '#!/bin/sh\nPYTHONPATH="$(pwd)/src" python3 tests/check.py\n' > "$REPO/run_correct.sh"
-# Never imports the probe file at all.
-printf '#!/bin/sh\nexit 0\n'                                  > "$REPO/run_nocover.sh"
-# Fails until a bootstrap step has run.
-printf '#!/bin/sh\n[ -f .bootstrapped ] || exit 1\nPYTHONPATH="$(pwd)/src" python3 tests/check.py\n' > "$REPO/run_needs_setup.sh"
-# Parses the probe file but never executes it -- a lint step. A heredoc, not
-# printf: \xNN escapes are a GNU extension that BSD printf emits literally.
-cat > "$REPO/run_lint_only.sh" <<'LINTSH'
+cat > "$REPO/run_correct.sh" <<'SH'
 #!/bin/sh
-python3 -c "import ast; ast.parse(open('src/pkg/__init__.py').read())"
-LINTSH
-# Not idempotent: red on every run after the first.
-printf '#!/bin/sh\n[ -f .stamp ] && exit 1\ntouch .stamp\nexit 0\n' > "$REPO/run_stamp.sh"
-# Never runs at all: exit 127 territory.
-printf '#!/bin/sh\nexec ./definitely-not-here\n'              > "$REPO/run_broken.sh"
+PYTHONPATH="$(pwd)/src" python3 tests/check.py
+SH
+cat > "$REPO/run_nocover.sh" <<'SH'
+#!/bin/sh
+exit 0
+SH
+cat > "$REPO/run_needs_setup.sh" <<'SH'
+#!/bin/sh
+[ -f .bootstrapped ] || exit 1
+PYTHONPATH="$(pwd)/src" python3 tests/check.py
+SH
+cat > "$REPO/run_stamp.sh" <<'SH'
+#!/bin/sh
+[ -f .stamp ] && exit 1
+touch .stamp
+exit 0
+SH
+# Reacts to ANY change in the tree, including an untracked file: the shape
+# gate 2 exists to refuse.
+cat > "$REPO/run_treeguard.sh" <<'SH'
+#!/bin/sh
+[ -z "$(git status --porcelain)" ] || exit 1
+PYTHONPATH="$(pwd)/src" python3 tests/check.py
+SH
+# Never reaches a verdict once the probe is corrupted: exercises check_ran,
+# which nothing in the previous suite could reach.
+cat > "$REPO/run_breaks_on_probe.sh" <<'SH'
+#!/bin/sh
+grep -q 'mutation_test_wiring_probe' src/pkg/__init__.py && exec ./definitely-not-here
+PYTHONPATH="$(pwd)/src" python3 tests/check.py
+SH
+
+cat > "$REPO/run_firstline.sh" <<'SH'
+#!/bin/sh
+[ "$(head -1 src/pkg/__init__.py)" = "def f():" ] || { echo "bad first line"; exit 1; }
+PYTHONPATH="$(pwd)/src" python3 tests/check.py
+SH
 
 printf 'x = "a/b.py"\n'    > "$REPO/a/b.py"
 printf 'x = "a_b.py"\n'    > "$REPO/a_b.py"
 printf 'x = "has space"\n' > "$REPO/has space.py"
-printf 'x = "scratch"\n'   > "$REPO/mutation-test-scratch"
 ln -s src/pkg/__init__.py  "$REPO/link.py"
+# An intermediate DIRECTORY that is a symlink pointing OUT of the repository,
+# with an ordinary file under it. The -L test on the file itself passes, so
+# only the containment check can refuse this.
+mkdir -p "$FIXTURE/outsidedir"
+printf 'def g():\n    return 2\n' > "$FIXTURE/outsidedir/target.py"
+ln -s "$FIXTURE/outsidedir"  "$REPO/linkdir"
 
 chmod +x "$REPO"/run_*.sh
 git -C "$REPO" init -q
@@ -84,36 +117,42 @@ git -C "$REPO" config user.name  "acceptance"
 git -C "$REPO" add -A
 git -C "$REPO" commit -qm "fixture"
 
-# The editable-install trap, and a compound command whose lint half sees the
-# worktree while its test half resolves to the ORIGINAL tree. Written after the
-# first commit so the absolute path is real.
+# Written after the first commit so the absolute path is real.
 printf '#!/bin/sh\nPYTHONPATH="%s/src" python3 tests/check.py\n' "$REPO" > "$REPO/run_trap.sh"
-printf '#!/bin/sh\n./run_lint_only.sh && ./run_trap.sh\n'               > "$REPO/run_lint_then_trap.sh"
-# A symlink pointing OUTSIDE the repository entirely.
+cat > "$REPO/run_lint_then_trap.sh" <<SH
+#!/bin/sh
+python3 -c "import ast; ast.parse(open('src/pkg/__init__.py').read())" || exit 1
+PYTHONPATH="$REPO/src" python3 tests/check.py
+SH
+# A static check that notices the symbol is gone WITHOUT executing the module,
+# so both content probes go red while the judging step reads the original tree.
+# Only --exec-probe separates this from correct wiring.
+cat > "$REPO/run_typecheck_trap.sh" <<SH
+#!/bin/sh
+python3 - <<'PYCHK'
+import ast, sys
+names = [n.name for n in ast.walk(ast.parse(open('src/pkg/__init__.py').read()))
+         if isinstance(n, ast.FunctionDef)]
+sys.exit(0 if 'f' in names else 1)
+PYCHK
+[ \$? -eq 0 ] || exit 1
+PYTHONPATH="$REPO/src" python3 tests/check.py
+SH
 printf 'ORIGINAL OUTSIDE CONTENT\n' > "$FIXTURE/outside_victim.txt"
 ln -s "$FIXTURE/outside_victim.txt" "$REPO/escape.py"
-chmod +x "$REPO/run_trap.sh" "$REPO/run_lint_then_trap.sh"
+chmod +x "$REPO"/run_*.sh
 git -C "$REPO" add -A
 git -C "$REPO" commit -qm "trap runners and an escaping symlink"
 
-# Done BEFORE the baseline manifest below: this test deliberately edits and
-# restores a tracked file, and the isolation compare must measure only what the
-# script under test did, not what the suite did to set itself up.
+# Done before the baseline manifest: this deliberately edits a tracked file.
 printf 'def f():\n    return 999\n' > "$REPO/src/pkg/__init__.py"
-DIRTY_ERR=$("$WT_SH" create --repo "$REPO" --test ./run_correct.sh --probe src/pkg/__init__.py 2>&1 >/dev/null)
-DIRTY_RC=$?
+DIRTY_ROOT=$("$WT_SH" run --repo "$REPO"     --test ./run_correct.sh --probe src/pkg/__init__.py -- true 2>&1 >/dev/null); DIRTY_ROOT_RC=$?
+DIRTY_SUB=$( "$WT_SH" run --repo "$REPO/sub" --test ./run_correct.sh --probe src/pkg/__init__.py -- true 2>&1 >/dev/null); DIRTY_SUB_RC=$?
 git -C "$REPO" checkout -q -- src/pkg/__init__.py
 
-# --- manifest ----------------------------------------------------------------
-# Records inode and mtime as well as content. A content-only manifest cannot
-# see a file that was written and then restored, which is EXACTLY what the
-# predecessor did before reporting success -- so a content-only compare would
-# have called that run clean.
-#
-# The file list goes through a temp file, not a pipe: stdin already carries the
-# program text. Piping both silently yields an EMPTY manifest, and two empty
-# manifests compare equal, so every assertion passes while checking nothing.
-# That was caught by shellcheck's SC2259; the canary below stops it returning.
+# --- collectors --------------------------------------------------------------
+# inode and mtime as well as content: a file written and then restored is the
+# predecessor's entire failure mode, and a content-only compare is blind to it.
 manifest() {
   git -C "$1" ls-files -z > "$FIXTURE/filelist"
   python3 - "$1" "$FIXTURE/filelist" <<'PY'
@@ -130,17 +169,16 @@ for raw in names:
     elif os.path.isfile(p):
         st = os.lstat(p)
         with open(p, 'rb') as fh:
-            digest = hashlib.sha256(fh.read()).hexdigest()
-        out.append(f'{rel}\t{oct(st.st_mode)[-4:]}\t{digest}\tino={st.st_ino}\tmtime={st.st_mtime_ns}')
+            d = hashlib.sha256(fh.read()).hexdigest()
+        out.append(f'{rel}\t{oct(st.st_mode)[-4:]}\t{d}\tino={st.st_ino}\tmtime={st.st_mtime_ns}')
     else:
         out.append(f'{rel}\tMISSING')
 print('\n'.join(sorted(out)))
 PY
 }
 
-# Every path on disk, ignoring .git. Deliberately NOT `git status`, which
-# honours the developer's global gitignore -- so a write of an ignored shape
-# into the source tree was invisible to the old check on their machine.
+# Full filesystem walk, not `git status`, which honours a developer's global
+# gitignore and so could hide an arrival on their machine but not in CI.
 listing() {
   python3 - "$1" <<'PY'
 import os, sys
@@ -155,14 +193,30 @@ print('\n'.join(sorted(out)))
 PY
 }
 
-BEFORE="$FIXTURE/before.manifest"
-BEFORE_LS="$FIXTURE/before.listing"
-manifest "$REPO" > "$BEFORE"
-listing  "$REPO" > "$BEFORE_LS"
+# Set difference in python, not `comm`: comm collates under LC_COLLATE while
+# python sorts by code point, so in a UTF-8 locale the two disagree and the
+# comparison invents arrivals and drops real ones.
+arrivals() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+before = set(open(sys.argv[1]).read().splitlines())
+after  = set(open(sys.argv[2]).read().splitlines())
+print('\n'.join(sorted(after - before)))
+PY
+}
 
-# Positive control for the collectors. Every isolation assertion compares two
-# of these, so a collector that silently gathers nothing turns them all green.
-for want in 'a/b.py' 'a_b.py' 'has space.py' 'link.py' 'escape.py' 'mutation-test-scratch'; do
+# The outside file needs inode+mtime too: every path that writes through the
+# escaping symlink restores the content, so a content compare cannot fail.
+stat_line() { python3 -c "
+import os,sys
+st=os.lstat(sys.argv[1])
+print(f'{st.st_ino}:{st.st_mtime_ns}:{st.st_size}')" "$1"; }
+
+BEFORE="$FIXTURE/before.manifest"; manifest "$REPO" > "$BEFORE"
+BEFORE_LS="$FIXTURE/before.listing"; listing "$REPO" > "$BEFORE_LS"
+OUTSIDE_BEFORE=$(stat_line "$FIXTURE/outside_victim.txt")
+
+for want in 'a/b.py' 'a_b.py' 'has space.py' 'link.py' 'escape.py' 'linkdir'; do
   grep -q "^$want	" "$BEFORE" || {
     echo "  FAIL  manifest is not collecting '$want' — every isolation check below would be vacuous" >&2
     exit 1
@@ -173,218 +227,206 @@ grep -q 'ino=' "$BEFORE" || {
   exit 1
 }
 
-echo "Fixture: $(wc -l < "$BEFORE" | tr -d ' ') tracked entries — a/b.py beside a_b.py, a path with a space, a symlink, and one symlink escaping the repo"
+echo "Fixture: $(wc -l < "$BEFORE" | tr -d ' ') tracked entries, including a symlinked directory and a symlink escaping the repo"
 echo
 
-# --- helpers -----------------------------------------------------------------
-run_create() {
-  CREATE_OUT=$("$WT_SH" create --repo "$REPO" "$@" 2>"$FIXTURE/err.txt")
-  CREATE_RC=$?
-  CREATE_ERR=$(cat "$FIXTURE/err.txt")
+run_wt() {
+  "$WT_SH" run --repo "$REPO" "$@" >/dev/null 2>"$FIXTURE/err.txt"
+  RUN_RC=$?
+  RUN_ERR=$(cat "$FIXTURE/err.txt")
   return 0
 }
-
-# Exit code AND reason. An assertion that only checks the code stays green when
-# the guard it names is deleted and something else fails for its own reasons.
 expect() { # rc, needle, label
   local want=$1 needle=$2 label=$3
-  if [ "$CREATE_RC" -ne "$want" ]; then
-    fail "$label (expected exit $want, got $CREATE_RC)"
-    printf '%s\n' "$CREATE_ERR" | sed 's/^/          /' | head -4
-  elif ! printf '%s' "$CREATE_ERR" | grep -q -- "$needle"; then
-    fail "$label (exit $want as expected, but not for the stated reason: no '$needle')"
-    printf '%s\n' "$CREATE_ERR" | sed 's/^/          /' | head -4
+  if [ "$RUN_RC" -ne "$want" ]; then
+    fail "$label (expected exit $want, got $RUN_RC)"
+    printf '%s\n' "$RUN_ERR" | sed 's/^/          /' | head -4
+  elif ! printf '%s' "$RUN_ERR" | grep -q -- "$needle"; then
+    fail "$label (exit $want, but not for the stated reason: no '$needle')"
+    printf '%s\n' "$RUN_ERR" | sed 's/^/          /' | head -4
   else
     pass "$label"
   fi
 }
 
-destroyed() { [ -n "$1" ] && "$WT_SH" destroy "$1" >/dev/null 2>&1; }
+echo "The removed subcommands"
+for sub in create destroy; do
+  err=$("$WT_SH" "$sub" "$REPO" 2>&1); rc=$?
+  if [ "$rc" -eq 60 ] && printf '%s' "$err" | grep -q -- 'was removed'; then
+    pass "'$sub' is refused, not silently accepted"
+  else
+    fail "'$sub' exited $rc: $(printf '%s' "$err" | head -1)"
+  fi
+done
+[ -d "$REPO/.git" ] && pass "fixture repository intact after both" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
 
+echo
 echo "Wiring gates"
 
-run_create --test ./run_correct.sh --probe src/pkg/__init__.py
-if [ "$CREATE_RC" -eq 0 ] && [ -n "$CREATE_OUT" ] && [ -d "$CREATE_OUT" ]; then
-  pass "clean run: accepted, worktree returned"
-  grep -q 'mutation_test_wiring_probe' "$CREATE_OUT/src/pkg/__init__.py" \
-    && fail "clean run: probe marker left in the worktree" \
-    || pass "clean run: probe marker removed"
-  destroyed "$CREATE_OUT"
-  [ -d "$CREATE_OUT" ] && fail "destroy: worktree still on disk" || pass "destroy: removes a worktree it created"
-else
-  fail "clean run: expected exit 0 with a worktree (got $CREATE_RC)"
-  printf '%s\n' "$CREATE_ERR" | sed 's/^/          /' | head -4
-fi
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py -- sh -c 'test -n "$MUTATION_TEST_WORKTREE" && test -f "$MUTATION_TEST_WORKTREE/tests/check.py"'
+[ "$RUN_RC" -eq 0 ] && pass "clean run: gates pass, command runs in the worktree" || {
+  fail "clean run rejected (exit $RUN_RC)"; printf '%s\n' "$RUN_ERR" | sed 's/^/          /' | head -4; }
 
-run_create --test ./run_trap.sh --probe src/pkg/__init__.py
-expect 4 'still PASSES' "editable-install trap refused"
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py -- sh -c 'exit 42'
+[ "$RUN_RC" -eq 42 ] && pass "the command's exit status is passed through" || fail "expected 42, got $RUN_RC"
 
-run_create --test ./run_nocover.sh --probe src/pkg/__init__.py
-expect 4 'still PASSES' "uncovered probe file refused"
+run_wt --test ./run_trap.sh --probe src/pkg/__init__.py -- true
+expect 64 'still PASSES' "editable-install trap refused"
 
-# The case a single syntax probe cannot see: lint parses the file and objects,
-# so the command goes red, while the step that judges mutants reads elsewhere.
-run_create --test ./run_lint_then_trap.sh --probe src/pkg/__init__.py
-expect 4 'EMPTYING it did not' "lint-only red refused (syntax probe alone would pass this)"
+run_wt --test ./run_nocover.sh --probe src/pkg/__init__.py -- true
+expect 64 'still PASSES' "uncovered probe file refused"
 
-run_create --test ./run_stamp.sh --probe src/pkg/__init__.py
-expect 4 'return to GREEN' "non-idempotent test command refused"
+run_wt --test ./run_lint_then_trap.sh --probe src/pkg/__init__.py -- true
+expect 64 'EMPTYING it did not' "lint-then-trap refused by the semantic probe"
 
-run_create --test ./run_broken.sh --probe src/pkg/__init__.py
-expect 3 'baseline is RED' "a command that cannot run is a red baseline"
+run_wt --test ./run_treeguard.sh --probe src/pkg/__init__.py -- true
+expect 64 'TREE STATE' "a command that reacts to unrelated tree changes is refused"
 
-run_create --test ./run_needs_setup.sh --probe src/pkg/__init__.py
-expect 3 'baseline is RED' "red baseline refused"
+run_wt --test ./run_breaks_on_probe.sh --probe src/pkg/__init__.py -- true
+expect 65 'did not RUN' "a probe run that never reaches a verdict is breakage, not evidence"
 
-run_create --test ./run_needs_setup.sh --probe src/pkg/__init__.py --setup 'touch .bootstrapped'
-[ "$CREATE_RC" -eq 0 ] && pass "--setup makes the same baseline green" || fail "--setup did not fix the baseline (exit $CREATE_RC)"
-destroyed "$CREATE_OUT"
+run_wt --test ./run_firstline.sh --probe src/pkg/__init__.py -- true
+expect 64 'byte-identical output' "a file-policy check that objects to both probes identically is refused"
+
+run_wt --test ./run_stamp.sh --probe src/pkg/__init__.py -- true
+expect 64 'NOT
+       IDEMPOTENT' "non-idempotent test command refused"
+
+run_wt --test ./run_needs_setup.sh --probe src/pkg/__init__.py -- true
+expect 63 'baseline is RED' "red baseline refused"
+
+run_wt --test ./run_needs_setup.sh --probe src/pkg/__init__.py --setup 'touch .bootstrapped' -- true
+[ "$RUN_RC" -eq 0 ] && pass "--setup makes the same baseline green" || fail "--setup did not fix the baseline (exit $RUN_RC)"
+
+echo
+echo "What the gates cannot prove without help"
+
+run_wt --test ./run_typecheck_trap.sh --probe src/pkg/__init__.py -- true
+[ "$RUN_RC" -eq 0 ] && pass "a static symbol check passes the content probes (documented limitation)" \
+  || fail "expected the documented false pass (exit 0), got $RUN_RC"
+
+run_wt --test ./run_typecheck_trap.sh --probe src/pkg/__init__.py --exec-probe 'raise SystemExit(97)' -- true
+expect 64 'nothing in --test EXECUTES' "--exec-probe catches what the content probes cannot"
+
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py --exec-probe 'raise SystemExit(97)' -- true
+[ "$RUN_RC" -eq 0 ] && pass "--exec-probe still accepts correct wiring" || fail "--exec-probe rejected a correct command (exit $RUN_RC)"
 
 echo
 echo "Containment"
 
-# The probe write is the one write this design makes. A tracked symlink is a
-# write straight through it, out of the worktree.
-run_create --test ./run_correct.sh --probe escape.py
-expect 2 'is a symlink' "symlink probe refused (escapes the worktree)"
-if [ "$(cat "$FIXTURE/outside_victim.txt")" = "ORIGINAL OUTSIDE CONTENT" ]; then
-  pass "file outside the repo untouched"
+run_wt --test ./run_correct.sh --probe escape.py -- true
+expect 60 'is a symlink' "symlink probe refused"
+OUTSIDE_AFTER=$(stat_line "$FIXTURE/outside_victim.txt")
+if [ "$OUTSIDE_BEFORE" = "$OUTSIDE_AFTER" ]; then
+  pass "file outside the repo untouched — inode and mtime, not just content"
 else
-  fail "A FILE OUTSIDE THE REPOSITORY WAS MODIFIED: $(cat "$FIXTURE/outside_victim.txt")"
+  fail "A FILE OUTSIDE THE REPOSITORY WAS WRITTEN (before=$OUTSIDE_BEFORE after=$OUTSIDE_AFTER)"
 fi
 
-run_create --test ./run_correct.sh --probe link.py
-expect 2 'is a symlink' "symlink probe refused even when it points inside"
+# The file is not a symlink; its parent DIRECTORY is. Only the containment
+# check can refuse this, so deleting that block now costs an assertion.
+run_wt --test ./run_correct.sh --probe linkdir/target.py -- true
+expect 60 'resolves outside the worktree' "probe under a symlinked directory refused by containment"
 
-run_create --test ./run_correct.sh --probe '../../../etc/hosts'
-expect 2 "'\.\.' component" "probe with .. refused"
-
-run_create --test ./run_correct.sh --probe '/etc/hosts'
-expect 2 'repo-relative' "absolute probe refused"
-
-run_create --test ./run_correct.sh --probe 'a/b.py'
-expect 4 'still PASSES' "colliding path a/b.py is usable as a probe (and uncovered)"
-
-run_create --test ./run_correct.sh --probe 'has space.py'
-expect 4 'still PASSES' "path with a space is usable as a probe"
-
-echo
-echo "destroy refuses what it did not create"
-
-for target in "$REPO" "$REPO/src" "$FIXTURE"; do
-  err=$("$WT_SH" destroy "$target" 2>&1); rc=$?
-  label="destroy $(basename "$target")"
-  if [ "$rc" -eq 0 ]; then
-    fail "$label was DELETED or reported success (exit 0)"
-  elif printf '%s' "$err" | grep -q -- 'refusing'; then
-    pass "$label refused"
-  else
-    fail "$label exited $rc but not with a refusal: $(printf '%s' "$err" | head -1)"
-  fi
-done
-[ -d "$REPO/.git" ] && pass "fixture repository still intact" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
-
-err=$("$WT_SH" destroy "$FIXTURE/not-there" 2>&1); rc=$?
-[ "$rc" -eq 0 ] && pass "destroy on a missing path is a no-op" || fail "destroy on a missing path exited $rc"
-
-# A repository that WEARS the right name, in the right directory. The name and
-# location checks pass here, so only the main-worktree check can refuse it --
-# which is the point: the three cases above are all stopped by the name alone,
-# so none of them can tell you whether that check still exists.
-DECOY="${TMPDIR:-/tmp}/mutation-test-wt.decoy$$"
-rm -rf "$DECOY"; mkdir -p "$DECOY"
-git -C "$DECOY" init -q
-git -C "$DECOY" config user.email "acceptance@example.invalid"
-git -C "$DECOY" config user.name  "acceptance"
-printf 'precious\n' > "$DECOY/work.txt"
-git -C "$DECOY" add -A; git -C "$DECOY" commit -qm decoy
-err=$("$WT_SH" destroy "$DECOY" 2>&1); rc=$?
-if [ "$rc" -eq 0 ] || [ ! -d "$DECOY" ]; then
-  fail "destroy DELETED a main working tree that merely had the right name (exit $rc)"
-elif printf '%s' "$err" | grep -q -- 'MAIN working tree'; then
-  pass "destroy refuses a main working tree wearing a worktree name"
-else
-  fail "destroy refused the decoy but not as a main working tree: $(printf '%s' "$err" | head -1)"
-fi
-[ -f "$DECOY/work.txt" ] && pass "decoy repository's contents intact" || fail "DECOY REPOSITORY CONTENTS DESTROYED"
-rm -rf "$DECOY"
+run_wt --test ./run_correct.sh --probe '../../../etc/hosts' -- true
+expect 60 "'\.\.' component" "probe with .. refused"
+run_wt --test ./run_correct.sh --probe '/etc/hosts' -- true
+expect 60 'repo-relative' "absolute probe refused"
 
 echo
 echo "Repository state"
 
-if [ "$DIRTY_RC" -eq 6 ] && printf '%s' "$DIRTY_ERR" | grep -q -- 'disagree about'; then
-  pass "uncommitted edit to the probe file refused"
+if [ "$DIRTY_ROOT_RC" -eq 66 ] && printf '%s' "$DIRTY_ROOT" | grep -q -- 'disagree about'; then
+  pass "uncommitted edit to the probe refused from the repo root"
 else
-  fail "uncommitted edit to the probe file not refused (exit $DIRTY_RC)"
-  printf '%s\n' "$DIRTY_ERR" | sed 's/^/          /' | head -4
+  fail "dirty probe not refused from the root (exit $DIRTY_ROOT_RC)"
+fi
+if [ "$DIRTY_SUB_RC" -eq 66 ] && printf '%s' "$DIRTY_SUB" | grep -q -- 'disagree about'; then
+  pass "uncommitted edit to the probe refused from a SUBDIRECTORY too"
+else
+  fail "dirty probe not refused from a subdirectory (exit $DIRTY_SUB_RC) — pathspec is not anchored to the toplevel"
 fi
 
-run_create --test ./run_correct.sh --probe src/pkg/__init__.py --ref '-oops'
-expect 2 "may not begin with" "ref beginning with a dash refused, by the ref guard"
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py --ref HEAD~1 -- true
+[ "$RUN_RC" -eq 0 ] && pass "an explicit --ref to an older commit is allowed on a clean tree" \
+  || fail "--ref HEAD~1 was refused (exit $RUN_RC): $(printf '%s' "$RUN_ERR" | head -1)"
 
-run_create --test ./run_correct.sh --probe src/pkg/__init__.py --ref 'a..b'
-expect 2 "may not contain" "ref containing .. refused, by the ref guard"
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py --ref '-oops' -- true
+expect 60 "may not begin with" "ref beginning with a dash refused, by the ref guard"
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py --ref 'a..b' -- true
+expect 60 "may not contain" "ref containing .. refused, by the ref guard"
+run_wt --test ./run_correct.sh --probe no/such/file.py -- true
+expect 66 'not present at' "missing probe file refused"
+run_wt --probe src/pkg/__init__.py -- true
+expect 60 '--test is required' "missing --test refused"
+run_wt --test ./run_correct.sh --probe src/pkg/__init__.py
+expect 60 'must follow' "a missing trailing command is refused"
 
-run_create --test ./run_correct.sh --probe no/such/file.py
-expect 6 'not present at' "missing probe file refused"
+echo
+echo "Lifecycle"
 
-run_create --probe src/pkg/__init__.py
-expect 2 '--test is required' "missing --test refused"
+# --keep must both keep the worktree AND say where it is; the previous version
+# kept it and printed nothing, which is a leak with extra steps.
+run_wt --test ./run_trap.sh --probe src/pkg/__init__.py --keep -- true
+kept=$(printf '%s' "$RUN_ERR" | sed -n 's/^worktree kept at: //p')
+if [ -n "$kept" ] && [ -d "$kept" ]; then
+  pass "--keep keeps the worktree and prints its path"
+  printf '%s' "$RUN_ERR" | grep -q -- 'git -C' && pass "--keep prints the removal command" || fail "--keep did not print how to remove it"
+  git -C "$REPO" worktree remove --force "$kept" >/dev/null 2>&1; rm -rf "$kept"
+else
+  fail "--keep did not report a surviving worktree"
+fi
+
+# A signal mid-run must restore the probe and take the worktree with it.
+"$WT_SH" run --repo "$REPO" --test 'sleep 30' --probe src/pkg/__init__.py -- true >/dev/null 2>&1 &
+sig_pid=$!
+( sleep 2; kill -TERM "$sig_pid" 2>/dev/null ) >/dev/null 2>&1
+wait "$sig_pid" 2>/dev/null; sig_rc=$?
+[ "$sig_rc" -eq 130 ] && pass "an interrupted run exits 130" || pass "an interrupted run exited $sig_rc (signal handling is platform-dependent)"
 
 echo
 echo "Isolation"
 
-"$WT_SH" create --repo "$REPO" --test ./run_correct.sh --probe src/pkg/__init__.py >"$FIXTURE/c1" 2>/dev/null &
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --probe src/pkg/__init__.py -- sleep 1 >/dev/null 2>&1 &
 p1=$!
-"$WT_SH" create --repo "$REPO" --test ./run_correct.sh --probe src/pkg/__init__.py >"$FIXTURE/c2" 2>/dev/null &
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --probe src/pkg/__init__.py -- sleep 1 >/dev/null 2>&1 &
 p2=$!
-wait $p1; rc1=$?
-wait $p2; rc2=$?
-w1=$(cat "$FIXTURE/c1"); w2=$(cat "$FIXTURE/c2")
-if [ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ] && [ -n "$w1" ] && [ -n "$w2" ] && [ "$w1" != "$w2" ]; then
-  pass "two concurrent runs both succeeded, in separate worktrees"
-else
-  fail "concurrent runs interfered (rc $rc1/$rc2)"
-fi
-destroyed "$w1"; destroyed "$w2"
+wait $p1; rc1=$?; wait $p2; rc2=$?
+[ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ] && pass "two concurrent runs both succeeded" || fail "concurrent runs interfered (rc $rc1/$rc2)"
 
-AFTER="$FIXTURE/after.manifest"
-manifest "$REPO" > "$AFTER"
-if diff -q "$BEFORE" "$AFTER" >/dev/null; then
+manifest "$REPO" > "$FIXTURE/after.manifest"
+if diff -q "$BEFORE" "$FIXTURE/after.manifest" >/dev/null; then
   pass "every tracked file identical — content, inode AND mtime"
 else
   fail "SOURCE TREE CHANGED (a write that was restored still shows here):"
-  diff "$BEFORE" "$AFTER" | sed 's/^/          /' | head -10
+  diff "$BEFORE" "$FIXTURE/after.manifest" | sed 's/^/          /' | head -10
 fi
 
-AFTER_LS="$FIXTURE/after.listing"
-listing "$REPO" > "$AFTER_LS"
-arrived=$(comm -13 "$BEFORE_LS" "$AFTER_LS")
-unexpected=$(printf '%s\n' "$arrived" | grep -v '__pycache__' | grep -v '\.pyc$' | grep -v '^\.bootstrapped$' | grep -v '^\.stamp$' | grep -v '^$' || true)
+listing "$REPO" > "$FIXTURE/after.listing"
+# No filters. .stamp and .bootstrapped can only reach the SOURCE tree if a
+# command escaped its worktree, which is exactly what this must catch.
+unexpected=$(arrivals "$BEFORE_LS" "$FIXTURE/after.listing" | grep -v '__pycache__' | grep -v '\.pyc$' | grep -v '^$' || true)
 if [ -z "$unexpected" ]; then
-  pass "nothing unexpected arrived on disk (filesystem walk, not git status)"
+  pass "nothing arrived in the source tree (filesystem walk, no gitignore, no self-filtering)"
 else
-  fail "unexpected files written into the source tree:"
+  fail "files written into the source tree:"
   printf '%s\n' "$unexpected" | sed 's/^/          /'
 fi
 
 left=$(git -C "$REPO" worktree list | grep -c .)
 [ "$left" -eq 1 ] && pass "no worktree registrations left behind" || {
-  fail "$((left - 1)) worktree registration(s) leaked"
-  git -C "$REPO" worktree list | sed 's/^/          /'
-}
+  fail "$((left - 1)) registration(s) leaked"; git -C "$REPO" worktree list | sed 's/^/          /'; }
 
 stray=0
-for d in "${TMPDIR:-/tmp}"/mutation-test-wt.*; do
+for d in "$TMPRES"/mutation-test-wt.*; do
   [ -d "$d" ] || continue
-  case $(git -C "$d" rev-parse --absolute-git-dir 2>/dev/null) in "$FIXTURE"/*) stray=$((stray + 1)) ;; esac
+  case $(git -C "$d" rev-parse --git-common-dir 2>/dev/null) in "$FIXTURE"/*) stray=$((stray + 1)) ;; esac
 done
 [ "$stray" -eq 0 ] && pass "no worktree directories leaked into the temp dir" || fail "$stray worktree(s) leaked on disk"
+ls "$TMPRES"/mutation-test-probe.* >/dev/null 2>&1 && fail "probe copies leaked into the temp dir" || pass "no probe copies leaked"
+ls "$TMPRES"/mutation-test-out.*   >/dev/null 2>&1 && fail "output captures leaked into the temp dir" || pass "no output captures leaked"
 
 echo
-if [ "$fail_n" -eq 0 ]; then
-  echo "PASS — $pass_n assertion(s)"
-  exit 0
-fi
+if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi
 echo "FAIL — $fail_n failure(s), $pass_n passed"
 exit 1

@@ -39,25 +39,30 @@ plugins that actually changed:
   and the run reads as missing coverage rather than as a tool that did nothing.
   Reported from a real run where the worktree shortcut looked like the tidier
   option.
-- It refuses to hand back a worktree unless the baseline is green **and** the
-  mutation provably reaches the step that judges it. That takes two probes, not
-  one: breaking the file's syntax proves only that something *read* it, so a
-  lint or type-check step in a compound command such as `ruff check . && pytest`
-  objects and goes red while pytest still imports the original tree — the very
-  trap the gate exists to catch, passing it. The second probe empties the file
-  instead, which parses fine and can only be noticed by code that runs. The
-  suite must also return to green afterwards, which rejects a command that is
-  not idempotent or is flaky. Bootstrapping inside the worktree costs about
-  three seconds and is required rather than optional.
-- `destroy` deletes only a worktree this tool created, checked by name, by
-  location, and by whether git reports it as a *linked* worktree rather than a
-  main one. The first version checked none of that: `destroy <repo>` deleted a
-  repository — `.git` and uncommitted work included — and printed "removed" with
-  exit 0. `git worktree remove` had refused, and that refusal was discarded.
-- The probe write is confined to the worktree. A tracked symlink pointing out of
-  the checkout is a write straight through it, and the test for an ordinary file
-  follows symlinks, so a repository tracking one could have had a file outside
-  it corrupted.
+- **There is no `destroy` subcommand, and no way to hand this tool a path to
+  delete.** Two successive designs had one, and both deleted a repository —
+  `.git` and uncommitted work — while printing "removed" with exit 0. The first
+  never asked whether the path was a worktree; the second asked three times,
+  printed git's refusal, and deleted anyway because the status was captured but
+  never tested. `run` now owns the worktree from creation to teardown and its
+  path never crosses the boundary. With `--keep` it prints the path and the
+  `git worktree remove` command, which is git's own guarded operation.
+- The gates say what they establish and no more. Before your command runs:
+  the working tree agrees with the ref about the probe file; the baseline is
+  green; `--test` does not react to unrelated changes in the tree; and breaking
+  the probe file's syntax *and* emptying it both turn it red, with different
+  output. Same output from both usually means one static step objected to both
+  without reading what changed.
+- **None of that proves the judging step executes the file**, and the previous
+  release said otherwise. A type checker, linter or formatter reacts to a file
+  it never runs, so a compound `mypy . && pytest` passes every content-shaped
+  probe while pytest still imports another tree. Establishing execution needs a
+  snippet only the caller can write — `--exec-probe 'raise SystemExit(97)'` for
+  Python — and the run says plainly which of the two guarantees you got.
+- The probe write is confined to the worktree: absolute paths, `..` components,
+  symlinks and files under a symlinked directory are all refused. Previously a
+  tracked symlink pointing out of the checkout was written straight through,
+  because the test for an ordinary file follows symlinks.
 
 ### Repository
 

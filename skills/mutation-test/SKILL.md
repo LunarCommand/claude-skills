@@ -47,13 +47,16 @@ checking individually rather than implying a sweep happened.
   did not touch, so every mutant passes — which is indistinguishable from a real
   coverage gap, and reads as "nothing covers this line" when the truth is
   "nothing ran your change". This is what makes the backup rule above
-  load-bearing rather than merely tidy. If you do need an isolated tree, one
-  check is not enough to trust it. Corrupting the file so it will not parse
-  proves only that *something* read it — a lint or type-check step in a compound
-  command objects and goes red while the step that actually judges mutants still
-  imports the original tree. Prove it twice: break the syntax, then separately
-  empty the file, and require **both** to go red. Only the second needs the code
-  to have run. Then restore, confirm the suite is green again, and begin.
+  load-bearing rather than merely tidy. If you do need an isolated tree, be
+  careful how you check it, because the obvious checks do not prove what they
+  look like they prove. Corrupting the file so it will not parse shows only that
+  *something* read it — a lint or type-check step in a compound command objects
+  and goes red while the step that judges mutants still imports the original
+  tree. Emptying the file is no better: a type checker notices the symbol is
+  gone without ever executing the module. The only check that separates *read*
+  from *executed* is one the language decides — append something valid that is
+  fatal when it runs (`raise SystemExit(97)` in Python) and require the suite to
+  go red. Then restore, confirm it is green again, and begin.
 - **Never overwrite an existing backup.** If `<file>.mtbak` is already there when
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from
