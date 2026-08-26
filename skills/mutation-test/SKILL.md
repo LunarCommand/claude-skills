@@ -47,16 +47,24 @@ checking individually rather than implying a sweep happened.
   did not touch, so every mutant passes — which is indistinguishable from a real
   coverage gap, and reads as "nothing covers this line" when the truth is
   "nothing ran your change". This is what makes the backup rule above
-  load-bearing rather than merely tidy. If you do need an isolated tree, be
-  careful how you check it, because the obvious checks do not prove what they
-  look like they prove. Corrupting the file so it will not parse shows only that
-  *something* read it — a lint or type-check step in a compound command objects
-  and goes red while the step that judges mutants still imports the original
-  tree. Emptying the file is no better: a type checker notices the symbol is
-  gone without ever executing the module. The only check that separates *read*
-  from *executed* is one the language decides — append something valid that is
-  fatal when it runs (`raise SystemExit(97)` in Python) and require the suite to
-  go red. Then restore, confirm it is green again, and begin.
+  load-bearing rather than merely tidy, and it is why this skill mutates in
+  place instead of somewhere clean.
+
+  If you use an isolated tree anyway, **do not try to prove the wiring with a
+  probe first.** Three designs tried and each was defeated: breaking the syntax
+  shows only that *something read* the file, a lint step objects while the
+  judging step never runs; emptying it is no better, a type checker notices the
+  symbol is gone without executing anything; appending a fatal statement is
+  caught by a formatter reacting to the added bytes, and in Go, Rust or Java
+  there is no legal top-level fatal statement to append at all. Every one of
+  them measures the same thing — does the command react to these bytes changing
+  — which any step that merely reads the file satisfies.
+
+  Judge it from the results instead, where the signal is honest: **mutate
+  several independent lines, and if every single mutant survives, suspect the
+  environment before believing the coverage.** That cannot be fooled by a
+  linter, needs no knowledge of the language, and costs nothing, because you
+  were running the mutants anyway.
 - **Never overwrite an existing backup.** If `<file>.mtbak` is already there when
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from

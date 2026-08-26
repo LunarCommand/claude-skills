@@ -40,6 +40,67 @@ plugins that actually changed:
   Reported from a real run where the worktree shortcut looked like the tidier
   option.
 - **There is no `destroy` subcommand, and no way to hand this tool a path to
+  delete.** Two designs had one, and both deleted a repository — `.git` and
+  uncommitted work — while printing "removed" with exit 0. The first never
+  asked whether the path was a worktree; the second asked three times, printed
+  git's refusal, and deleted anyway because the status was captured and never
+  tested. `run` now owns the worktree from creation to teardown and its path
+  never crosses the boundary.
+- **It no longer claims to prove that your test command can see a mutation**,
+  because nothing exit-code-shaped can. Three designs tried: break the file's
+  syntax, empty it, append a statement that is fatal when executed. Each was
+  defeated by a step that reads the file without running it — a linter, a type
+  checker, a formatter — and in Go, Rust or Java there is no legal top-level
+  fatal statement to append at all. A fourth probe would have been a fourth
+  confoundable signal, not a stronger proof.
+- What it establishes instead is only what it directly observes: the working
+  tree has no uncommitted changes, the bootstrap you named ran, and your test
+  command exits 0 in the checkout. A command that could not RUN (not found, not
+  executable, killed by a signal) is reported as breakage rather than as your
+  code being red.
+- The wiring question moves to where it can be answered honestly — the results.
+  Mutate several independent lines, and if every mutant survives, suspect the
+  environment. That cannot be fooled by a linter and costs nothing.
+- The uncommitted-changes check covers the whole tree rather than one file. It
+  previously checked only the file about to be mutated, so a dirty *test* file —
+  the normal state when this skill is used — was silently judged at its
+  committed version.
+
+### Repository` heading in the same section.
+They carry no version of their own; they ship whenever they land on `main`.
+
+**The version bump is what ships.** Marketplace users receive an update only when
+a plugin's `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
+
+This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
+[Semantic Versioning](https://semver.org/) per plugin.
+
+<!--
+Shape for an entry — list the version each plugin will ship as, and only the
+plugins that actually changed:
+
+### hyperdx — 0.9.1
+
+- Fixed local multi-term queries returning zero rows on macOS.
+-->
+
+## Unreleased
+
+### mutation-test — 0.10.0
+
+- Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
+  `git worktree` to mutate in, so the tool never writes to your source tree. The
+  runner that uses it is not here yet. Every blocker that held the first attempt
+  back lived in a back-up-and-restore path, and a tree you never write to cannot
+  have them.
+- The manual path gains the rule that makes its backup discipline
+  load-bearing: mutate the file in place, never a copy in a worktree or a
+  scratch checkout. An editable install records an absolute path to the original
+  source, so a mutation made elsewhere is never imported, every mutant passes,
+  and the run reads as missing coverage rather than as a tool that did nothing.
+  Reported from a real run where the worktree shortcut looked like the tidier
+  option.
+- **There is no `destroy` subcommand, and no way to hand this tool a path to
   delete.** Two successive designs had one, and both deleted a repository —
   `.git` and uncommitted work — while printing "removed" with exit 0. The first
   never asked whether the path was a worktree; the second asked three times,
