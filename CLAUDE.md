@@ -262,7 +262,7 @@ scripts/validate.sh --quick    # syntactic checks only — see below
 ```
 
 `--quick` skips both slow sections — the install integration test **and** the
-mutation-test acceptance suite, which is ~37s of the ~43s full run. That matters
+mutation-test acceptance suite, which is ~22s of the ~29s full run. That matters
 more than it sounds: the acceptance suite is the *only* check here that runs an
 artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
 pre-commit hook uses it, so a clean commit hook is not evidence the scripts

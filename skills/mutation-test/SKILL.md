@@ -235,11 +235,25 @@ throwaway `git worktree` rather than mutate-and-restore: every blocker in the
 withheld runner lived in the backup/restore path, and a runner that never touches
 the working tree cannot have them.
 
-**What a batch runner has to prove before it ships.** Round-trip integrity, on a
-fixture tree built to break it: two paths that collide under whatever key the
-backup uses (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path with a
-space, a symlink, a file named after the runner's own scratch file, and two runs
-against the same tree at once. Every file byte-identical afterwards, or the run
-says so loudly. The restore path is the whole product here — a mutation tool that
-loses work is worse than no mutation tool, and "all files restored" printed over
-a corrupted tree is worse still.
+**What a batch runner has to prove before it ships.** These criteria changed
+once the design did, and it is worth saying how. The withheld runner mutated
+your files and restored them, so its whole product was the restore path: it had
+to survive a fixture tree built to break it — two paths colliding under whatever
+key the backup used (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path
+with a space, a symlink, a file named after the runner's own scratch file, two
+runs at once.
+
+A runner built on `mutation_test_worktree.sh` has no restore path, because it
+never writes to your tree at all. Those cases stop being the bar and become
+true by construction — which is exactly the kind of claim this project has been
+wrong about before, so the suite still asserts the source tree is byte-identical
+afterwards rather than assuming it. Any scratch file the runner writes itself is
+back in scope, in the worktree, and the hostile-name cases apply there.
+
+The bar that replaces round-trip integrity is **detecting a mis-wired
+environment**. The worktree layer deliberately does not establish that the test
+command can see a mutation — nothing exit-code-shaped can. The runner is the
+only component that can, because it holds the whole result set: if it mutates
+several independent lines and *every* mutant survives, it must say so loudly
+rather than reporting a coverage gap. Getting that wrong reproduces the exact
+symptom this skill exists to prevent — a confident, entirely false clean run.
