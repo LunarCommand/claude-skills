@@ -503,6 +503,47 @@ pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-
   printf '%s\n' "$pathrefs" | sed 's/^/        /'
 }
 
+# Every refusal slug the mutation-test worktree script can print must be
+# asserted in its acceptance suite. Three separate review rounds found a guard
+# that could be deleted with the suite still green, and twice the cause was two
+# guards SHARING a slug so no assertion could tell them apart. That is a
+# mechanical property, so it gets a mechanical check rather than more careful
+# reading.
+if out=$(python3 - <<'PY' 2>&1
+import re, sys
+script = open('skills/mutation-test/bin/mutation_test_worktree.sh').read()
+suite  = open('scripts/mutation-test-acceptance.sh').read()
+# Slugs that no fixture can reach, each named with why. Anything not here and
+# not asserted fails, so this list is the only place an exemption can hide.
+unreachable = {
+    'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
+    'tmpdir':             'requires mktemp -d to fail',
+    'git-failed':         'requires git status to fail on a valid repository',
+    'worktree-add':       'requires git worktree add to fail after all preflights pass',
+}
+# `refuse` is called inline too (`... && refuse git-failed 42 ...`), so this
+# must not anchor to the start of a line — anchoring it silently under-counted
+# the slugs, which is the opposite of what this check exists to do.
+slugs = set(re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script))
+asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
+asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
+bad = []
+for s in sorted(slugs - asserted - set(unreachable)):
+    bad.append(f'refusal slug {s!r} is never asserted in the acceptance suite')
+for s in sorted(set(unreachable) & asserted):
+    bad.append(f'refusal slug {s!r} is listed unreachable but the suite asserts it')
+for s in sorted(set(unreachable) - slugs):
+    bad.append(f'refusal slug {s!r} is listed unreachable but the script no longer prints it')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+print(f'{len(slugs)} slug(s), {len(slugs - set(unreachable))} asserted, {len(unreachable)} unreachable by construction')
+PY
+); then
+  pass "refusal slugs  $out"
+else
+  fail "mutation-test refusal slugs and assertions disagree:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
 # Every script name mentioned in the docs must be a script that exists. A rename
 # otherwise leaves working prose pointing at a command that is not on PATH, and
 # the check above only covers SKILL.md — which is exactly how CLAUDE.md kept

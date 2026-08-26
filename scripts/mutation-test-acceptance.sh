@@ -127,8 +127,22 @@ gitstate() {
 printf 'import sys\nimport pkg\nsys.exit(0)\n' > "$REPO/tests/check.py"
 DIRTY_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); DIRTY_RC=$?
 "$WT_SH" run --repo "$REPO/sub" --test ./run_correct.sh -- true >/dev/null 2>&1; DIRTY_SUB_RC=$?
-"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --ref HEAD -- true >/dev/null 2>&1; DIRTY_REF_RC=$?
+# --ref HEAD names the very commit the guard compares against, so it must NOT
+# buy a bypass; --ref HEAD~1 names a different one and must.
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --ref HEAD -- true >/dev/null 2>&1; DIRTY_REFHEAD_RC=$?
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --ref HEAD~1 -- true >/dev/null 2>&1; DIRTY_REFOLD_RC=$?
 git -C "$REPO" checkout -q -- tests/check.py
+
+# An untracked test is this skill's primary target state and the worktree will
+# not contain it, so it must be refused by its own slug, not lumped in.
+printf 'import sys\nsys.exit(0)\n' > "$REPO/tests/test_brand_new.py"
+UNTRACKED_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); UNTRACKED_RC=$?
+rm -f "$REPO/tests/test_brand_new.py"
+
+# An index bit that hides a file from git status defeats both checks above.
+git -C "$REPO" update-index --assume-unchanged tests/check.py
+HIDDEN_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); HIDDEN_RC=$?
+git -C "$REPO" update-index --no-assume-unchanged tests/check.py
 
 BEFORE="$FIXTURE/before.manifest"; manifest "$REPO" > "$BEFORE"
 BEFORE_LS="$FIXTURE/before.listing"; listing "$REPO" > "$BEFORE_LS"
@@ -159,13 +173,13 @@ expect() { # rc, slug, label — matches the machine-readable refusal line
 echo "Removed surfaces"
 for sub in create destroy; do
   err=$("$WT_SH" "$sub" "$REPO" 2>&1); rc=$?
-  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'was removed'; } \
-    && pass "'$sub' refused with an explanation" || fail "'$sub' exited $rc"
+  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'refused: removed-subcommand'; } \
+    && pass "'$sub' refused by its own guard" || fail "'$sub' exited $rc: $(printf '%s' "$err" | head -1)"
 done
 [ -d "$REPO/.git" ] && pass "fixture repository intact" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
 for flag in --probe --exec-probe; do
   run_wt --test ./run_correct.sh "$flag" src/pkg/__init__.py -- true
-  expect 40 usage "'$flag' refused, and says why probing was dropped"
+  expect 40 removed-flag "'$flag' refused by its own guard, with the reason"
 done
 
 echo
@@ -173,6 +187,30 @@ echo "What it establishes"
 run_wt --test ./run_correct.sh -- sh -c 'test -n "$MUTATION_TEST_WORKTREE" && test -f "$MUTATION_TEST_WORKTREE/tests/check.py"'
 [ "$RUN_RC" -eq 0 ] && pass "clean run: baseline green, command runs in the worktree" \
   || { fail "clean run rejected (exit $RUN_RC)"; printf '%s\n' "$RUN_ERR" | sed 's/^/          /' | head -4; }
+
+# CWD, not $MUTATION_TEST_WORKTREE. The env var is an absolute path and stays
+# correct even when the command's working directory is wrong, so the assertion
+# above passed with `cd "$WT" &&` deleted — and what that guard prevents is the
+# caller's writes landing in the user's real checkout.
+run_wt --test ./run_correct.sh -- sh -c 'test "$(pwd -P)" = "$(cd "$MUTATION_TEST_WORKTREE" && pwd -P)"'
+[ "$RUN_RC" -eq 0 ] && pass "the command's WORKING DIRECTORY is the worktree" \
+  || fail "the command did not run with the worktree as its cwd (exit $RUN_RC)"
+
+# ...and the same guard proven from the other side: a RELATIVE write must land
+# in the worktree, so the isolation collectors below fail if it reaches $REPO.
+run_wt --test ./run_correct.sh -- sh -c 'printf mutant > relative-write-probe.txt'
+[ "$RUN_RC" -eq 0 ] && pass "a relative write by the command is accepted" \
+  || fail "the relative-write probe failed (exit $RUN_RC)"
+stray_probe=""
+for d in "$REPO" "$PWD" "$REPO_ROOT"; do
+  [ -e "$d/relative-write-probe.txt" ] && stray_probe="$stray_probe $d"
+done
+if [ -n "$stray_probe" ]; then
+  fail "THE COMMAND'S RELATIVE WRITE ESCAPED THE WORKTREE, into:$stray_probe"
+  for d in $stray_probe; do rm -f "$d/relative-write-probe.txt"; done
+else
+  pass "the command's relative write stayed inside the worktree"
+fi
 
 run_wt --test ./run_correct.sh -- sh -c 'exit 42'
 [ "$RUN_RC" -eq 42 ] && pass "the command's exit status passes through" || fail "expected 42, got $RUN_RC"
@@ -185,6 +223,8 @@ run_wt --test ./run_needs_setup.sh --setup 'touch .bootstrapped' -- true
 # A command that cannot RUN must not be reported as the user's code being red.
 run_wt --test ./run_notfound.sh -- true
 expect 42 test-command-broken "a --test that cannot run is breakage, not a red baseline"
+run_wt --test 'kill -TERM $$' -- true
+expect 42 test-command-broken "a --test killed by a signal is breakage, not a red baseline"
 run_wt --test ./run_correct.sh --setup './definitely-not-here' -- true
 expect 42 test-command-broken "a --setup that cannot run is breakage too"
 run_wt --test ./run_correct.sh --setup 'exit 3' -- true
@@ -204,10 +244,25 @@ if [ "$DIRTY_SUB_RC" -eq 44 ]; then
 else
   fail "not refused from a subdirectory (exit $DIRTY_SUB_RC) — status is not anchored to the toplevel"
 fi
-if [ "$DIRTY_REF_RC" -eq 0 ]; then
-  pass "an explicit --ref bypasses the check, as documented"
+if [ "$DIRTY_REFHEAD_RC" -eq 44 ]; then
+  pass "--ref HEAD does NOT buy a bypass of the dirty check"
 else
-  fail "explicit --ref did not bypass the dirty check (exit $DIRTY_REF_RC)"
+  fail "--ref HEAD bypassed the dirty check (exit $DIRTY_REFHEAD_RC) — it names the very commit being compared"
+fi
+if [ "$DIRTY_REFOLD_RC" -eq 0 ]; then
+  pass "--ref to a different commit does bypass it, as documented"
+else
+  fail "--ref HEAD~1 was refused (exit $DIRTY_REFOLD_RC)"
+fi
+if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'refused: untracked-files'; then
+  pass "a brand-new UNTRACKED test file is refused by its own slug"
+else
+  fail "untracked test file not refused (exit $UNTRACKED_RC) — the worktree would not contain it"
+fi
+if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'refused: hidden-index-bits'; then
+  pass "a file hidden by assume-unchanged is refused"
+else
+  fail "assume-unchanged file not refused (exit $HIDDEN_RC) — it is invisible to git status"
 fi
 
 run_wt --test ./run_correct.sh --ref HEAD~1 -- true
@@ -223,9 +278,15 @@ expect 40 malformed-ref "ref containing .. refused BY THE SYNTAX GUARD"
 run_wt --test ./run_correct.sh --ref 'no-such-ref' -- true
 expect 40 bad-ref "an unresolvable ref is refused by rev-parse"
 run_wt -- true
-[ "$RUN_RC" -eq 40 ] && pass "missing --test refused" || fail "missing --test exited $RUN_RC"
+expect 40 usage "missing --test refused, with the documented slug line"
 run_wt --test ./run_correct.sh
-[ "$RUN_RC" -eq 40 ] && pass "missing trailing command refused" || fail "missing command exited $RUN_RC"
+expect 40 usage "missing trailing command refused, with the documented slug line"
+"$WT_SH" run --repo "$FIXTURE/definitely-not-there" --test ./run_correct.sh -- true >/dev/null 2>"$FIXTURE/err.txt"
+RUN_RC=$?; RUN_ERR=$(cat "$FIXTURE/err.txt")
+expect 40 no-such-repo "a --repo that does not exist is refused"
+"$WT_SH" run --repo "$FIXTURE" --test ./run_correct.sh -- true >/dev/null 2>"$FIXTURE/err.txt"
+RUN_RC=$?; RUN_ERR=$(cat "$FIXTURE/err.txt")
+expect 40 not-a-repo "a --repo that is not a git repository is refused"
 
 echo
 echo "Lifecycle"
@@ -245,7 +306,12 @@ run_wt --test ./run_correct.sh --keep -- true
 # Real assertion, and fast: 3s not 30s, and it checks cleanup, not just the code.
 "$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- sleep 20 >/dev/null 2>"$FIXTURE/sig.txt" &
 sig_pid=$!
-i=0; while [ $i -lt 40 ] && ! ls -d "$TMPRES"/mutation-test-wt.* >/dev/null 2>&1; do i=$((i+1)); sleep 0.25; done
+# Wait for the script's OWN readiness marker, not for any directory matching
+# the glob. An unrelated stale mutation-test-wt.* satisfied the old poll
+# instantly, so the TERM landed before the traps were installed and the suite
+# failed with 143 on unmutated code — permanently, because an empty orphan is
+# not a git worktree and mine() will not clean it.
+i=0; while [ $i -lt 80 ] && ! grep -q 'baseline green' "$FIXTURE/sig.txt" 2>/dev/null; do i=$((i+1)); sleep 0.25; done
 kill -TERM "$sig_pid" 2>/dev/null
 wait "$sig_pid" 2>/dev/null; sig_rc=$?
 strays=0

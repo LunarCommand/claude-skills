@@ -71,6 +71,7 @@ WT=''
 REPO=''
 KEEP=no
 HANDED_OVER=no
+USER_PID=''
 
 usage() {
   cat <<'USAGE'
@@ -145,6 +146,7 @@ keep_notice() {
 }
 
 cleanup() {
+  [ -n "$USER_PID" ] && kill "$USER_PID" 2>/dev/null
   [ "$HANDED_OVER" = yes ] && return 0
   if [ "$KEEP" = yes ] && [ -n "$WT" ] && [ -d "$WT" ]; then
     keep_notice
@@ -172,7 +174,8 @@ check_ran() { # rc, what
 }
 
 cmd_run() {
-  local test_cmd='' setup_cmd='' repo='' ref='HEAD' ref_given=no rc err dirty
+  local test_cmd='' setup_cmd='' repo='' ref='HEAD' ref_given=no rc err
+  local dirty untracked tracked hidden skip_tree_check
 
   while [ $# -gt 0 ]; do
     case $1 in
@@ -184,7 +187,7 @@ cmd_run() {
       -h|--help) usage; exit 0 ;;
       --) shift; break ;;
       --probe|--exec-probe)
-        refuse usage 40 "$1 was removed. This script no longer probes whether --test
+        refuse removed-flag 40 "$1 was removed. This script no longer probes whether --test
        can see a mutation: nothing exit-code-shaped can establish that, and three
        designs that tried were each defeated by a step that reads the file
        without running it. Judge it from your results instead — if every mutant
@@ -193,8 +196,8 @@ cmd_run() {
     esac
   done
 
-  [ $# -ge 1 ]       || { say "Error: a command to run must follow --"; usage; exit 40; }
-  [ -n "$test_cmd" ] || { say "Error: --test is required"; usage; exit 40; }
+  [ $# -ge 1 ]       || { usage; refuse usage 40 "a command to run must follow --"; }
+  [ -n "$test_cmd" ] || { usage; refuse usage 40 "--test is required"; }
   validate_ref "$ref"
   require_cmd git mktemp sed
 
@@ -219,25 +222,71 @@ cmd_run() {
   # about to be mutated, so a dirty TEST file — the normal state when this
   # skill is used — was silently judged at its committed version. `git status`
   # takes no pathspec here, so there is no spelling that can fail it open.
-  if [ "$ref_given" = no ]; then
-    dirty=$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)
-    rc=$?
-    [ "$rc" -ne 0 ] && refuse git-failed 42 "git status failed in $REPO (exit $rc)"
-    if [ -n "$dirty" ]; then
-      say "uncommitted changes in $REPO:"
-      printf '%s\n' "$dirty" | sed 's/^/       /' >&2
-      refuse dirty-tree 44 "the working tree has uncommitted changes, and a worktree can hold
-       committed work only. This run would judge the COMMITTED version of the
-       files listed above while you are looking at your edits. Commit first, or
-       pass --ref to say which commit you meant."
+  # An explicit --ref means the caller named a commit. But --ref HEAD names the
+  # very commit this check compares against, so it must NOT buy a bypass — the
+  # dirty-tree refusal used to say "pass --ref", steering callers straight into
+  # the situation the guard exists to prevent.
+  skip_tree_check=no
+  if [ "$ref_given" = yes ]; then
+    if [ "$(git -C "$REPO" rev-parse --verify --quiet "$ref^{commit}")" \
+       = "$(git -C "$REPO" rev-parse --verify --quiet 'HEAD^{commit}')" ]; then
+      say "note: --ref $ref is HEAD, so the working tree is still checked"
+    else
+      skip_tree_check=yes
+      say "note: --ref $ref is not HEAD; the working tree is not consulted"
     fi
-  else
-    say "note: --ref $ref given; the working tree is not consulted"
   fi
 
-  WT=$(mktemp -d "${TMPDIR:-/tmp}/mutation-test-wt.XXXXXX") || refuse tmpdir 42 "cannot create a temporary directory"
+  if [ "$skip_tree_check" = no ]; then
+    # Default untracked reporting, NOT --untracked-files=no. A test that was
+    # just written is usually untracked, and it is this skill's primary target;
+    # with -uno the guard passed, the worktree did not contain the test, the
+    # baseline was green, and every mutant survived. Ignored files still need
+    # --ignored to appear, so build output does not make this noisy.
+    dirty=$(git -C "$REPO" status --porcelain 2>&1)
+    rc=$?
+    [ "$rc" -ne 0 ] && refuse git-failed 42 "git status failed in $REPO (exit $rc):
+       $dirty"
+
+    untracked=$(printf '%s\n' "$dirty" | sed -n 's/^?? //p')
+    tracked=$(printf '%s\n' "$dirty" | sed -n '/^?? /!p' | sed -n '/./p')
+
+    if [ -n "$tracked" ]; then
+      say "uncommitted changes in $REPO:"
+      printf '%s\n' "$tracked" | sed 's/^/       /' >&2
+      refuse dirty-tree 44 "the working tree has uncommitted changes, and a worktree can hold
+       committed work only. This run would judge the COMMITTED version of the
+       files listed above while you are looking at your edits. Commit them, or
+       pass --ref with a commit that is not HEAD to say you meant an older one."
+    fi
+    if [ -n "$untracked" ]; then
+      say "untracked files in $REPO:"
+      printf '%s\n' "$untracked" | sed 's/^/       /' >&2
+      refuse untracked-files 44 "these files are untracked, so the worktree will NOT contain them.
+       A test you have just written and not yet added is the usual case, and it
+       is exactly the one that matters: without it the baseline is green and
+       every mutant survives, which reads as missing coverage. Add them, or
+       pass --ref with a commit that is not HEAD."
+    fi
+
+    # A file marked assume-unchanged or skip-worktree is invisible to status,
+    # so the checks above cannot see it. Lower-case tags mean one of those.
+    hidden=$(git -C "$REPO" ls-files -v 2>/dev/null | sed -n 's/^[a-z] //p')
+    if [ -n "$hidden" ]; then
+      say "files hidden from git status in $REPO (assume-unchanged or skip-worktree):"
+      printf '%s\n' "$hidden" | sed 's/^/       /' >&2
+      refuse hidden-index-bits 44 "these files carry an index bit that hides them from git status, so
+       nothing above could tell whether they differ from $ref. Clear it with
+       'git update-index --no-assume-unchanged' / '--no-skip-worktree'."
+    fi
+  fi
+
+  # Traps first: cleanup is a no-op while WT is empty, and installing them
+  # after mktemp left a window in which a signal both created the directory and
+  # took the default disposition, leaking it with no handler.
   trap on_signal INT TERM HUP QUIT
   trap cleanup EXIT
+  WT=$(mktemp -d "${TMPDIR:-/tmp}/mutation-test-wt.XXXXXX") || refuse tmpdir 42 "cannot create a temporary directory"
 
   err=$(git -C "$REPO" worktree add --detach "$WT" "$ref" 2>&1) || \
     refuse worktree-add 42 "git worktree add failed for $ref in $REPO:
@@ -262,8 +311,15 @@ cmd_run() {
 
   # The caller owns the worktree from here. Its exit status passes through,
   # which is why every refusal above used 40-44.
+  # Backgrounded and waited on, NOT run in the foreground: bash defers trap
+  # handling until a foreground command returns, so a SIGTERM during a long
+  # caller command did nothing until it finished, and a supervisor escalating
+  # to SIGKILL left the worktree and its registration behind with no message.
   local user_rc=0
-  ( cd "$WT" && MUTATION_TEST_WORKTREE="$WT" bash -c '"$@"' _ "$@" ) || user_rc=$?
+  ( cd "$WT" && MUTATION_TEST_WORKTREE="$WT" bash -c '"$@"' _ "$@" ) &
+  USER_PID=$!
+  wait "$USER_PID"; user_rc=$?
+  USER_PID=''
 
   HANDED_OVER=yes
   if [ "$KEEP" = yes ] && [ "$user_rc" -ne 0 ]; then
@@ -279,10 +335,9 @@ cmd_run() {
 case ${1:-} in
   run)       shift; cmd_run "$@" ;;
   -h|--help) usage; exit 0 ;;
-  '')        usage; exit 40 ;;
+  '')        usage; refuse usage 40 "a subcommand is required" ;;
   create|destroy)
-    say "Error: '$1' was removed. This script no longer takes a path to delete;"
-    say "       twice that deleted a repository and reported success. Use 'run'."
-    exit 40 ;;
-  *) say "Error: unknown subcommand: $1"; usage; exit 40 ;;
+    refuse removed-subcommand 40 "'$1' was removed. This script no longer takes a path to
+       delete; twice that deleted a repository and reported success. Use 'run'." ;;
+  *) usage; refuse usage 40 "unknown subcommand: $1" ;;
 esac

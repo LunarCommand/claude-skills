@@ -61,6 +61,21 @@ plugins that actually changed:
 - The wiring question moves to where it can be answered honestly — the results.
   Mutate several independent lines, and if every mutant survives, suspect the
   environment. That cannot be fooled by a linter and costs nothing.
+- The uncommitted-changes check now reports untracked files too. With them
+  suppressed, a test you had just written and not yet `git add`ed passed the
+  check and was simply absent from the checkout — so the baseline was green,
+  every mutant survived, and it read as missing coverage. That is this skill's
+  most common starting state. A file carrying `assume-unchanged` or
+  `skip-worktree` is refused for the same reason: it is invisible to
+  `git status`, so nothing could tell whether it differed.
+- `--ref HEAD` no longer buys a bypass of that check. It names the very commit
+  the check compares against, and the refusal message used to steer callers
+  straight to it. An explicit `--ref` to any *other* commit still skips it.
+- A signal during your command now stops the run. The command was executed in
+  the foreground, and bash defers trap handling until a foreground command
+  returns, so `SIGTERM` did nothing until it finished — and a supervisor
+  escalating to `SIGKILL` left the worktree and its registration behind with no
+  message.
 - The uncommitted-changes check covers the whole tree rather than one file. It
   previously checked only the file about to be mutated, so a dirty *test* file —
   the normal state when this skill is used — was silently judged at its
@@ -68,6 +83,13 @@ plugins that actually changed:
 
 ### Repository
 
+- `scripts/validate.sh` checks that every refusal the mutation-test worktree
+  script can print is asserted in its acceptance suite. Three review rounds
+  each found a guard that could be deleted with the suite still green, and
+  twice the cause was two guards sharing one slug so no assertion could tell
+  them apart. That is a mechanical property and now gets a mechanical check;
+  slugs no fixture can reach are listed explicitly with the reason, so an
+  exemption cannot hide anywhere else.
 - The settings template approves the read-only git commands the review engines
   actually mandate: `git ls-tree`, `git merge-base`, and `git branch -a
   --contains`. The absence-search and tip-recheck rules added in 0.11.0 tell
