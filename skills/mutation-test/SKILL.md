@@ -216,6 +216,19 @@ assertion.
 likely to be vacuous — not the easiest win. Treat an immediate pass as a reason to
 mutate, not a reason to move on.
 
+## Why this skill prompts for permission
+
+`mutation_test_worktree.sh` deliberately ships **without** a permission rule, so
+it asks before it runs. That is not unfinished setup, and adding a rule for it
+is not the fix.
+
+Its `--setup` and `--test` arguments are handed to `bash -c` verbatim. Any rule
+that lets the script run unprompted approves the *wrapper*, not the payload — so
+an agent that assembled a test command from a repository's README or CI config
+could run it with no prompt at all. The script is invoked once per mutation
+session rather than once per file, so the cost is a single prompt showing the
+exact command that will execute.
+
 ## Not in this version
 
 Scoped runs — point it at a PR or a diff, resolve changed lines, build a

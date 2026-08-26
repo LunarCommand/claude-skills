@@ -446,6 +446,16 @@ except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
 shipped_paths = glob.glob('skills/*/bin/*.sh')
 shipped = {os.path.basename(p) for p in shipped_paths}
+# Scripts that ship WITHOUT a rule on purpose. The invariant exists so a script
+# does not prompt because someone forgot a rule; a deliberate absence, named
+# here with its reason, serves that purpose and stays visible in review.
+# Anything not ruled AND not listed here still fails.
+deliberately_unruled = {
+    # --setup and --test reach `bash -c` verbatim, so any rule that lets this
+    # run unprompted approves the wrapper rather than the payload. It runs once
+    # per mutation session, so the prompt is cheap and shows the exact command.
+    'mutation_test_worktree.sh',
+}
 # A basename shipped by two skills is unreachable for one of them: bare-name
 # invocation resolves through PATH, which can only ever pick one. The set
 # comparison below would happily pass such a pair.
@@ -465,8 +475,10 @@ for rule in cfg.get('permissions', {}).get('allow', []):
         bad.append(f'path-shaped skill rule will not match a PATH invocation: {rule}')
 for name in sorted(ruled - shipped):
     bad.append(f'rule approves {name}, which no skill ships')
-for name in sorted(shipped - ruled):
+for name in sorted(shipped - ruled - deliberately_unruled):
     bad.append(f'{name} ships but has no allowlist rule — it will prompt')
+for name in sorted(ruled & deliberately_unruled):
+    bad.append(f'{name} is listed as deliberately unruled but a rule approves it anyway')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 PY
