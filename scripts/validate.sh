@@ -16,7 +16,13 @@
 #
 # Usage:
 #   scripts/validate.sh            # everything
-#   scripts/validate.sh --quick    # skip the install integration test (pre-commit hook)
+#   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
+#
+# --quick skips BOTH slow sections: the install integration test and the
+# mutation-test acceptance suite. What remains is entirely syntactic, so a green
+# --quick run says the artifacts are spelled correctly and nothing about whether
+# they behave. The acceptance suite is ~22s of the ~29s full run, which is why
+# the hook does not carry it; CI does.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
@@ -440,6 +446,16 @@ except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
 shipped_paths = glob.glob('skills/*/bin/*.sh')
 shipped = {os.path.basename(p) for p in shipped_paths}
+# Scripts that ship WITHOUT a rule on purpose. The invariant exists so a script
+# does not prompt because someone forgot a rule; a deliberate absence, named
+# here with its reason, serves that purpose and stays visible in review.
+# Anything not ruled AND not listed here still fails.
+deliberately_unruled = {
+    # --setup and --test reach `bash -c` verbatim, so any rule that lets this
+    # run unprompted approves the wrapper rather than the payload. It runs once
+    # per mutation session, so the prompt is cheap and shows the exact command.
+    'mutation_test_worktree.sh',
+}
 # A basename shipped by two skills is unreachable for one of them: bare-name
 # invocation resolves through PATH, which can only ever pick one. The set
 # comparison below would happily pass such a pair.
@@ -459,8 +475,10 @@ for rule in cfg.get('permissions', {}).get('allow', []):
         bad.append(f'path-shaped skill rule will not match a PATH invocation: {rule}')
 for name in sorted(ruled - shipped):
     bad.append(f'rule approves {name}, which no skill ships')
-for name in sorted(shipped - ruled):
+for name in sorted(shipped - ruled - deliberately_unruled):
     bad.append(f'{name} ships but has no allowlist rule — it will prompt')
+for name in sorted(ruled & deliberately_unruled):
+    bad.append(f'{name} is listed as deliberately unruled but a rule approves it anyway')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 PY
@@ -485,6 +503,63 @@ pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-
   printf '%s\n' "$pathrefs" | sed 's/^/        /'
 }
 
+# Every refusal slug the mutation-test worktree script can print must be
+# asserted in its acceptance suite. Three separate review rounds found a guard
+# that could be deleted with the suite still green, and twice the cause was two
+# guards SHARING a slug so no assertion could tell them apart. That is a
+# mechanical property, so it gets a mechanical check rather than more careful
+# reading.
+if out=$(python3 - <<'PY' 2>&1
+import re, sys
+script = open('skills/mutation-test/bin/mutation_test_worktree.sh').read()
+suite  = open('scripts/mutation-test-acceptance.sh').read()
+# Slugs that no fixture can reach, each named with why. Anything not here and
+# not asserted fails, so this list is the only place an exemption can hide.
+unreachable = {
+    'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
+    'tmpdir':             'requires mktemp -d to fail',
+    'git-failed':         'requires git status to fail on a valid repository',
+    'worktree-add':       'requires git worktree add to fail after all preflights pass',
+    'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
+    'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+}
+# `refuse` is called inline too (`... && refuse git-failed 42 ...`), so this
+# must not anchor to the start of a line — anchoring it silently under-counted
+# the slugs, which is the opposite of what this check exists to do.
+# Per CALL SITE, not per unique name. Comparing sets of names discards call
+# multiplicity: all three validate_ref branches once shared 'malformed-ref',
+# so deleting the empty-ref guard left this check AND the suite green while
+# rev-parse quietly caught the input instead. A slug used twice is two guards
+# no assertion can tell apart, which is how a guard survived deletion in three
+# consecutive review rounds.
+bad = []
+calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script)
+slugs = set(calls)
+for s in sorted({c for c in calls if calls.count(c) > 1}):
+    bad.append(f'refusal slug {s!r} is used at {calls.count(s)} call sites; give each guarded case its own slug or no assertion can tell them apart')
+asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
+asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
+for s in sorted(slugs - asserted - set(unreachable)):
+    bad.append(f'refusal slug {s!r} is never asserted in the acceptance suite')
+for s in sorted(set(unreachable) & asserted):
+    bad.append(f'refusal slug {s!r} is listed unreachable but the suite asserts it')
+for s in sorted(set(unreachable) - slugs):
+    bad.append(f'refusal slug {s!r} is listed unreachable but the script no longer prints it')
+# The reverse direction, and it is the one that catches a DELETED guard: the
+# suite still asserts a slug nothing can produce, so the assertion is dead
+# rather than failing loudly.
+for s in sorted(asserted - slugs):
+    bad.append(f'the suite asserts refusal slug {s!r}, which the script never prints')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+print(f'{len(slugs)} slug(s), {len(slugs - set(unreachable))} asserted, {len(unreachable)} unreachable by construction')
+PY
+); then
+  pass "refusal slugs  $out"
+else
+  fail "mutation-test refusal slugs and assertions disagree:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
 # Every script name mentioned in the docs must be a script that exists. A rename
 # otherwise leaves working prose pointing at a command that is not on PATH, and
 # the check above only covers SKILL.md — which is exactly how CLAUDE.md kept
@@ -493,7 +568,7 @@ if out=$(python3 - <<'PY' 2>&1
 import glob, os, re, sys
 shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
 # The repo's own tooling, named in docs but never installed as a skill script.
-own = {'install.sh', 'validate.sh', 'pre-commit.sh'}
+own = {'install.sh', 'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh'}
 bad = []
 for md in sorted(glob.glob('*.md') + glob.glob('skills/*/SKILL.md') + glob.glob('docs/**/*.md', recursive=True)):
     for n, line in enumerate(open(md), 1):
@@ -582,6 +657,24 @@ section "Install integration"
   else
     fail "re-install left $actual dirs / $manifests manifests in the skills root (expected $expected / $expected):"
     find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | sed 's/^/        /'
+  fi
+fi
+
+# --------------------------------------------------------------------------
+if [[ "$QUICK" == false ]]; then
+section "Mutation-test acceptance (behaviour, not spelling)"
+# --------------------------------------------------------------------------
+  # Everything above this line is syntactic. This is the one suite that runs an
+  # artifact and asserts on what it does: it builds a repository designed to
+  # break a mutation runner -- colliding paths, a space, a symlink, and a test
+  # command wired to an absolute path the way an editable install is -- and
+  # checks the worktree foundation refuses each one.
+  if out=$(./scripts/mutation-test-acceptance.sh 2>&1); then
+    printf '%s\n' "$out" | grep -E '^  (ok|FAIL)' | sed 's/^  /  /'
+    pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
+  else
+    fail "mutation-test acceptance suite failed:"
+    printf '%s\n' "$out" | sed 's/^/        /'
   fi
 fi
 

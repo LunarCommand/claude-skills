@@ -28,6 +28,9 @@
       "Bash(git show:*)",
       "Bash(git ls-files:*)",
       "Bash(git submodule status:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git branch -a --contains:*)",
 
       "Bash(diff:*)",
 

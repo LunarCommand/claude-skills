@@ -258,8 +258,15 @@ on a broken foundation, and two of those fixes were themselves blockers.
 
 ```bash
 scripts/validate.sh            # everything — what CI runs
-scripts/validate.sh --quick    # skips the install integration test
+scripts/validate.sh --quick    # syntactic checks only — see below
 ```
+
+`--quick` skips both slow sections — the install integration test **and** the
+mutation-test acceptance suite, which is ~22s of the ~29s full run. That matters
+more than it sounds: the acceptance suite is the *only* check here that runs an
+artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
+pre-commit hook uses it, so a clean commit hook is not evidence the scripts
+work. CI runs the full suite.
 
 Three environment variables loosen it, each a deliberate bypass rather than a
 normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`, and

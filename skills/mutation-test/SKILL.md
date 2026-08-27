@@ -38,6 +38,33 @@ checking individually rather than implying a sweep happened.
   The files this skill is pointed at are usually the ones just written, so they
   hold uncommitted work — `git checkout`, `git restore` and `git stash` destroy it
   rather than restoring it. `cp <file> <file>.mtbak`, mutate, then `mv` it back.
+- **Mutate the file where the tests actually load it from — in place.** The
+  tempting shortcut is to mutate a copy instead, so the real tree stays clean: a
+  `git worktree`, a scratch checkout, a second clone. By default that does not
+  work, and it fails silently. A Python editable install records an *absolute*
+  path to the original source; configured source roots, prebuilt artifacts and
+  installed packages behave the same way. The tests go on importing the file you
+  did not touch, so every mutant passes — which is indistinguishable from a real
+  coverage gap, and reads as "nothing covers this line" when the truth is
+  "nothing ran your change". This is what makes the backup rule above
+  load-bearing rather than merely tidy, and it is why this skill mutates in
+  place instead of somewhere clean.
+
+  If you use an isolated tree anyway, **do not try to prove the wiring with a
+  probe first.** Three designs tried and each was defeated: breaking the syntax
+  shows only that *something read* the file, a lint step objects while the
+  judging step never runs; emptying it is no better, a type checker notices the
+  symbol is gone without executing anything; appending a fatal statement is
+  caught by a formatter reacting to the added bytes, and in Go, Rust or Java
+  there is no legal top-level fatal statement to append at all. Every one of
+  them measures the same thing — does the command react to these bytes changing
+  — which any step that merely reads the file satisfies.
+
+  Judge it from the results instead, where the signal is honest: **mutate
+  several independent lines, and if every single mutant survives, suspect the
+  environment before believing the coverage.** That cannot be fooled by a
+  linter, needs no knowledge of the language, and costs nothing, because you
+  were running the mutants anyway.
 - **Never overwrite an existing backup.** If `<file>.mtbak` is already there when
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from
@@ -189,30 +216,91 @@ assertion.
 likely to be vacuous — not the easiest win. Treat an immediate pass as a reason to
 mutate, not a reason to move on.
 
+## Why this skill prompts for permission
+
+`mutation_test_worktree.sh` deliberately ships **without** a permission rule, so
+it asks before it runs. That is not unfinished setup, and adding a rule for it
+is not the fix.
+
+Its `--setup` and `--test` arguments are handed to `bash -c` verbatim. Any rule
+that lets the script run unprompted approves the *wrapper*, not the payload — so
+an agent that assembled a test command from a repository's README or CI config
+could run it with no prompt at all. The script is invoked once per mutation
+session rather than once per file, so the cost is a single prompt showing the
+exact command that will execute.
+
+## The isolation layer: `mutation_test_worktree.sh`
+
+This skill ships one script. **The manual procedure above does not use it** —
+that mutates in place, which is the whole point of the in-place rule. The script
+is for the case where you genuinely need an isolated tree, and it is the
+foundation the scoped runs below will be built on.
+
+```
+mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
+                              [--ref <ref>] [--keep] -- <command>...
+```
+
+It creates a throwaway `git worktree`, runs your command inside it, and removes
+it. The worktree's path never leaves the script; your command sees it as the
+working directory and in `$MUTATION_TEST_WORKTREE`, and its exit status is
+passed through unchanged.
+
+Before your command runs it establishes three things, all of them directly
+observed:
+
+1. the repository has no uncommitted or untracked changes, so the checkout
+   matches what you are looking at — a worktree holds committed work only
+2. a `--setup` command you named ran successfully in it
+3. `--test` exits 0 in it, so the baseline is green
+
+**What it deliberately does NOT establish** is that `--test` can see a mutation
+at all. Nothing exit-code-shaped can: three designs tried and each was defeated
+by a step that reads a file without executing it. Judge that from your results —
+if every mutant survives, suspect the environment. It says so on success rather
+than implying more.
+
+It refuses rather than guessing, and every refusal prints a machine-readable
+`mutation_test_worktree: refused: <slug>` line before exiting. It asks for
+permission on every run, deliberately — see [Why this skill prompts for
+permission](#why-this-skill-prompts-for-permission).
+
 ## Not in this version
 
 Scoped runs — point it at a PR or a diff, resolve changed lines, build a
 line-to-test coverage map, and run a batch of mutants — are **not shipped here**.
-The batch runner that would do it mutates real source files, and an adversarial
-review of it found a restore path that could write one file's contents over
-another and still report success. Rather than ship that behind a permission rule
-that lets it run without prompting, this version does the part that needs no
-tooling and cannot lose your work.
+The isolation layer they need is (above); the runner on top of it is not.
 
 Until it lands: for a diff, pick the two or three claims that actually carry risk
 and run them by hand. That is slower per line and better per finding — ten chosen
 mutants beat a hundred generated ones anyway.
 
-Tracked as issue #13, which also carries the argument for building it around a
-throwaway `git worktree` rather than mutate-and-restore: every blocker in the
-withheld runner lived in the backup/restore path, and a runner that never touches
-the working tree cannot have them.
+Tracked as issue #13. The approach changed while that issue was open, and the
+reason is worth carrying: the first runner mutated your files and restored them,
+and every blocker an adversarial review found in it lived in that backup-and-
+restore path — including a key that was not injective, so one file's contents
+were written over another's while the run printed success. A runner that never
+writes to your tree cannot have them.
 
-**What a batch runner has to prove before it ships.** Round-trip integrity, on a
-fixture tree built to break it: two paths that collide under whatever key the
-backup uses (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path with a
-space, a symlink, a file named after the runner's own scratch file, and two runs
-against the same tree at once. Every file byte-identical afterwards, or the run
-says so loudly. The restore path is the whole product here — a mutation tool that
-loses work is worse than no mutation tool, and "all files restored" printed over
-a corrupted tree is worse still.
+**What a batch runner has to prove before it ships.** These criteria changed
+once the design did, and it is worth saying how. The withheld runner mutated
+your files and restored them, so its whole product was the restore path: it had
+to survive a fixture tree built to break it — two paths colliding under whatever
+key the backup used (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path
+with a space, a symlink, a file named after the runner's own scratch file, two
+runs at once.
+
+A runner built on `mutation_test_worktree.sh` has no restore path, because it
+never writes to your tree at all. Those cases stop being the bar and become
+true by construction — which is exactly the kind of claim this project has been
+wrong about before, so the suite still asserts the source tree is byte-identical
+afterwards rather than assuming it. Any scratch file the runner writes itself is
+back in scope, in the worktree, and the hostile-name cases apply there.
+
+The bar that replaces round-trip integrity is **detecting a mis-wired
+environment**. The worktree layer deliberately does not establish that the test
+command can see a mutation — nothing exit-code-shaped can. The runner is the
+only component that can, because it holds the whole result set: if it mutates
+several independent lines and *every* mutant survives, it must say so loudly
+rather than reporting a coverage gap. Getting that wrong reproduces the exact
+symptom this skill exists to prevent — a confident, entirely false clean run.
