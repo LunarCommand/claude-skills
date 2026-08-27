@@ -520,20 +520,36 @@ unreachable = {
     'tmpdir':             'requires mktemp -d to fail',
     'git-failed':         'requires git status to fail on a valid repository',
     'worktree-add':       'requires git worktree add to fail after all preflights pass',
+    'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
+    'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
 }
 # `refuse` is called inline too (`... && refuse git-failed 42 ...`), so this
 # must not anchor to the start of a line — anchoring it silently under-counted
 # the slugs, which is the opposite of what this check exists to do.
-slugs = set(re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script))
+# Per CALL SITE, not per unique name. Comparing sets of names discards call
+# multiplicity: all three validate_ref branches once shared 'malformed-ref',
+# so deleting the empty-ref guard left this check AND the suite green while
+# rev-parse quietly caught the input instead. A slug used twice is two guards
+# no assertion can tell apart, which is how a guard survived deletion in three
+# consecutive review rounds.
+bad = []
+calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script)
+slugs = set(calls)
+for s in sorted({c for c in calls if calls.count(c) > 1}):
+    bad.append(f'refusal slug {s!r} is used at {calls.count(s)} call sites; give each guarded case its own slug or no assertion can tell them apart')
 asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
 asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
-bad = []
 for s in sorted(slugs - asserted - set(unreachable)):
     bad.append(f'refusal slug {s!r} is never asserted in the acceptance suite')
 for s in sorted(set(unreachable) & asserted):
     bad.append(f'refusal slug {s!r} is listed unreachable but the suite asserts it')
 for s in sorted(set(unreachable) - slugs):
     bad.append(f'refusal slug {s!r} is listed unreachable but the script no longer prints it')
+# The reverse direction, and it is the one that catches a DELETED guard: the
+# suite still asserts a slug nothing can produce, so the assertion is dead
+# rather than failing loudly.
+for s in sorted(asserted - slugs):
+    bad.append(f'the suite asserts refusal slug {s!r}, which the script never prints')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 print(f'{len(slugs)} slug(s), {len(slugs - set(unreachable))} asserted, {len(unreachable)} unreachable by construction')

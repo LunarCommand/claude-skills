@@ -121,9 +121,9 @@ abspath_dir() { ( cd "$1" 2>/dev/null && pwd -P ) || return 1; }
 
 validate_ref() {
   case $1 in
-    '')    refuse malformed-ref 40 "ref may not be empty" ;;
-    -*)    refuse malformed-ref 40 "ref may not begin with '-': $1" ;;
-    *..*)  refuse malformed-ref 40 "ref may not contain '..': $1" ;;
+    '')    refuse empty-ref 40 "ref may not be empty" ;;
+    -*)    refuse dash-ref 40 "ref may not begin with '-': $1" ;;
+    *..*)  refuse dotdot-ref 40 "ref may not contain '..': $1" ;;
   esac
 }
 
@@ -167,9 +167,9 @@ run_in_wt() { ( cd "$WT" && bash -c "$1" ) </dev/null; }
 # fine, so it is named separately wherever a command is run.
 check_ran() { # rc, what
   case $1 in
-    126|127) refuse test-command-broken 42 "$2 exited $1: it is not executable or was not found." ;;
+    126|127) refuse command-not-runnable 42 "$2 exited $1: it is not executable or was not found." ;;
   esac
-  [ "$1" -gt 128 ] && refuse test-command-broken 42 "$2 was killed by a signal (exit $1)."
+  [ "$1" -gt 128 ] && refuse command-killed 42 "$2 was killed by a signal (exit $1)."
   return 0
 }
 
@@ -179,10 +179,10 @@ cmd_run() {
 
   while [ $# -gt 0 ]; do
     case $1 in
-      --test)  [ $# -ge 2 ] || refuse usage 40 "--test needs a value";  test_cmd=$2;  shift 2 ;;
-      --setup) [ $# -ge 2 ] || refuse usage 40 "--setup needs a value"; setup_cmd=$2; shift 2 ;;
-      --repo)  [ $# -ge 2 ] || refuse usage 40 "--repo needs a value";  repo=$2;      shift 2 ;;
-      --ref)   [ $# -ge 2 ] || refuse usage 40 "--ref needs a value";   ref=$2; ref_given=yes; shift 2 ;;
+      --test)  [ $# -ge 2 ] || refuse test-needs-value 40 "--test needs a value";  test_cmd=$2;  shift 2 ;;
+      --setup) [ $# -ge 2 ] || refuse setup-needs-value 40 "--setup needs a value"; setup_cmd=$2; shift 2 ;;
+      --repo)  [ $# -ge 2 ] || refuse repo-needs-value 40 "--repo needs a value";  repo=$2;      shift 2 ;;
+      --ref)   [ $# -ge 2 ] || refuse ref-needs-value 40 "--ref needs a value";   ref=$2; ref_given=yes; shift 2 ;;
       --keep)  KEEP=yes; shift ;;
       -h|--help) usage; exit 0 ;;
       --) shift; break ;;
@@ -192,18 +192,18 @@ cmd_run() {
        designs that tried were each defeated by a step that reads the file
        without running it. Judge it from your results instead — if every mutant
        survives, suspect the environment." ;;
-      *) refuse usage 40 "unknown argument: $1" ;;
+      *) refuse unknown-argument 40 "unknown argument: $1" ;;
     esac
   done
 
-  [ $# -ge 1 ]       || { usage; refuse usage 40 "a command to run must follow --"; }
-  [ -n "$test_cmd" ] || { usage; refuse usage 40 "--test is required"; }
+  [ $# -ge 1 ]       || { usage; refuse no-command 40 "a command to run must follow --"; }
+  [ -n "$test_cmd" ] || { usage; refuse no-test 40 "--test is required"; }
   validate_ref "$ref"
   require_cmd git mktemp sed
 
   [ -n "$repo" ] || repo=$PWD
   [ -d "$repo" ] || refuse no-such-repo 40 "no such directory: $repo"
-  repo=$(abspath_dir "$repo") || refuse no-such-repo 40 "cannot resolve: $repo"
+  repo=$(abspath_dir "$repo") || refuse unresolvable-repo 40 "cannot resolve: $repo"
   git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || refuse not-a-repo 40 "not a git repository: $repo"
 
   # Normalise to the toplevel so messages name the repository rather than
@@ -212,8 +212,8 @@ cmd_run() {
   # any directory (verified). An earlier version used a PATHSPEC, which IS
   # scoped to -C, and that version reported a clean tree from a subdirectory.
   REPO=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
-    || refuse not-a-repo 40 "cannot find the repository root of $repo"
-  REPO=$(abspath_dir "$REPO") || refuse not-a-repo 40 "cannot resolve the repository root"
+    || refuse no-toplevel 40 "cannot find the repository root of $repo"
+  REPO=$(abspath_dir "$REPO") || refuse unresolvable-toplevel 40 "cannot resolve the repository root"
 
   git -C "$REPO" rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 ||
     refuse bad-ref 40 "ref does not resolve to a commit in $REPO: $ref"
@@ -335,9 +335,9 @@ cmd_run() {
 case ${1:-} in
   run)       shift; cmd_run "$@" ;;
   -h|--help) usage; exit 0 ;;
-  '')        usage; refuse usage 40 "a subcommand is required" ;;
+  '')        usage; refuse no-subcommand 40 "a subcommand is required" ;;
   create|destroy)
     refuse removed-subcommand 40 "'$1' was removed. This script no longer takes a path to
        delete; twice that deleted a repository and reported success. Use 'run'." ;;
-  *) usage; refuse usage 40 "unknown subcommand: $1" ;;
+  *) usage; refuse unknown-subcommand 40 "unknown subcommand: $1" ;;
 esac

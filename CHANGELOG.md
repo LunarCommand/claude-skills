@@ -84,12 +84,16 @@ plugins that actually changed:
 ### Repository
 
 - `scripts/validate.sh` checks that every refusal the mutation-test worktree
-  script can print is asserted in its acceptance suite. Three review rounds
-  each found a guard that could be deleted with the suite still green, and
-  twice the cause was two guards sharing one slug so no assertion could tell
-  them apart. That is a mechanical property and now gets a mechanical check;
-  slugs no fixture can reach are listed explicitly with the reason, so an
-  exemption cannot hide anywhere else.
+  script can print is asserted in its acceptance suite, and that no two guards
+  share a refusal identity. Three review rounds each found a guard that could
+  be deleted with the suite still green, and twice the cause was two guards
+  sharing one slug so no assertion could tell them apart. The first version of
+  this check had the same blind spot it was written to close — it compared sets
+  of *names*, so three ref guards sharing one slug still passed it — and now
+  compares **call sites**: a slug used twice fails. It checks all four
+  directions, including a slug the suite asserts that the script no longer
+  prints, which is what catches a guard deleted outright. Slugs no fixture can
+  reach are listed with the reason, so an exemption cannot hide anywhere else.
 - The settings template approves the read-only git commands the review engines
   actually mandate: `git ls-tree`, `git merge-base`, and `git branch -a
   --contains`. The absence-search and tip-recheck rules added in 0.11.0 tell

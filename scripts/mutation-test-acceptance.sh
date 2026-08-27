@@ -159,6 +159,12 @@ run_wt() {
   RUN_ERR=$(cat "$FIXTURE/err.txt")
   return 0
 }
+run_raw() {  # no implicit --repo, for argument-parsing cases
+  "$WT_SH" "$@" >/dev/null 2>"$FIXTURE/err.txt"
+  RUN_RC=$?
+  RUN_ERR=$(cat "$FIXTURE/err.txt")
+  return 0
+}
 expect() { # rc, slug, label — matches the machine-readable refusal line
   local want=$1 slug=$2 label=$3
   if [ "$RUN_RC" -ne "$want" ]; then
@@ -222,11 +228,11 @@ run_wt --test ./run_needs_setup.sh --setup 'touch .bootstrapped' -- true
 
 # A command that cannot RUN must not be reported as the user's code being red.
 run_wt --test ./run_notfound.sh -- true
-expect 42 test-command-broken "a --test that cannot run is breakage, not a red baseline"
+expect 42 command-not-runnable "a --test that cannot run is breakage, not a red baseline"
 run_wt --test 'kill -TERM $$' -- true
-expect 42 test-command-broken "a --test killed by a signal is breakage, not a red baseline"
+expect 42 command-killed "a --test killed by a signal is refused by its own guard"
 run_wt --test ./run_correct.sh --setup './definitely-not-here' -- true
-expect 42 test-command-broken "a --setup that cannot run is breakage too"
+expect 42 command-not-runnable "a --setup that cannot run is breakage too"
 run_wt --test ./run_correct.sh --setup 'exit 3' -- true
 expect 42 setup-failed "a --setup that runs and FAILS is refused as setup-failed"
 
@@ -271,22 +277,45 @@ run_wt --test ./run_correct.sh --ref HEAD~1 -- true
 
 # Distinct slugs, because rev-parse rejects these inputs too: with one shared
 # slug the assertions stayed green after deleting validate_ref entirely.
+# One slug per guarded case: sharing one meant deleting a branch left the
+# check and the suite green while a different guard quietly caught the input.
+run_wt --test ./run_correct.sh --ref '' -- true
+expect 40 empty-ref "an EMPTY ref is refused by its own guard"
 run_wt --test ./run_correct.sh --ref '-oops' -- true
-expect 40 malformed-ref "ref beginning with a dash refused BY THE SYNTAX GUARD"
+expect 40 dash-ref "a ref beginning with a dash is refused by its own guard"
 run_wt --test ./run_correct.sh --ref 'a..b' -- true
-expect 40 malformed-ref "ref containing .. refused BY THE SYNTAX GUARD"
+expect 40 dotdot-ref "a ref containing .. is refused by its own guard"
 run_wt --test ./run_correct.sh --ref 'no-such-ref' -- true
 expect 40 bad-ref "an unresolvable ref is refused by rev-parse"
 run_wt -- true
-expect 40 usage "missing --test refused, with the documented slug line"
+expect 40 no-test "missing --test refused"
 run_wt --test ./run_correct.sh
-expect 40 usage "missing trailing command refused, with the documented slug line"
+expect 40 no-command "missing trailing command refused"
+run_wt --test ./run_correct.sh --bogus -- true
+expect 40 unknown-argument "an unknown argument is refused"
+run_raw run --test
+expect 40 test-needs-value "--test with no value is refused"
+run_raw run --test ./run_correct.sh --setup
+expect 40 setup-needs-value "--setup with no value is refused"
+run_raw run --test ./run_correct.sh --repo
+expect 40 repo-needs-value "--repo with no value is refused"
+run_raw run --test ./run_correct.sh --ref
+expect 40 ref-needs-value "--ref with no value is refused"
+run_raw
+expect 40 no-subcommand "no subcommand is refused"
+run_raw bogus-subcommand
+expect 40 unknown-subcommand "an unknown subcommand is refused"
 "$WT_SH" run --repo "$FIXTURE/definitely-not-there" --test ./run_correct.sh -- true >/dev/null 2>"$FIXTURE/err.txt"
 RUN_RC=$?; RUN_ERR=$(cat "$FIXTURE/err.txt")
 expect 40 no-such-repo "a --repo that does not exist is refused"
 "$WT_SH" run --repo "$FIXTURE" --test ./run_correct.sh -- true >/dev/null 2>"$FIXTURE/err.txt"
 RUN_RC=$?; RUN_ERR=$(cat "$FIXTURE/err.txt")
 expect 40 not-a-repo "a --repo that is not a git repository is refused"
+# A BARE repository has a git dir but no working tree, so it passes the
+# --git-dir check and fails at --show-toplevel: the only route to that slug.
+git init -q --bare "$FIXTURE/bare.git"
+run_raw run --repo "$FIXTURE/bare.git" --test ./run_correct.sh -- true
+expect 40 no-toplevel "a bare repository is refused for having no working tree"
 
 echo
 echo "Lifecycle"
