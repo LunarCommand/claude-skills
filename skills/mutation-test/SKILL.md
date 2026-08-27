@@ -229,24 +229,58 @@ could run it with no prompt at all. The script is invoked once per mutation
 session rather than once per file, so the cost is a single prompt showing the
 exact command that will execute.
 
+## The isolation layer: `mutation_test_worktree.sh`
+
+This skill ships one script. **The manual procedure above does not use it** —
+that mutates in place, which is the whole point of the in-place rule. The script
+is for the case where you genuinely need an isolated tree, and it is the
+foundation the scoped runs below will be built on.
+
+```
+mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
+                              [--ref <ref>] [--keep] -- <command>...
+```
+
+It creates a throwaway `git worktree`, runs your command inside it, and removes
+it. The worktree's path never leaves the script; your command sees it as the
+working directory and in `$MUTATION_TEST_WORKTREE`, and its exit status is
+passed through unchanged.
+
+Before your command runs it establishes three things, all of them directly
+observed:
+
+1. the repository has no uncommitted or untracked changes, so the checkout
+   matches what you are looking at — a worktree holds committed work only
+2. a `--setup` command you named ran successfully in it
+3. `--test` exits 0 in it, so the baseline is green
+
+**What it deliberately does NOT establish** is that `--test` can see a mutation
+at all. Nothing exit-code-shaped can: three designs tried and each was defeated
+by a step that reads a file without executing it. Judge that from your results —
+if every mutant survives, suspect the environment. It says so on success rather
+than implying more.
+
+It refuses rather than guessing, and every refusal prints a machine-readable
+`mutation_test_worktree: refused: <slug>` line before exiting. It asks for
+permission on every run, deliberately — see [Why this skill prompts for
+permission](#why-this-skill-prompts-for-permission).
+
 ## Not in this version
 
 Scoped runs — point it at a PR or a diff, resolve changed lines, build a
 line-to-test coverage map, and run a batch of mutants — are **not shipped here**.
-The batch runner that would do it mutates real source files, and an adversarial
-review of it found a restore path that could write one file's contents over
-another and still report success. Rather than ship that behind a permission rule
-that lets it run without prompting, this version does the part that needs no
-tooling and cannot lose your work.
+The isolation layer they need is (above); the runner on top of it is not.
 
 Until it lands: for a diff, pick the two or three claims that actually carry risk
 and run them by hand. That is slower per line and better per finding — ten chosen
 mutants beat a hundred generated ones anyway.
 
-Tracked as issue #13, which also carries the argument for building it around a
-throwaway `git worktree` rather than mutate-and-restore: every blocker in the
-withheld runner lived in the backup/restore path, and a runner that never touches
-the working tree cannot have them.
+Tracked as issue #13. The approach changed while that issue was open, and the
+reason is worth carrying: the first runner mutated your files and restored them,
+and every blocker an adversarial review found in it lived in that backup-and-
+restore path — including a key that was not injective, so one file's contents
+were written over another's while the run printed success. A runner that never
+writes to your tree cannot have them.
 
 **What a batch runner has to prove before it ships.** These criteria changed
 once the design did, and it is worth saying how. The withheld runner mutated
