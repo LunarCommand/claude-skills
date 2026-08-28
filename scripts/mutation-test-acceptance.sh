@@ -21,6 +21,8 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 WT_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_worktree.sh"
+CL_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_changed_lines.sh"
+RM_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_run_mutants.sh"
 
 for c in git python3 sed; do
   command -v "$c" >/dev/null 2>&1 || { echo "  FAIL  missing required command: $c" >&2; exit 127; }
@@ -143,6 +145,18 @@ rm -f "$REPO/tests/test_brand_new.py"
 git -C "$REPO" update-index --assume-unchanged tests/check.py
 HIDDEN_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); HIDDEN_RC=$?
 git -C "$REPO" update-index --no-assume-unchanged tests/check.py
+
+# Content alone cannot see a file written and then restored, which is the
+# predecessor's whole failure mode, so identity and mtime come too.
+content_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_ino}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
+stat_line() { python3 -c "
+import os,sys
+st=os.lstat(sys.argv[1])
+print(f'{st.st_ino}:{st.st_mtime_ns}:{st.st_size}')" "$1"; }
 
 BEFORE="$FIXTURE/before.manifest"; manifest "$REPO" > "$BEFORE"
 BEFORE_LS="$FIXTURE/before.listing"; listing "$REPO" > "$BEFORE_LS"
@@ -380,6 +394,209 @@ fi
 strays=0
 for d in "$TMPRES"/mutation-test-wt.*; do [ -d "$d" ] && mine "$d" && strays=$((strays+1)); done
 [ "$strays" -eq 0 ] && pass "no worktree directories leaked (this run's only)" || fail "$strays worktree(s) leaked"
+
+echo
+echo "Scope resolution"
+
+# A diff with known answers: two added lines in a kept file, a DELETED file
+# whose lines cannot be mutated, and a file the suffix filter must exclude.
+cat > "$FIXTURE/t.diff" <<'DIFF'
+diff --git a/keep.py b/keep.py
+--- a/keep.py
++++ b/keep.py
+@@ -10,3 +10,5 @@ def f():
+ context1
++added11
++added12
+ context2
+diff --git a/gone.py b/gone.py
+--- a/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-deleted1
+-deleted2
+diff --git a/other.txt b/other.txt
+--- a/other.txt
++++ b/other.txt
+@@ -5,1 +5,2 @@
++addedtxt
+diff --git a/notes.py.txt b/notes.py.txt
+--- a/notes.py.txt
++++ b/notes.py.txt
+@@ -1,0 +1,1 @@
++contains-dot-py-but-does-not-end-in-it
+DIFF
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py)
+want="keep.py	11
+keep.py	12"
+[ "$got" = "$want" ] && pass "added lines resolved, deleted file skipped, suffix applied" \
+  || { fail "changed-lines output wrong:"; printf '%s\n' "$got" | sed 's/^/          /'; }
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 4 ] && pass "without a suffix, every added line is reported" || fail "expected 4 lines, got $got"
+
+# notes.py.txt CONTAINS '.py' but does not end in it. A filter that matched
+# anywhere in the path rather than at the end would include it.
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py | grep -c 'notes.py.txt' || true)
+[ "$got" -eq 0 ] && pass "a suffix must match the END, not appear anywhere" \
+  || fail "'.py' matched notes.py.txt, which merely contains it"
+
+# A suffix is a literal ending, not a pattern: '.py' once matched a file named
+# 'apy' because it was escaped into a regex.
+printf 'diff --git a/apy b/apy\n--- a/apy\n+++ b/apy\n@@ -1,0 +1,1 @@\n+x\n' > "$FIXTURE/p.diff"
+got=$("$CL_SH" --file "$FIXTURE/p.diff" --suffix .py | grep -c . || true)
+[ "$got" -eq 0 ] && pass "a suffix matches an ending, not a pattern" || fail "'.py' matched a file named 'apy'"
+
+# stdin is the documented primary input, not just --file
+got=$("$CL_SH" --suffix .py < "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 2 ] && pass "reads a diff on stdin" || fail "stdin path produced $got lines"
+
+cl_expect() { # rc, slug, label
+  local want=$1 slug=$2 label=$3
+  if [ "$CL_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $CL_RC)"
+  elif ! printf '%s' "$CL_ERR" | grep -qF "refused: $slug"; then
+    fail "$label (exit $want, but the slug was not '$slug')"
+  else pass "$label"; fi
+}
+CL_ERR=$("$CL_SH" --file "$FIXTURE/definitely-not-there" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 no-such-diff "a --file that does not exist is refused"
+CL_ERR=$("$CL_SH" --file 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 file-needs-value "--file with no value is refused"
+CL_ERR=$("$CL_SH" --out 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 out-needs-value "--out with no value is refused"
+CL_ERR=$("$CL_SH" --suffix 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 suffix-needs-value "--suffix with no value is refused"
+CL_ERR=$("$CL_SH" --bogus </dev/null 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 unknown-argument "an unknown argument is refused"
+
+"$CL_SH" --file "$FIXTURE/t.diff" --out "$FIXTURE/out.tsv" 2>/dev/null
+[ -s "$FIXTURE/out.tsv" ] && pass "--out writes the list to a file" || fail "--out produced nothing"
+
+echo
+echo "Running mutants"
+
+MR="$FIXTURE/mut"; mkdir -p "$MR/src" "$MR/tests" "$MR/elsewhere/src"
+cat > "$MR/src/limits.py" <<'PY'
+def over(n):
+    return n >= 10
+
+def unused(n):
+    return n * 2
+PY
+cat > "$MR/tests/check.py" <<'PY'
+import sys
+sys.path.insert(0, "src")
+import limits
+assert limits.over(10) is True
+assert limits.over(9) is False
+PY
+cp "$MR/src/limits.py" "$MR/elsewhere/src/limits.py"
+printf '#!/bin/sh\npython3 tests/check.py\n' > "$MR/t.sh"
+# Reads a DIFFERENT copy of the source: the editable-install trap in miniature.
+printf '#!/bin/sh\ncd %s/elsewhere && python3 %s/tests/check.py\n' "$MR" "$MR" > "$MR/t_trap.sh"
+printf '#!/bin/sh\nexit 1\n' > "$MR/t_red.sh"
+printf '#!/bin/sh\nexec ./definitely-not-here\n' > "$MR/t_gone.sh"
+chmod +x "$MR"/t*.sh
+cat > "$MR/spec.txt" <<'SPEC'
+file: src/limits.py
+line: 2
+find: >=
+replace: >
+desc: trip the boundary
+
+file: src/limits.py
+line: 5
+find: * 2
+replace: * 3
+desc: the unused multiplier
+SPEC
+printf 'file: src/limits.py\nline: 5\nfind: * 2\nreplace: * 3\n' > "$MR/one.txt"
+
+MR_ORIG=$(content_id "$MR/src/limits.py")
+rm_run() { RM_OUT=$("$RM_SH" --root "$MR" "$@" 2>"$FIXTURE/rmerr.txt"); RM_RC=$?; RM_ERR=$(cat "$FIXTURE/rmerr.txt"); return 0; }
+rm_expect() { # rc, slug, label
+  local want=$1 slug=$2 label=$3
+  if [ "$RM_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $RM_RC)"
+  elif ! printf '%s' "$RM_ERR" | grep -qF "refused: $slug"; then
+    fail "$label (exit $want, but the slug was not '$slug')"
+  else pass "$label"; fi
+}
+
+rm_run --spec "$MR/spec.txt" --test ./t.sh
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q '^killed .*limits.py:2' \
+   && printf '%s' "$RM_OUT" | grep -q '^SURVIVED .*limits.py:5'; then
+  pass "a covered line is killed and an uncovered one survives"
+else
+  fail "scoring wrong (exit $RM_RC):"; printf '%s\n' "$RM_OUT" | sed 's/^/          /' | head -4
+fi
+
+[ "$(content_id "$MR/src/limits.py")" = "$MR_ORIG" ] \
+  && pass "the mutated file is restored — same content, same inode" \
+  || fail "THE MUTATED FILE WAS NOT RESTORED"
+
+# The result that must never be reported as coverage.
+rm_run --spec "$MR/spec.txt" --test ./t_trap.sh
+rm_expect 54 all-survived "every mutant surviving is refused, not reported as a gap"
+
+# ...but ONE survivor cannot distinguish a gap from mis-wiring, so it is a finding.
+rm_run --spec "$MR/one.txt" --test ./t.sh
+[ "$RM_RC" -eq 0 ] && pass "a single survivor is reported, not refused" || fail "one survivor exited $RM_RC"
+
+rm_run --spec "$MR/spec.txt" --test ./t_red.sh
+rm_expect 53 baseline-red "a red baseline is refused before any mutant runs"
+rm_run --spec "$MR/spec.txt" --test ./t_gone.sh
+rm_expect 55 test-not-runnable "a --test that cannot run is breakage, not a kill"
+
+rm_run --spec "$MR/spec.txt" --test ./t.sh --dry-run
+if [ "$RM_RC" -eq 0 ] && [ "$(content_id "$MR/src/limits.py")" = "$MR_ORIG" ]; then
+  pass "--dry-run resolves every mutant and changes nothing"
+else
+  fail "--dry-run exited $RM_RC or touched the file"
+fi
+
+# Every spec error must surface BEFORE a single test runs.
+printf 'file: src/limits.py\nline: 2\nfind: NOT-THERE\nreplace: x\n' > "$MR/e1"
+rm_run --spec "$MR/e1" --test ./t.sh; rm_expect 52 find-not-on-line "a find string absent from that line is refused"
+printf 'file: src/limits.py\nline: 999\nfind: x\nreplace: y\n' > "$MR/e2"
+rm_run --spec "$MR/e2" --test ./t.sh; rm_expect 52 line-out-of-range "a line past the end of the file is refused"
+printf 'file: ../escape.py\nline: 1\nfind: x\nreplace: y\n' > "$MR/e3"
+rm_run --spec "$MR/e3" --test ./t.sh; rm_expect 52 spec-dotdot-path "a path containing .. is refused"
+printf 'file: /etc/hosts\nline: 1\nfind: x\nreplace: y\n' > "$MR/e4"
+rm_run --spec "$MR/e4" --test ./t.sh; rm_expect 52 spec-absolute-path "an absolute path is refused"
+printf 'file: src/limits.py\nline: two\nfind: x\nreplace: y\n' > "$MR/e5"
+rm_run --spec "$MR/e5" --test ./t.sh; rm_expect 52 spec-bad-line "a non-numeric line is refused"
+printf 'line: 2\nfind: x\nreplace: y\n' > "$MR/e6"
+rm_run --spec "$MR/e6" --test ./t.sh; rm_expect 52 spec-no-file "a record with no file: is refused"
+printf 'file: src/limits.py\nfind: x\nreplace: y\n' > "$MR/e6b"
+rm_run --spec "$MR/e6b" --test ./t.sh; rm_expect 52 spec-no-line "a record with no line: is refused"
+printf 'file: src/limits.py\nline: 2\nreplace: y\n' > "$MR/e6c"
+rm_run --spec "$MR/e6c" --test ./t.sh; rm_expect 52 spec-no-find "a record with no find: is refused"
+printf 'nonsense\n' > "$MR/e7"
+rm_run --spec "$MR/e7" --test ./t.sh; rm_expect 52 spec-unparsed "an unparseable spec line is refused"
+: > "$MR/e8"
+rm_run --spec "$MR/e8" --test ./t.sh; rm_expect 52 spec-empty "an empty spec is refused"
+printf 'file: nope.py\nline: 1\nfind: x\nreplace: y\n' > "$MR/e9"
+rm_run --spec "$MR/e9" --test ./t.sh; rm_expect 52 no-such-target "a spec naming a missing file is refused"
+rm_run --spec "$MR/definitely-not-there" --test ./t.sh; rm_expect 52 no-such-spec "a missing spec file is refused"
+"$RM_SH" --root "$MR/nope" --spec "$MR/spec.txt" --test ./t.sh >/dev/null 2>"$FIXTURE/rmerr.txt"
+RM_RC=$?; RM_ERR=$(cat "$FIXTURE/rmerr.txt"); rm_expect 52 no-such-root "a --root that does not exist is refused"
+
+rm_run --test ./t.sh; rm_expect 50 no-spec "a missing --spec is refused"
+rm_run --spec "$MR/spec.txt"; rm_expect 50 no-test "a missing --test is refused"
+rm_run --spec "$MR/spec.txt" --test ./t.sh --bogus; rm_expect 50 unknown-argument "an unknown argument is refused"
+rm_run --spec; rm_expect 50 spec-needs-value "--spec with no value is refused"
+rm_run --spec "$MR/spec.txt" --test; rm_expect 50 test-needs-value "--test with no value is refused"
+rm_run --spec "$MR/spec.txt" --test ./t.sh --root; rm_expect 50 root-needs-value "--root with no value is refused"
+
+# find/replace are LITERAL. A regex-minded implementation would treat '.' and
+# '*' as metacharacters and mutate the wrong text.
+printf 'x = "a.b" + "axb"\n' > "$MR/src/literal.py"
+printf 'file: src/literal.py\nline: 1\nfind: a.b\nreplace: ZZZ\n' > "$MR/lit.txt"
+"$RM_SH" --root "$MR" --spec "$MR/lit.txt" --test ./t.sh --dry-run >/dev/null 2>&1 \
+  && pass "find is matched literally, not as a pattern" \
+  || fail "a literal find containing '.' was not resolved"
+rm -f "$MR/src/literal.py" "$MR/lit.txt"
 
 echo
 if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi

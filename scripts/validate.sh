@@ -455,6 +455,8 @@ deliberately_unruled = {
     # run unprompted approves the wrapper rather than the payload. It runs once
     # per mutation session, so the prompt is cheap and shows the exact command.
     'mutation_test_worktree.sh',
+    # --test reaches `bash -c` here too, so the same reasoning applies.
+    'mutation_test_run_mutants.sh',
 }
 # A basename shipped by two skills is unreachable for one of them: bare-name
 # invocation resolves through PATH, which can only ever pick one. The set
@@ -523,6 +525,16 @@ scripts = {
         'worktree-add':       'requires git worktree add to fail after all preflights pass',
         'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
         'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+    },
+    'skills/mutation-test/bin/mutation_test_run_mutants.sh': {
+        'missing-dependency': 'requires awk/cmp/mktemp to be absent from PATH',
+        'tmpfile':            'requires mktemp to fail',
+        'unresolvable-root':  'requires a directory that exists but cannot be cd-ed into',
+        'unreadable-target':  'requires a file that exists but cannot be read',
+        'apply-failed':       'requires awk to fail writing a file it just read',
+        'restore-failed':     'requires the restore write to fail',
+        'restore-mismatch':   'requires a byte difference after a successful restore',
+        'test-killed':        'requires the test command to die by signal',
     },
     'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
