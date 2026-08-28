@@ -511,48 +511,53 @@ pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-
 # reading.
 if out=$(python3 - <<'PY' 2>&1
 import re, sys
-script = open('skills/mutation-test/bin/mutation_test_worktree.sh').read()
-suite  = open('scripts/mutation-test-acceptance.sh').read()
-# Slugs that no fixture can reach, each named with why. Anything not here and
-# not asserted fails, so this list is the only place an exemption can hide.
-unreachable = {
-    'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
-    'tmpdir':             'requires mktemp -d to fail',
-    'git-failed':         'requires git status to fail on a valid repository',
-    'worktree-add':       'requires git worktree add to fail after all preflights pass',
-    'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
-    'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+suite = open('scripts/mutation-test-acceptance.sh').read()
+# Per SCRIPT, not pooled: two scripts may legitimately both refuse with
+# 'missing-dependency', but within one script a slug used twice is two guards
+# no assertion can tell apart.
+scripts = {
+    'skills/mutation-test/bin/mutation_test_worktree.sh': {
+        'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
+        'tmpdir':             'requires mktemp -d to fail',
+        'git-failed':         'requires git status to fail on a valid repository',
+        'worktree-add':       'requires git worktree add to fail after all preflights pass',
+        'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
+        'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+    },
+    'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
+        'missing-dependency': 'requires awk/sort to be absent from PATH',
+        'unreadable-diff':    'requires a file that exists but cannot be read',
+        'unwritable-out':     'requires an --out path that cannot be written',
+    },
 }
-# `refuse` is called inline too (`... && refuse git-failed 42 ...`), so this
-# must not anchor to the start of a line — anchoring it silently under-counted
-# the slugs, which is the opposite of what this check exists to do.
-# Per CALL SITE, not per unique name. Comparing sets of names discards call
-# multiplicity: all three validate_ref branches once shared 'malformed-ref',
-# so deleting the empty-ref guard left this check AND the suite green while
-# rev-parse quietly caught the input instead. A slug used twice is two guards
-# no assertion can tell apart, which is how a guard survived deletion in three
-# consecutive review rounds.
-bad = []
-calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script)
-slugs = set(calls)
-for s in sorted({c for c in calls if calls.count(c) > 1}):
-    bad.append(f'refusal slug {s!r} is used at {calls.count(s)} call sites; give each guarded case its own slug or no assertion can tell them apart')
 asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
 asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
-for s in sorted(slugs - asserted - set(unreachable)):
-    bad.append(f'refusal slug {s!r} is never asserted in the acceptance suite')
-for s in sorted(set(unreachable) & asserted):
-    bad.append(f'refusal slug {s!r} is listed unreachable but the suite asserts it')
-for s in sorted(set(unreachable) - slugs):
-    bad.append(f'refusal slug {s!r} is listed unreachable but the script no longer prints it')
-# The reverse direction, and it is the one that catches a DELETED guard: the
-# suite still asserts a slug nothing can produce, so the assertion is dead
-# rather than failing loudly.
-for s in sorted(asserted - slugs):
-    bad.append(f'the suite asserts refusal slug {s!r}, which the script never prints')
+bad, total, cov = [], 0, 0
+for path, unreachable in sorted(scripts.items()):
+    src = open(path).read()
+    calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', src)
+    slugs = set(calls)
+    total += len(slugs); cov += len(slugs - set(unreachable))
+    name = path.split('/')[-1]
+    for g in sorted({c for c in calls if calls.count(c) > 1}):
+        bad.append(f'{name}: slug {g!r} is used at {calls.count(g)} call sites; '
+                   'give each guarded case its own or no assertion can tell them apart')
+    for g in sorted(slugs - asserted - set(unreachable)):
+        bad.append(f'{name}: slug {g!r} is never asserted in the acceptance suite')
+    for g in sorted(set(unreachable) & asserted):
+        bad.append(f'{name}: slug {g!r} is listed unreachable but the suite asserts it')
+    for g in sorted(set(unreachable) - slugs):
+        bad.append(f'{name}: slug {g!r} is listed unreachable but the script no longer prints it')
+# A slug the suite asserts that NO script prints means a guard was deleted and
+# the assertion is dead rather than failing.
+every = set()
+for path in scripts:
+    every |= set(re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', open(path).read()))
+for g in sorted(asserted - every):
+    bad.append(f'the suite asserts slug {g!r}, which no script prints')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
-print(f'{len(slugs)} slug(s), {len(slugs - set(unreachable))} asserted, {len(unreachable)} unreachable by construction')
+print(f'{total} slug(s) across {len(scripts)} script(s), {cov} asserted, {total-cov} unreachable by construction')
 PY
 ); then
   pass "refusal slugs  $out"
@@ -588,7 +593,15 @@ fi
 # --------------------------------------------------------------------------
 section "Hygiene (this repo is public)"
 # --------------------------------------------------------------------------
-cruft=$(find . \( -name '.DS_Store' -o -name '__MACOSX' \) -not -path './.git/*')
+# These three scans exist because the repo is public, so what matters is what
+# git would let you COMMIT — not what happens to be on disk. Walking the
+# filesystem reported a leak from a directory excluded via .git/info/exclude,
+# which can never reach anyone; it also skips a file someone gitignored and
+# then force-added, which can. `ls-files -c -o --exclude-standard` is exactly
+# the set that can travel.
+publishable() { git ls-files -c -o --exclude-standard -z 2>/dev/null; }
+
+cruft=$(publishable | tr '\0' '\n' | grep -E '(^|/)(\.DS_Store|__MACOSX)$' || true)
 [[ -z "$cruft" ]] && pass "no macOS cruft" || { fail "macOS cruft committed:"; printf '%s\n' "$cruft" | sed 's/^/        /'; }
 
 # Personal absolute paths. This script names the patterns, so exclude itself.
@@ -600,19 +613,21 @@ cruft=$(find . \( -name '.DS_Store' -o -name '__MACOSX' \) -not -path './.git/*'
 # Self-exclusion is an ANCHORED filter on the path, not `--exclude=validate.sh`:
 # GNU grep lets --include win over --exclude when a file matches both, so the
 # --exclude is silently inert here.
-markers=$(grep -rlnE '/home/|/Users/|~/Sandbox' \
-  --exclude-dir=.git \
-  --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v '^\./scripts/validate\.sh$' || true)
+markers=$(publishable | while IFS= read -r -d '' f; do
+    case $f in scripts/validate.sh) continue ;; esac
+    case $f in *.md|*.sh|*.js|*.json|*.env) : ;; *) continue ;; esac
+    grep -qE '/home/|/Users/|~/Sandbox' "$f" 2>/dev/null && printf '%s\n' "$f"
+  done || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
 
 # Credential shapes — placeholders like 'sk-lf-...' must not become real keys.
 # Same anchored self-exclusion. `-n` puts the matched text in the output, so an
 # unanchored `grep -v` would test the line CONTENT and drop real hits.
-secrets=$(grep -rEn 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' \
-  --exclude-dir=.git \
-  --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v '^\./scripts/validate\.sh:' || true)
+secrets=$(publishable | while IFS= read -r -d '' f; do
+    case $f in scripts/validate.sh) continue ;; esac
+    case $f in *.md|*.sh|*.js|*.json|*.env) : ;; *) continue ;; esac
+    grep -EnH 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f" 2>/dev/null
+  done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
 
 # --------------------------------------------------------------------------
