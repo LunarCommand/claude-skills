@@ -265,6 +265,134 @@ It refuses rather than guessing, and every refusal prints a machine-readable
 permission on every run, deliberately — see [Why this skill prompts for
 permission](#why-this-skill-prompts-for-permission).
 
+## Path B: a scoped run
+
+For a PR or a diff, rather than one claim at a time. It needs **committed**
+work, because a worktree holds nothing else — so the manual path above remains
+the answer for code you have just written.
+
+Three steps, and you make the judgement in the middle one.
+
+**1. Get the candidate lines.**
+
+```
+gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
+```
+
+Every added or modified line in the diff, as `path<TAB>line`. Deleted lines are
+absent — there is nothing left to mutate.
+
+**2. Choose the mutations, and write them down.**
+
+This is the part no tool does for you. Pick the lines that carry real risk,
+decide what edit would be a genuine behaviour change, and write a spec —
+blank-line-separated records, `find` and `replace` matched **literally** against
+the single line given:
+
+```
+file: src/pkg/limits.py
+line: 42
+find: >=
+replace: >
+desc: trip the boundary
+
+file: src/pkg/limits.py
+line: 51
+find: return True
+replace: return False
+```
+
+Ten chosen mutants beat a hundred generated ones. A generated edit that breaks
+the syntax goes red for the wrong reason, which tells you nothing about
+coverage.
+
+**3. Run them in a throwaway checkout.**
+
+```
+mutation_test_worktree.sh run --test 'make test' -- \
+    mutation_test_run_mutants.sh --spec mutants.txt --test 'make test'
+```
+
+The worktree layer checks the tree is clean and the baseline is green; the
+runner applies each mutant, runs the suite, restores, and reports. Your files
+are never touched. Use `--dry-run` first on a long suite: it resolves every
+mutant against the source and runs nothing, so a typo costs a second instead of
+ten test runs.
+
+If an unrelated untracked file blocks the run, name it — `--untracked-ok
+scratch.md`. That acknowledges one path; it does not excuse the others, so a
+test you had forgotten still stops the run.
+
+### Reading the result
+
+A **killed** mutant means that line is covered. A **survivor** is a coverage
+gap, not a bug — the same reading as the manual path.
+
+**If every mutant survives, the run refuses.** That is what a suite resolving to
+a different copy of your source looks like, and it is indistinguishable from
+genuine absence of coverage except by how unlikely it is. Reporting it as a
+coverage gap would be the confident, entirely false clean run this skill exists
+to prevent. Check that the test command exercises those files and runs against
+that directory rather than an installed copy; if the coverage really is absent,
+mutate one line you are certain is covered and confirm it gets killed.
+
+### What is still not here
+
+No coverage map, so every mutant runs the full suite. That map is where "0
+covering tests for all nine mutants" came from, and running everything is slower
+but cannot be subtly wrong. No timeout, because `timeout` is GNU coreutils and
+absent on a stock macOS. Mutants run serially: two in one working tree cannot be
+told apart.
+
+## Why this skill prompts for permission
+
+`mutation_test_worktree.sh` deliberately ships **without** a permission rule, so
+it asks before it runs. That is not unfinished setup, and adding a rule for it
+is not the fix.
+
+Its `--setup` and `--test` arguments are handed to `bash -c` verbatim. Any rule
+that lets the script run unprompted approves the *wrapper*, not the payload — so
+an agent that assembled a test command from a repository's README or CI config
+could run it with no prompt at all. The script is invoked once per mutation
+session rather than once per file, so the cost is a single prompt showing the
+exact command that will execute.
+
+## The isolation layer: `mutation_test_worktree.sh`
+
+This skill ships one script. **The manual procedure above does not use it** —
+that mutates in place, which is the whole point of the in-place rule. The script
+is for the case where you genuinely need an isolated tree, and it is the
+foundation the scoped runs below will be built on.
+
+```
+mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
+                              [--ref <ref>] [--keep] -- <command>...
+```
+
+It creates a throwaway `git worktree`, runs your command inside it, and removes
+it. The worktree's path never leaves the script; your command sees it as the
+working directory and in `$MUTATION_TEST_WORKTREE`, and its exit status is
+passed through unchanged.
+
+Before your command runs it establishes three things, all of them directly
+observed:
+
+1. the repository has no uncommitted or untracked changes, so the checkout
+   matches what you are looking at — a worktree holds committed work only
+2. a `--setup` command you named ran successfully in it
+3. `--test` exits 0 in it, so the baseline is green
+
+**What it deliberately does NOT establish** is that `--test` can see a mutation
+at all. Nothing exit-code-shaped can: three designs tried and each was defeated
+by a step that reads a file without executing it. Judge that from your results —
+if every mutant survives, suspect the environment. It says so on success rather
+than implying more.
+
+It refuses rather than guessing, and every refusal prints a machine-readable
+`mutation_test_worktree: refused: <slug>` line before exiting. It asks for
+permission on every run, deliberately — see [Why this skill prompts for
+permission](#why-this-skill-prompts-for-permission).
+
 ## Not in this version
 
 Scoped runs — point it at a PR or a diff, resolve changed lines, build a

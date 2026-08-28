@@ -141,6 +141,18 @@ printf 'import sys\nsys.exit(0)\n' > "$REPO/tests/test_brand_new.py"
 UNTRACKED_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); UNTRACKED_RC=$?
 rm -f "$REPO/tests/test_brand_new.py"
 
+# --untracked-ok is an acknowledgement list, not a bypass: naming one path must
+# not excuse another. The unnamed one is the case that matters -- a test you
+# forgot about, whose absence from the worktree makes every mutant survive.
+printf 'notes\n' > "$REPO/scratch-note.md"
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true >/dev/null 2>&1; UOK_BARE_RC=$?
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true >/dev/null 2>&1; UOK_ACK_RC=$?
+printf 'import sys\n' > "$REPO/tests/test_forgotten.py"
+UOK_PARTIAL_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true 2>&1 >/dev/null); UOK_PARTIAL_RC=$?
+UOK_STALE_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh \
+  --untracked-ok scratch-note.md --untracked-ok tests/test_forgotten.py --untracked-ok never-existed.md -- true 2>&1 >/dev/null); UOK_STALE_RC=$?
+rm -f "$REPO/scratch-note.md" "$REPO/tests/test_forgotten.py"
+
 # An index bit that hides a file from git status defeats both checks above.
 git -C "$REPO" update-index --assume-unchanged tests/check.py
 HIDDEN_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); HIDDEN_RC=$?
@@ -279,6 +291,27 @@ if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'refuse
 else
   fail "untracked test file not refused (exit $UNTRACKED_RC) — the worktree would not contain it"
 fi
+if [ "$UOK_BARE_RC" -eq 44 ] && [ "$UOK_ACK_RC" -eq 0 ]; then
+  pass "--untracked-ok acknowledges the path it names"
+else
+  fail "--untracked-ok did not work (bare $UOK_BARE_RC, acknowledged $UOK_ACK_RC)"
+fi
+if [ "$UOK_PARTIAL_RC" -eq 44 ] && printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'test_forgotten.py' \
+   && ! printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'scratch-note.md'; then
+  pass "an UNNAMED untracked path still refuses, and only it is named"
+else
+  fail "--untracked-ok excused a path it was not given (exit $UOK_PARTIAL_RC)"
+fi
+if [ "$UOK_STALE_RC" -eq 0 ] && printf '%s' "$UOK_STALE_ERR" | grep -qF 'acknowledgement did nothing'; then
+  pass "a stale acknowledgement is reported, not refused"
+else
+  fail "a stale --untracked-ok was not reported (exit $UOK_STALE_RC)"
+fi
+# Direct call: run_wt appends "-- true", which --untracked-ok would eat as its
+# value, so the missing-value branch would never be reached.
+run_raw run --repo "$REPO" --test ./run_correct.sh --untracked-ok
+expect 40 untracked-ok-needs-value "--untracked-ok with no value is refused"
+
 if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'refused: hidden-index-bits'; then
   pass "a file hidden by assume-unchanged is refused"
 else

@@ -72,6 +72,7 @@ REPO=''
 KEEP=no
 HANDED_OVER=no
 USER_PID=''
+UNTRACKED_OK=''
 
 usage() {
   cat <<'USAGE'
@@ -94,6 +95,13 @@ Optional:
                    the working-tree check is skipped: you said which commit.
   --keep           on refusal or failure, keep the worktree and print how to
                    remove it. A successful run always tears it down.
+  --untracked-ok <path>
+                   acknowledge one untracked path as irrelevant to this run
+                   (repeatable). It is NOT a bypass: any untracked path you do
+                   not name still refuses, so a test you forgot about still
+                   stops the run. Naming a path is a deliberate act; a blanket
+                   flag would be reached for reflexively, including in the one
+                   case that matters.
 
 This does NOT check that --test can see a mutation. Nothing exit-code-shaped
 can. Judge that from your results: if every mutant survives, suspect the
@@ -175,7 +183,7 @@ check_ran() { # rc, what
 
 cmd_run() {
   local test_cmd='' setup_cmd='' repo='' ref='HEAD' ref_given=no rc err
-  local dirty untracked tracked hidden skip_tree_check
+  local dirty untracked tracked hidden skip_tree_check unacked
 
   while [ $# -gt 0 ]; do
     case $1 in
@@ -184,6 +192,10 @@ cmd_run() {
       --repo)  [ $# -ge 2 ] || refuse repo-needs-value 40 "--repo needs a value";  repo=$2;      shift 2 ;;
       --ref)   [ $# -ge 2 ] || refuse ref-needs-value 40 "--ref needs a value";   ref=$2; ref_given=yes; shift 2 ;;
       --keep)  KEEP=yes; shift ;;
+      --untracked-ok)
+        [ $# -ge 2 ] || refuse untracked-ok-needs-value 40 "--untracked-ok needs a value"
+        UNTRACKED_OK="$UNTRACKED_OK$2
+"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       --) shift; break ;;
       --probe|--exec-probe)
@@ -259,14 +271,37 @@ cmd_run() {
        files listed above while you are looking at your edits. Commit them, or
        pass --ref with a commit that is not HEAD to say you meant an older one."
     fi
-    if [ -n "$untracked" ]; then
+    # Remove the paths the caller explicitly acknowledged. Anything left is a
+    # path nobody accounted for, which is the case worth stopping for.
+    unacked=$untracked
+    if [ -n "$UNTRACKED_OK" ] && [ -n "$untracked" ]; then
+      unacked=$(printf '%s\n' "$untracked" | while IFS= read -r u; do
+        [ -n "$u" ] || continue
+        hit=no
+        printf '%s\n' "$UNTRACKED_OK" | while IFS= read -r ok; do
+          [ -n "$ok" ] || continue
+          [ "$ok" = "$u" ] && exit 7
+        done || hit=yes
+        [ "$hit" = yes ] || printf '%s\n' "$u"
+      done)
+      # A named path that is not untracked is a stale acknowledgement — it may
+      # have been committed since. Say so; do not refuse, since it blocks
+      # nothing.
+      printf '%s\n' "$UNTRACKED_OK" | while IFS= read -r ok; do
+        [ -n "$ok" ] || continue
+        printf '%s\n' "$untracked" | grep -qxF "$ok" || \
+          say "note: --untracked-ok $ok is not untracked; the acknowledgement did nothing"
+      done
+    fi
+    if [ -n "$unacked" ]; then
       say "untracked files in $REPO:"
-      printf '%s\n' "$untracked" | sed 's/^/       /' >&2
+      printf '%s\n' "$unacked" | sed 's/^/       /' >&2
       refuse untracked-files 44 "these files are untracked, so the worktree will NOT contain them.
        A test you have just written and not yet added is the usual case, and it
        is exactly the one that matters: without it the baseline is green and
-       every mutant survives, which reads as missing coverage. Add them, or
-       pass --ref with a commit that is not HEAD."
+       every mutant survives, which reads as missing coverage. Add them, pass
+       --untracked-ok <path> for each one you have established is irrelevant to
+       this run, or pass --ref with a commit that is not HEAD."
     fi
 
     # A file marked assume-unchanged or skip-worktree is invisible to status,

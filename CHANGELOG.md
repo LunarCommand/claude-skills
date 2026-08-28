@@ -25,6 +25,38 @@ plugins that actually changed:
 
 ## Unreleased
 
+### mutation-test — 0.11.0
+
+Scoped runs land: point it at a PR or a diff and it reports which changed lines
+nothing tests.
+
+- Three steps, and the judgement stays with you.
+  `mutation_test_changed_lines.sh` turns a diff into candidate lines; you choose
+  which to mutate and write a short spec; `mutation_test_run_mutants.sh` applies
+  each one inside a throwaway worktree, runs the suite, restores, and reports.
+  It does not invent mutations — choosing a semantically meaningful edit needs
+  reading the code, and a generated edit that breaks the syntax goes red for a
+  reason that says nothing about coverage.
+- **If every mutant survives, the run refuses instead of reporting a coverage
+  gap.** That is what a suite resolving to a different copy of your source looks
+  like, and it cannot be told from genuine absence of coverage except by how
+  unlikely it is. Reporting it would be exactly the confident, false clean run
+  this skill exists to prevent. One survivor cannot make that distinction, so it
+  stays a finding.
+- Shell only. No `jq` and no `python3`, so a scoped run adds no dependency to a
+  Go or Rust project. The spec is blank-line-separated `key: value` records, the
+  format `.agent.env` already uses; `find` and `replace` are literal and apply
+  to the one line named.
+- `--dry-run` resolves every mutant against the source and runs nothing, so a
+  typo in a spec costs a second rather than ten test runs.
+- There is no coverage map. It is where "0 covering tests for all nine mutants"
+  came from, and without it every mutant runs the full suite — slower, and
+  unable to be subtly wrong.
+- `--untracked-ok <path>` acknowledges one untracked file as irrelevant to a
+  run. It is not a bypass: any untracked path you do not name still refuses, so
+  a test you had forgotten still stops the run. A blanket flag would be reached
+  for reflexively, including in the one case that matters.
+
 ### mutation-test — 0.10.0
 
 - Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
@@ -83,6 +115,12 @@ plugins that actually changed:
 
 ### Repository
 
+- The three hygiene scans ask git what can be committed rather than walking the
+  filesystem. They reported a personal path from a directory excluded via
+  `.git/info/exclude`, which can never reach anyone; any local scratch directory
+  did the same, and only locally, since CI clones fresh. They are also stricter
+  in one direction now — a file someone gitignored and then force-added is
+  tracked, so it is scanned.
 - `scripts/validate.sh` checks that every refusal the mutation-test worktree
   script can print is asserted in its acceptance suite, and that no two guards
   share a refusal identity. Three review rounds each found a guard that could
