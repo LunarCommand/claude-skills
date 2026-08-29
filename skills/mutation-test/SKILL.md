@@ -317,9 +317,11 @@ mutation_test_worktree.sh run --test 'make test' -- \
 The worktree layer checks the tree is clean and the baseline is green; the
 runner applies each mutant, runs the suite, restores it with `git checkout`,
 and reports. Your files are never touched — and the runner **refuses to run
-outside a throwaway worktree**, so that is enforced rather than promised. Use
-`--dry-run` first on a long suite: it resolves every mutant against the source
-and runs nothing, so a typo costs a second instead of ten test runs.
+outside a throwaway worktree**, so that is enforced rather than promised. `--dry-run` resolves every mutant against the source and runs no mutants — but
+in this composed form it still pays the worktree layer's baseline, so it costs
+**one full suite run**, not nothing. That is still worth it before ten of them.
+To check a spec for typos without paying even that, run the runner directly
+inside a worktree you already have.
 
 If an unrelated untracked file blocks the run, name it — `--untracked-ok
 scratch.md`. That acknowledges one path; it does not excuse the others, so a

@@ -57,9 +57,7 @@ nothing tests.
   this skill exists to prevent. One survivor cannot make that distinction, so it
   stays a finding.
 - Shell only. No `jq` and no `python3`, so a scoped run adds no dependency to a
-  Go or Rust project. The spec is blank-line-separated `key: value` records, the
-  format `.agent.env` already uses; `find` and `replace` are literal and apply
-  to the one line named.
+  Go or Rust project.
 - `--dry-run` resolves every mutant against the source and runs nothing, so a
   typo in a spec costs a second rather than ten test runs.
 - There is no coverage map. It is where "0 covering tests for all nine mutants"

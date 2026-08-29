@@ -205,7 +205,7 @@ expect() { # rc, slug, label — matches the machine-readable refusal line
 echo "Removed surfaces"
 for sub in create destroy; do
   err=$("$WT_SH" "$sub" "$REPO" 2>&1); rc=$?
-  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'refused: removed-subcommand'; } \
+  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'mutation_test_worktree: refused: removed-subcommand'; } \
     && pass "'$sub' refused by its own guard" || fail "'$sub' exited $rc: $(printf '%s' "$err" | head -1)"
 done
 [ -d "$REPO/.git" ] && pass "fixture repository intact" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
@@ -264,7 +264,7 @@ expect 42 setup-failed "a --setup that runs and FAILS is refused as setup-failed
 
 echo
 echo "Repository state"
-if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'refused: dirty-tree'; then
+if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'mutation_test_worktree: refused: dirty-tree'; then
   pass "a dirty TEST file is refused (not just the mutated file)"
 else
   fail "dirty test file not refused (exit $DIRTY_RC)"
@@ -286,7 +286,7 @@ if [ "$DIRTY_REFOLD_RC" -eq 0 ]; then
 else
   fail "--ref HEAD~1 was refused (exit $DIRTY_REFOLD_RC)"
 fi
-if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'refused: untracked-files'; then
+if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'mutation_test_worktree: refused: untracked-files'; then
   pass "a brand-new UNTRACKED test file is refused by its own slug"
 else
   fail "untracked test file not refused (exit $UNTRACKED_RC) — the worktree would not contain it"
@@ -312,7 +312,7 @@ fi
 run_raw run --repo "$REPO" --test ./run_correct.sh --untracked-ok
 expect 40 untracked-ok-needs-value "--untracked-ok with no value is refused"
 
-if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'refused: hidden-index-bits'; then
+if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'mutation_test_worktree: refused: hidden-index-bits'; then
   pass "a file hidden by assume-unchanged is refused"
 else
   fail "assume-unchanged file not refused (exit $HIDDEN_RC) — it is invisible to git status"
@@ -496,15 +496,19 @@ CL_ERR=$("$CL_SH" --file "$FIXTURE/definitely-not-there" 2>&1 >/dev/null); CL_RC
 cl_expect 42 no-such-diff "a --file that does not exist is refused"
 CL_ERR=$("$CL_SH" --file 2>&1 >/dev/null); CL_RC=$?
 cl_expect 40 file-needs-value "--file with no value is refused"
-CL_ERR=$("$CL_SH" --out 2>&1 >/dev/null); CL_RC=$?
-cl_expect 40 out-needs-value "--out with no value is refused"
 CL_ERR=$("$CL_SH" --suffix 2>&1 >/dev/null); CL_RC=$?
 cl_expect 40 suffix-needs-value "--suffix with no value is refused"
 CL_ERR=$("$CL_SH" --bogus </dev/null 2>&1 >/dev/null); CL_RC=$?
 cl_expect 40 unknown-argument "an unknown argument is refused"
 
-"$CL_SH" --file "$FIXTURE/t.diff" --out "$FIXTURE/out.tsv" 2>/dev/null
-[ -s "$FIXTURE/out.tsv" ] && pass "--out writes the list to a file" || fail "--out produced nothing"
+# It must not open a file for writing at all: a permission rule pre-approving
+# this script would otherwise pre-approve truncating any path a caller named.
+CL_ERR=$("$CL_SH" --file "$FIXTURE/t.diff" --out "$FIXTURE/should-not-exist.tsv" 2>&1 >/dev/null); CL_RC=$?
+if [ "$CL_RC" -eq 40 ] && [ ! -e "$FIXTURE/should-not-exist.tsv" ]; then
+  pass "--out is gone: the script cannot be told to write a file"
+else
+  fail "--out still exists or created a file (exit $CL_RC)"
+fi
 
 echo
 echo "Running mutants"
@@ -569,7 +573,7 @@ fi
 
 # The safety property, enforced rather than documented.
 STANDALONE_ERR=$( cd "$MREPO" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); STANDALONE_RC=$?
-if [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'refused: main-worktree'; then
+if [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'mutation_test_run_mutants: refused: main-worktree'; then
   pass "the runner REFUSES to run in a main working tree"
 else
   fail "the runner ran outside a worktree (exit $STANDALONE_RC)"
@@ -657,7 +661,7 @@ RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/t
 
 # The two halves of the worktree requirement, each by its own slug.
 STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?
-{ [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'refused: not-a-worktree'; } \
+{ [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'mutation_test_run_mutants: refused: not-a-worktree'; } \
   && pass "outside a git tree entirely, the runner refuses" || fail "non-repo invocation exited $STANDALONE_RC"
 
 printf 'src/limits.py\t2\t>=\t>\n' > "$SPECD/nofile.tsv"
@@ -666,20 +670,20 @@ rm_direct "$SPECD/emptyfile.tsv" ./t.sh; rm_expect 52 spec-no-file "an empty fil
 printf 'src/limits.py\t2\t\t>\n' > "$SPECD/emptyfind.tsv"
 rm_direct "$SPECD/emptyfind.tsv" ./t.sh; rm_expect 52 spec-no-find "an empty find field is refused"
 RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec 2>&1 >/dev/null ); RAW_RC=$?
-{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: spec-needs-value'; } \
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: spec-needs-value'; } \
   && pass "--spec with no value is refused" || fail "--spec with no value exited $RAW_RC"
 RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test 2>&1 >/dev/null ); RAW_RC=$?
-{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: test-needs-value'; } \
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: test-needs-value'; } \
   && pass "--test with no value is refused" || fail "--test with no value exited $RAW_RC"
 
 RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --test ./t.sh 2>&1 >/dev/null ); RAW_RC=$?
-{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: no-spec'; } \
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: no-spec'; } \
   && pass "a missing --spec is refused" || fail "missing --spec exited $RAW_RC"
 RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" 2>&1 >/dev/null ); RAW_RC=$?
-{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: no-test'; } \
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: no-test'; } \
   && pass "a missing --test is refused" || fail "missing --test exited $RAW_RC"
 RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --bogus 2>&1 >/dev/null ); RAW_RC=$?
-{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: unknown-argument'; } \
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: unknown-argument'; } \
   && pass "an unknown argument is refused" || fail "unknown argument exited $RAW_RC"
 
 echo

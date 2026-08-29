@@ -71,7 +71,9 @@ untracked file in the repo will not exist inside the worktree.
 
   --spec <file>  one mutant per line: file<TAB>line<TAB>find<TAB>replace[<TAB>desc]
   --test <cmd>   the command that judges a mutant; must exit 0 on clean source
-  --dry-run      resolve and check every mutant, run nothing
+  --dry-run      resolve and check every mutant, run no mutants. Composed with
+                 mutation_test_worktree.sh you still pay that script's baseline
+                 run, so this costs one full suite, not nothing.
 
 Exit codes 50-55 are this script's own.
 USAGE

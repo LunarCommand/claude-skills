@@ -3,16 +3,22 @@
 # mutating.
 #
 #   gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
-#   git diff main...HEAD | mutation_test_changed_lines.sh --out changed.tsv
+#   git diff main...HEAD | mutation_test_changed_lines.sh > /tmp/changed.tsv
 #
 # Emits one "<path><TAB><line>" per line ADDED or MODIFIED in the new file,
 # sorted and deduplicated. Deleted lines are not reported: there is nothing left
 # to mutate. Paths are as the diff spells them, with the leading `b/` removed.
 #
-# It reads a diff and writes a list. It executes nothing, mutates nothing, and
-# needs no knowledge of the language — it only ever parses diff syntax. That is
-# why, unlike the other two scripts in this skill, it can carry a permission
-# rule: there is no payload for one to approve.
+# It reads a diff on stdin and writes a list on stdout. It opens no file for
+# writing, executes nothing, and needs no knowledge of the language — it only
+# ever parses diff syntax. That is why, unlike the other two scripts here, it
+# can carry a permission rule: there is no payload for one to approve, and no
+# path for one to truncate.
+#
+# It had an --out option once. A permission rule pre-approving this script then
+# pre-approved truncating any path the caller named, with no prompt — so the
+# claim above was false while it was written down in three places. Redirect
+# stdout instead: that is the caller's write, and their prompt.
 #
 # The output is a candidate list, not a work order. Choosing WHICH of these
 # lines to mutate, and to what, is a judgement about the code that belongs to
@@ -25,20 +31,20 @@
 set -uo pipefail
 
 DIFF_FILE=''
-OUT=''
 SUFFIXES=''
 
 usage() {
   cat <<'USAGE'
 Usage:
-  mutation_test_changed_lines.sh [--file <diff>] [--suffix <sfx>]... [--out <path>]
+  mutation_test_changed_lines.sh [--file <diff>] [--suffix <sfx>]...
 
 Reads a unified diff on stdin, or from --file, and writes "<path>\t<line>" for
-every added or modified line.
+every added or modified line to stdout. A count summary goes to stderr.
 
   --file   <path>   read the diff from a file instead of stdin
   --suffix <sfx>    keep only paths ending in this (repeatable, e.g. --suffix .py)
-  --out    <path>   write to a file instead of stdout, and print a count summary
+
+To save the list, redirect stdout. This script never opens a file for writing.
 USAGE
 }
 
@@ -56,7 +62,6 @@ require_cmd() {
 while [ $# -gt 0 ]; do
   case $1 in
     --file)   [ $# -ge 2 ] || refuse file-needs-value 40 "--file needs a value";     DIFF_FILE=$2; shift 2 ;;
-    --out)    [ $# -ge 2 ] || refuse out-needs-value 40 "--out needs a value";       OUT=$2;       shift 2 ;;
     --suffix) [ $# -ge 2 ] || refuse suffix-needs-value 40 "--suffix needs a value"; SUFFIXES="$SUFFIXES$2
 "; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -108,11 +113,7 @@ fi
 
 result=$(printf '%s\n' "$pairs" | sort -u -t'	' -k1,1 -k2,2n | sed '/^$/d')
 
-if [ -n "$OUT" ]; then
-  printf '%s\n' "$result" | sed '/^$/d' > "$OUT" || refuse unwritable-out 42 "cannot write: $OUT"
-  files=$(printf '%s\n' "$result" | sed '/^$/d' | cut -f1 | sort -u | grep -c . || true)
-  lines=$(printf '%s\n' "$result" | grep -c . || true)
-  say "$files file(s), $lines changed line(s) -> $OUT"
-else
-  printf '%s\n' "$result" | sed '/^$/d'
-fi
+files=$(printf '%s\n' "$result" | sed '/^$/d' | cut -f1 | sort -u | grep -c . || true)
+lines=$(printf '%s\n' "$result" | grep -c . || true)
+say "$files file(s), $lines changed line(s)"
+printf '%s\n' "$result" | sed '/^$/d'

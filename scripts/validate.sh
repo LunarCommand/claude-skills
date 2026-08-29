@@ -175,7 +175,7 @@ for f in skills/*/*.workflow.js; do
       fail "forbidden   ${bad//\\/} in $f — breaks workflow resume"
     fi
   done
-  grep -qE '^export const meta = \{' "$f" \
+  grep -qE '^export const meta = \{' -- "$f" \
     && pass "meta block  $f" \
     || fail "meta block  $f — must open with a pure-literal 'export const meta = {'"
 
@@ -540,28 +540,49 @@ scripts = {
         'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
         'mutant-had-no-effect': 'requires an edit that changes bytes yet leaves git diff empty',
         'test-killed':         'requires the test command to die by signal mid-run',
+        'no-toplevel':         'requires rev-parse --show-toplevel to fail inside a '
+                               'worktree whose git dir already resolved',
     },
     'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
         'unreadable-diff':    'requires a file that exists but cannot be read',
-        'unwritable-out':     'requires an --out path that cannot be written',
     },
 }
-asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
-asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
+# (script, slug) pairs, NOT a pooled set of slug names. Six slugs occur in more
+# than one script, so a pooled set meant deleting one script's assertion stayed
+# invisible while another script's assertion supplied the same name — the check
+# claimed 'per script' while only its left-hand side was.
+HELPERS = {
+    'expect':    'mutation_test_worktree.sh',
+    'rm_expect': 'mutation_test_run_mutants.sh',
+    'cl_expect': 'mutation_test_changed_lines.sh',
+}
 bad, total, cov = [], 0, 0
+asserted = set()
+for helper, slug in re.findall(r'\b([a-z_]*expect) \d+ ([a-z][a-z0-9-]*) ', suite):
+    if helper not in HELPERS:
+        bad.append(f'the suite uses an assertion helper {helper!r} this check does not '
+                   'know, so its assertions cannot be attributed to a script; add it to HELPERS')
+        continue
+    asserted.add((HELPERS[helper], slug))
+# Inline assertions match the script-prefixed refusal line, which attributes
+# itself.
+for script, slug in re.findall(r"(mutation_test_[a-z_]+): refused: ([a-z][a-z0-9-]*)", suite):
+    asserted.add((script + '.sh', slug))
 for path, unreachable in sorted(scripts.items()):
     src = open(path).read()
     calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', src)
     slugs = set(calls)
-    total += len(slugs); cov += len(slugs - set(unreachable))
+    total += len(slugs)
     name = path.split('/')[-1]
+    cov += len(slugs - set(unreachable))
     for g in sorted({c for c in calls if calls.count(c) > 1}):
         bad.append(f'{name}: slug {g!r} is used at {calls.count(g)} call sites; '
                    'give each guarded case its own or no assertion can tell them apart')
-    for g in sorted(slugs - asserted - set(unreachable)):
+    mine = {g for (sc, g) in asserted if sc == name}
+    for g in sorted(slugs - mine - set(unreachable)):
         bad.append(f'{name}: slug {g!r} is never asserted in the acceptance suite')
-    for g in sorted(set(unreachable) & asserted):
+    for g in sorted(set(unreachable) & mine):
         bad.append(f'{name}: slug {g!r} is listed unreachable but the suite asserts it')
     for g in sorted(set(unreachable) - slugs):
         bad.append(f'{name}: slug {g!r} is listed unreachable but the script no longer prints it')
@@ -569,9 +590,11 @@ for path, unreachable in sorted(scripts.items()):
 # the assertion is dead rather than failing.
 every = set()
 for path in scripts:
-    every |= set(re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', open(path).read()))
-for g in sorted(asserted - every):
-    bad.append(f'the suite asserts slug {g!r}, which no script prints')
+    n = path.split('/')[-1]
+    every |= {(n, g) for g in re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', open(path).read())}
+for sc, g in sorted(asserted):
+    if (sc, g) not in every:
+        bad.append(f'the suite asserts {g!r} for {sc}, which that script never prints')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 print(f'{total} slug(s) across {len(scripts)} script(s), {cov} asserted, {total-cov} unreachable by construction')
@@ -618,6 +641,22 @@ section "Hygiene (this repo is public)"
 # the set that can travel.
 publishable() { git ls-files -c -o --exclude-standard -z 2>/dev/null; }
 
+# Positive control for the three scans below. A tracked file whose name starts
+# with a dash was silently exempt until grep was given `--`, and nothing would
+# have noticed: the failure is an exit 2 that 2>/dev/null hides.
+dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX")
+printf 'x /home/someone/secret\n' > "$dashprobe/-probe.md"
+# cd in and use the BARE relative name. An absolute path begins with '/', so
+# grep never sees a leading dash and the canary would pass either way — which
+# is exactly what it did on the first attempt. `git ls-files` emits relative
+# paths, so this is the shape the scans below actually pass.
+if ( cd "$dashprobe" && grep -qE '/home/' -- '-probe.md' ) 2>/dev/null; then
+  pass "scan canary  a leading-dash filename is still readable by grep"
+else
+  fail "grep cannot read a leading-dash filename — the hygiene scans would skip it"
+fi
+rm -rf "$dashprobe"
+
 cruft=$(publishable | tr '\0' '\n' | grep -E '(^|/)(\.DS_Store|__MACOSX)$' || true)
 [[ -z "$cruft" ]] && pass "no macOS cruft" || { fail "macOS cruft committed:"; printf '%s\n' "$cruft" | sed 's/^/        /'; }
 
@@ -636,7 +675,9 @@ markers=$(publishable | while IFS= read -r -d '' f; do
     # the script dies at the ';;'. macOS ships bash 3.2, and CI runs there.
     case $f in (scripts/validate.sh) continue ;; esac
     case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
-    grep -qE '/home/|/Users/|~/Sandbox' "$f" 2>/dev/null && printf '%s\n' "$f"
+    # `--`: a tracked file may be named -notes.md, and grep would read it as
+    # options and exit 2, which 2>/dev/null then hides — silently exempting it.
+    grep -qE '/home/|/Users/|~/Sandbox' -- "$f" 2>/dev/null && printf '%s\n' "$f"
   done || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
 
@@ -646,7 +687,7 @@ markers=$(publishable | while IFS= read -r -d '' f; do
 secrets=$(publishable | while IFS= read -r -d '' f; do
     case $f in (scripts/validate.sh) continue ;; esac
     case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
-    grep -EnH 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f" 2>/dev/null
+    grep -EnH 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' -- "$f" 2>/dev/null
   done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
 
