@@ -509,45 +509,46 @@ cl_expect 40 unknown-argument "an unknown argument is refused"
 echo
 echo "Running mutants"
 
-MR="$FIXTURE/mut"; mkdir -p "$MR/src" "$MR/tests" "$MR/elsewhere/src"
-cat > "$MR/src/limits.py" <<'PY'
+# The runner now REFUSES to run outside a throwaway worktree, so every case
+# here goes through one. That is the point: the standalone mode it used to have
+# is what forced a bulletproof restore path, and two data-loss defects lived in
+# that path. git checkout in a disposable checkout replaced all of it.
+MREPO="$FIXTURE/mrepo"; mkdir -p "$MREPO/src"
+cat > "$MREPO/src/limits.py" <<'PY'
 def over(n):
     return n >= 10
 
 def unused(n):
     return n * 2
 PY
-cat > "$MR/tests/check.py" <<'PY'
-import sys
-sys.path.insert(0, "src")
-import limits
-assert limits.over(10) is True
-assert limits.over(9) is False
-PY
-cp "$MR/src/limits.py" "$MR/elsewhere/src/limits.py"
-printf '#!/bin/sh\npython3 tests/check.py\n' > "$MR/t.sh"
+printf 'import sys\nsys.path.insert(0,"src")\nimport limits\nassert limits.over(10) is True\nassert limits.over(9) is False\n' > "$MREPO/check.py"
+printf '#!/bin/sh\npython3 check.py\n' > "$MREPO/t.sh"
 # Reads a DIFFERENT copy of the source: the editable-install trap in miniature.
-printf '#!/bin/sh\ncd %s/elsewhere && python3 %s/tests/check.py\n' "$MR" "$MR" > "$MR/t_trap.sh"
-printf '#!/bin/sh\nexit 1\n' > "$MR/t_red.sh"
-printf '#!/bin/sh\nexec ./definitely-not-here\n' > "$MR/t_gone.sh"
-chmod +x "$MR"/t*.sh
-cat > "$MR/spec.txt" <<'SPEC'
-file: src/limits.py
-line: 2
-find: >=
-replace: >
-desc: trip the boundary
+mkdir -p "$FIXTURE/elsewhere/src"
+printf '#!/bin/sh\ncd %s/elsewhere && python3 %s/check.py\n' "$FIXTURE" "$MREPO" > "$MREPO/t_trap.sh"
+printf '#!/bin/sh\nexit 1\n' > "$MREPO/t_red.sh"
+printf '#!/bin/sh\nexec ./definitely-not-here\n' > "$MREPO/t_gone.sh"
+chmod +x "$MREPO"/t*.sh
+git -C "$MREPO" init -q
+git -C "$MREPO" config user.email "acceptance@example.invalid"
+git -C "$MREPO" config user.name  "acceptance"
+git -C "$MREPO" add -A; git -C "$MREPO" commit -qm fixture
+cp "$MREPO/src/limits.py" "$FIXTURE/elsewhere/src/limits.py"
 
-file: src/limits.py
-line: 5
-find: * 2
-replace: * 3
-desc: the unused multiplier
-SPEC
-printf 'file: src/limits.py\nline: 5\nfind: * 2\nreplace: * 3\n' > "$MR/one.txt"
+# Specs live OUTSIDE the repository: an untracked file is not in the worktree.
+SPECD="$FIXTURE/specs"; mkdir -p "$SPECD"
+printf 'src/limits.py\t2\t>=\t>\ttrip the boundary\nsrc/limits.py\t5\t* 2\t* 3\tthe unused multiplier\n' > "$SPECD/two.tsv"
+printf 'src/limits.py\t5\t* 2\t* 3\n' > "$SPECD/one.tsv"
 
-MR_ORIG=$(content_id "$MR/src/limits.py")
-rm_run() { RM_OUT=$("$RM_SH" --root "$MR" "$@" 2>"$FIXTURE/rmerr.txt"); RM_RC=$?; RM_ERR=$(cat "$FIXTURE/rmerr.txt"); return 0; }
+MREPO_ORIG=$(content_id "$MREPO/src/limits.py")
+# Every runner case runs through the worktree layer, which is the only
+# supported way to invoke it.
+rm_run() { # spec, test-cmd
+  RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test "$2" -- "$RM_SH" --spec "$1" --test "$2" 2>"$FIXTURE/rmerr.txt" )
+  RM_RC=$?
+  RM_ERR=$(cat "$FIXTURE/rmerr.txt")
+  return 0
+}
 rm_expect() { # rc, slug, label
   local want=$1 slug=$2 label=$3
   if [ "$RM_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $RM_RC)"
@@ -556,80 +557,130 @@ rm_expect() { # rc, slug, label
   else pass "$label"; fi
 }
 
-rm_run --spec "$MR/spec.txt" --test ./t.sh
+rm_run "$SPECD/two.tsv" ./t.sh
 if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q '^killed .*limits.py:2' \
    && printf '%s' "$RM_OUT" | grep -q '^SURVIVED .*limits.py:5'; then
   pass "a covered line is killed and an uncovered one survives"
 else
   fail "scoring wrong (exit $RM_RC):"; printf '%s\n' "$RM_OUT" | sed 's/^/          /' | head -4
 fi
+[ "$(content_id "$MREPO/src/limits.py")" = "$MREPO_ORIG" ] \
+  && pass "the real repository's file is untouched" || fail "THE REAL FILE WAS MODIFIED"
 
-[ "$(content_id "$MR/src/limits.py")" = "$MR_ORIG" ] \
-  && pass "the mutated file is restored — same content, same inode" \
-  || fail "THE MUTATED FILE WAS NOT RESTORED"
-
-# The result that must never be reported as coverage.
-rm_run --spec "$MR/spec.txt" --test ./t_trap.sh
-rm_expect 54 all-survived "every mutant surviving is refused, not reported as a gap"
-
-# ...but ONE survivor cannot distinguish a gap from mis-wiring, so it is a finding.
-rm_run --spec "$MR/one.txt" --test ./t.sh
-[ "$RM_RC" -eq 0 ] && pass "a single survivor is reported, not refused" || fail "one survivor exited $RM_RC"
-
-rm_run --spec "$MR/spec.txt" --test ./t_red.sh
-rm_expect 53 baseline-red "a red baseline is refused before any mutant runs"
-rm_run --spec "$MR/spec.txt" --test ./t_gone.sh
-rm_expect 55 test-not-runnable "a --test that cannot run is breakage, not a kill"
-
-rm_run --spec "$MR/spec.txt" --test ./t.sh --dry-run
-if [ "$RM_RC" -eq 0 ] && [ "$(content_id "$MR/src/limits.py")" = "$MR_ORIG" ]; then
-  pass "--dry-run resolves every mutant and changes nothing"
+# The safety property, enforced rather than documented.
+STANDALONE_ERR=$( cd "$MREPO" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); STANDALONE_RC=$?
+if [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'refused: main-worktree'; then
+  pass "the runner REFUSES to run in a main working tree"
 else
-  fail "--dry-run exited $RM_RC or touched the file"
+  fail "the runner ran outside a worktree (exit $STANDALONE_RC)"
 fi
 
-# Every spec error must surface BEFORE a single test runs.
-printf 'file: src/limits.py\nline: 2\nfind: NOT-THERE\nreplace: x\n' > "$MR/e1"
-rm_run --spec "$MR/e1" --test ./t.sh; rm_expect 52 find-not-on-line "a find string absent from that line is refused"
-printf 'file: src/limits.py\nline: 999\nfind: x\nreplace: y\n' > "$MR/e2"
-rm_run --spec "$MR/e2" --test ./t.sh; rm_expect 52 line-out-of-range "a line past the end of the file is refused"
-printf 'file: ../escape.py\nline: 1\nfind: x\nreplace: y\n' > "$MR/e3"
-rm_run --spec "$MR/e3" --test ./t.sh; rm_expect 52 spec-dotdot-path "a path containing .. is refused"
-printf 'file: /etc/hosts\nline: 1\nfind: x\nreplace: y\n' > "$MR/e4"
-rm_run --spec "$MR/e4" --test ./t.sh; rm_expect 52 spec-absolute-path "an absolute path is refused"
-printf 'file: src/limits.py\nline: two\nfind: x\nreplace: y\n' > "$MR/e5"
-rm_run --spec "$MR/e5" --test ./t.sh; rm_expect 52 spec-bad-line "a non-numeric line is refused"
-printf 'line: 2\nfind: x\nreplace: y\n' > "$MR/e6"
-rm_run --spec "$MR/e6" --test ./t.sh; rm_expect 52 spec-no-file "a record with no file: is refused"
-printf 'file: src/limits.py\nfind: x\nreplace: y\n' > "$MR/e6b"
-rm_run --spec "$MR/e6b" --test ./t.sh; rm_expect 52 spec-no-line "a record with no line: is refused"
-printf 'file: src/limits.py\nline: 2\nreplace: y\n' > "$MR/e6c"
-rm_run --spec "$MR/e6c" --test ./t.sh; rm_expect 52 spec-no-find "a record with no find: is refused"
-printf 'nonsense\n' > "$MR/e7"
-rm_run --spec "$MR/e7" --test ./t.sh; rm_expect 52 spec-unparsed "an unparseable spec line is refused"
-: > "$MR/e8"
-rm_run --spec "$MR/e8" --test ./t.sh; rm_expect 52 spec-empty "an empty spec is refused"
-printf 'file: nope.py\nline: 1\nfind: x\nreplace: y\n' > "$MR/e9"
-rm_run --spec "$MR/e9" --test ./t.sh; rm_expect 52 no-such-target "a spec naming a missing file is refused"
-rm_run --spec "$MR/definitely-not-there" --test ./t.sh; rm_expect 52 no-such-spec "a missing spec file is refused"
-"$RM_SH" --root "$MR/nope" --spec "$MR/spec.txt" --test ./t.sh >/dev/null 2>"$FIXTURE/rmerr.txt"
-RM_RC=$?; RM_ERR=$(cat "$FIXTURE/rmerr.txt"); rm_expect 52 no-such-root "a --root that does not exist is refused"
+rm_run "$SPECD/two.tsv" ./t_trap.sh
+rm_expect 54 all-survived "every mutant surviving is refused, not reported as a gap"
+rm_run "$SPECD/one.tsv" ./t.sh
+[ "$RM_RC" -eq 0 ] && pass "a single surviving line is reported, not refused" || fail "one survivor exited $RM_RC"
+# The worktree layer refuses a red or unrunnable --test before the runner ever
+# starts, which is correct but leaves the runner's OWN checks unexercised. They
+# still matter: someone can make a worktree themselves. So these cases go
+# through a worktree the suite builds directly.
+rm_direct() { # spec, test-cmd
+  local wt; wt=$(mktemp -d "$FIXTURE/directwt.XXXXXX"); rmdir "$wt"
+  git -C "$MREPO" worktree add --detach "$wt" HEAD >/dev/null 2>&1
+  RM_OUT=$( cd "$wt" && "$RM_SH" --spec "$1" --test "$2" 2>"$FIXTURE/rmerr.txt" )
+  RM_RC=$?
+  RM_ERR=$(cat "$FIXTURE/rmerr.txt")
+  git -C "$MREPO" worktree remove --force "$wt" >/dev/null 2>&1; rm -rf "$wt"
+  return 0
+}
+rm_direct "$SPECD/two.tsv" ./t_red.sh
+rm_expect 53 baseline-red "the runner's own red-baseline check refuses"
+printf '%s' "$RM_ERR" | grep -qF -- '--- test output ---' \
+  && pass "a red baseline shows the test output" || fail "baseline-red printed no diagnostic"
+rm_direct "$SPECD/two.tsv" ./t_gone.sh
+rm_expect 55 test-not-runnable "a --test that cannot run is breakage, not a kill"
 
-rm_run --test ./t.sh; rm_expect 50 no-spec "a missing --spec is refused"
-rm_run --spec "$MR/spec.txt"; rm_expect 50 no-test "a missing --test is refused"
-rm_run --spec "$MR/spec.txt" --test ./t.sh --bogus; rm_expect 50 unknown-argument "an unknown argument is refused"
-rm_run --spec; rm_expect 50 spec-needs-value "--spec with no value is refused"
-rm_run --spec "$MR/spec.txt" --test; rm_expect 50 test-needs-value "--test with no value is refused"
-rm_run --spec "$MR/spec.txt" --test ./t.sh --root; rm_expect 50 root-needs-value "--root with no value is refused"
+# One line per mutant: the old blank-line-separated format could silently merge
+# two records into one, which also dropped the run below the all-survived floor.
+printf 'src/limits.py 2 >= >\n' > "$SPECD/spaces.tsv"
+rm_run "$SPECD/spaces.tsv" ./t.sh; rm_expect 52 spec-fields "a line without tabs is refused"
+printf 'src/limits.py\t2\t>=\n' > "$SPECD/short.tsv"
+rm_run "$SPECD/short.tsv" ./t.sh; rm_expect 52 spec-fields "too few fields is refused"
+printf 'src/limits.py\t2\t>=\t>=\n' > "$SPECD/noop.tsv"
+rm_run "$SPECD/noop.tsv" ./t.sh; rm_expect 52 no-op-mutant "find identical to replace is refused"
+printf 'src/limits.py\ttwo\t>=\t>\n' > "$SPECD/badline.tsv"
+rm_run "$SPECD/badline.tsv" ./t.sh; rm_expect 52 spec-bad-line "a non-numeric line is refused"
+printf 'src/limits.py\t999\t>=\t>\n' > "$SPECD/range.tsv"
+rm_run "$SPECD/range.tsv" ./t.sh; rm_expect 52 line-out-of-range "a line past the end is refused"
+printf 'src/limits.py\t2\tNOT-THERE\tx\n' > "$SPECD/absent.tsv"
+rm_run "$SPECD/absent.tsv" ./t.sh; rm_expect 52 find-not-on-line "a find absent from that line is refused"
+printf '../escape.py\t1\tx\ty\n' > "$SPECD/dotdot.tsv"
+rm_run "$SPECD/dotdot.tsv" ./t.sh; rm_expect 52 spec-dotdot-path "a path containing .. is refused"
+printf '/etc/hosts\t1\tx\ty\n' > "$SPECD/abs.tsv"
+rm_run "$SPECD/abs.tsv" ./t.sh; rm_expect 52 spec-absolute-path "an absolute path is refused"
+printf 'nope.py\t1\tx\ty\n' > "$SPECD/missing.tsv"
+rm_run "$SPECD/missing.tsv" ./t.sh; rm_expect 52 no-such-target "a spec naming a missing file is refused"
+printf '\n# only a comment\n' > "$SPECD/empty.tsv"
+rm_run "$SPECD/empty.tsv" ./t.sh; rm_expect 52 spec-empty "a spec with no mutants is refused"
+rm_run "$SPECD/definitely-not-there" ./t.sh; rm_expect 52 no-such-spec "a missing spec file is refused"
 
-# find/replace are LITERAL. A regex-minded implementation would treat '.' and
-# '*' as metacharacters and mutate the wrong text.
-printf 'x = "a.b" + "axb"\n' > "$MR/src/literal.py"
-printf 'file: src/literal.py\nline: 1\nfind: a.b\nreplace: ZZZ\n' > "$MR/lit.txt"
-"$RM_SH" --root "$MR" --spec "$MR/lit.txt" --test ./t.sh --dry-run >/dev/null 2>&1 \
-  && pass "find is matched literally, not as a pattern" \
-  || fail "a literal find containing '.' was not resolved"
-rm -f "$MR/src/literal.py" "$MR/lit.txt"
+# A symlinked target would carry the write outside the worktree — the one
+# boundary this design rests on.
+printf 'x = 1\n' > "$FIXTURE/outside-target.py"
+( cd "$MREPO" && ln -sf "$FIXTURE/outside-target.py" symlink.py && git add -A && git commit -qm symlink >/dev/null )
+printf 'symlink.py\t1\tx\ty\n' > "$SPECD/link.tsv"
+rm_run "$SPECD/link.tsv" ./t.sh; rm_expect 52 symlink-target "a symlinked target is refused"
+[ "$(cat "$FIXTURE/outside-target.py")" = "x = 1" ] \
+  && pass "the file the symlink pointed at is untouched" || fail "A FILE OUTSIDE THE WORKTREE WAS MUTATED"
+
+# An empty replace deletes the token, which is a legitimate mutation and must
+# not be confused with a missing field.
+printf 'src/limits.py\t2\t>= 10\t\tdelete the comparison\n' > "$SPECD/del.tsv"
+rm_run "$SPECD/del.tsv" ./t.sh
+[ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q '^killed' \
+  && pass "an empty replace deletes the token and is scored" || fail "an empty replace was not handled (exit $RM_RC)"
+
+# A file with no trailing newline must not gain one: that would make the mutant
+# differ from the original by more than the edit.
+printf 'def g():\n    return 5' > "$MREPO/src/nonl.py"
+( cd "$MREPO" && git add -A && git commit -qm nonl >/dev/null )
+NONL_ORIG=$(content_id "$MREPO/src/nonl.py")
+printf 'src/nonl.py\t2\t5\t6\n' > "$SPECD/nonl.tsv"
+rm_run "$SPECD/nonl.tsv" ./t.sh
+[ "$(content_id "$MREPO/src/nonl.py")" = "$NONL_ORIG" ] \
+  && pass "a file with no trailing newline is left exactly as it was" \
+  || fail "the no-trailing-newline file was altered"
+
+rm_run "$SPECD/two.tsv" ./t.sh --dry-run 2>/dev/null
+RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>/dev/null )
+[ "$?" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'limits.py:2' \
+  && pass "--dry-run lists every mutant" || fail "--dry-run did not list the mutants"
+
+# The two halves of the worktree requirement, each by its own slug.
+STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?
+{ [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'refused: not-a-worktree'; } \
+  && pass "outside a git tree entirely, the runner refuses" || fail "non-repo invocation exited $STANDALONE_RC"
+
+printf 'src/limits.py\t2\t>=\t>\n' > "$SPECD/nofile.tsv"
+printf '\t2\t>=\t>\n' > "$SPECD/emptyfile.tsv"
+rm_direct "$SPECD/emptyfile.tsv" ./t.sh; rm_expect 52 spec-no-file "an empty file field is refused"
+printf 'src/limits.py\t2\t\t>\n' > "$SPECD/emptyfind.tsv"
+rm_direct "$SPECD/emptyfind.tsv" ./t.sh; rm_expect 52 spec-no-find "an empty find field is refused"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: spec-needs-value'; } \
+  && pass "--spec with no value is refused" || fail "--spec with no value exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: test-needs-value'; } \
+  && pass "--test with no value is refused" || fail "--test with no value exited $RAW_RC"
+
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --test ./t.sh 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: no-spec'; } \
+  && pass "a missing --spec is refused" || fail "missing --spec exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: no-test'; } \
+  && pass "a missing --test is refused" || fail "missing --test exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --bogus 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'refused: unknown-argument'; } \
+  && pass "an unknown argument is refused" || fail "unknown argument exited $RAW_RC"
 
 echo
 if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi

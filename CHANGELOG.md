@@ -30,6 +30,19 @@ plugins that actually changed:
 Scoped runs land: point it at a PR or a diff and it reports which changed lines
 nothing tests.
 
+- **The runner refuses to run anywhere but a throwaway worktree.** An earlier
+  draft also worked directly on your real files, which meant its restore path
+  had to be perfect — and a review found two ways it was not: a failed restore
+  deleted the backup it had just named, and a not-yet-written backup could be
+  copied over an untouched file, truncating it. Both are gone rather than
+  patched: restoring is now `git checkout` in a checkout that is about to be
+  deleted, so there is no backup to lose. The refusal is enforced, not
+  documented.
+- The spec is one mutant per line, tab-separated. The first draft used
+  blank-line-separated records, where a single missing blank line silently
+  merged two mutants into one — and that dropped the run below the threshold
+  for the all-survived check, turning a mis-wired environment into a confident
+  "coverage gap" report. A wrong field count is refused instead.
 - Three steps, and the judgement stays with you.
   `mutation_test_changed_lines.sh` turns a diff into candidate lines; you choose
   which to mutate and write a short spec; `mutation_test_run_mutants.sh` applies

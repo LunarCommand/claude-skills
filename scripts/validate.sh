@@ -527,14 +527,19 @@ scripts = {
         'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
     },
     'skills/mutation-test/bin/mutation_test_run_mutants.sh': {
-        'missing-dependency': 'requires awk/cmp/mktemp to be absent from PATH',
-        'tmpfile':            'requires mktemp to fail',
-        'unresolvable-root':  'requires a directory that exists but cannot be cd-ed into',
-        'unreadable-target':  'requires a file that exists but cannot be read',
-        'apply-failed':       'requires awk to fail writing a file it just read',
-        'restore-failed':     'requires the restore write to fail',
-        'restore-mismatch':   'requires a byte difference after a successful restore',
-        'test-killed':        'requires the test command to die by signal',
+        # Keep this list SHORT and true. Its predecessor exempted the whole
+        # restore path with reasons that were simply wrong -- every one of them
+        # was reachable with a chmod -- and that exemption is why no assertion
+        # covered two data-loss defects. The restore path it described no
+        # longer exists: git checkout does the restoring now.
+        'missing-dependency':  'requires git or awk to be absent from PATH',
+        'tmpfile-out':         'requires mktemp to fail',
+        'tmpfile-apply':       'requires mktemp to fail',
+        'apply-build-failed':  'requires awk to fail writing a file it just read',
+        'apply-write-failed':  'requires a write to fail inside a worktree we just created',
+        'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
+        'mutant-had-no-effect': 'requires an edit that changes bytes yet leaves git diff empty',
+        'test-killed':         'requires the test command to die by signal mid-run',
     },
     'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
