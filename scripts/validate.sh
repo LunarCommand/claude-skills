@@ -631,8 +631,11 @@ cruft=$(publishable | tr '\0' '\n' | grep -E '(^|/)(\.DS_Store|__MACOSX)$' || tr
 # GNU grep lets --include win over --exclude when a file matches both, so the
 # --exclude is silently inert here.
 markers=$(publishable | while IFS= read -r -d '' f; do
-    case $f in scripts/validate.sh) continue ;; esac
-    case $f in *.md|*.sh|*.js|*.json|*.env) : ;; *) continue ;; esac
+    # Leading '(' on every case pattern below: bash 3.2 scans $( ) for the
+    # matching paren, so an unbalanced pattern ends the substitution early and
+    # the script dies at the ';;'. macOS ships bash 3.2, and CI runs there.
+    case $f in (scripts/validate.sh) continue ;; esac
+    case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
     grep -qE '/home/|/Users/|~/Sandbox' "$f" 2>/dev/null && printf '%s\n' "$f"
   done || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
@@ -641,8 +644,8 @@ markers=$(publishable | while IFS= read -r -d '' f; do
 # Same anchored self-exclusion. `-n` puts the matched text in the output, so an
 # unanchored `grep -v` would test the line CONTENT and drop real hits.
 secrets=$(publishable | while IFS= read -r -d '' f; do
-    case $f in scripts/validate.sh) continue ;; esac
-    case $f in *.md|*.sh|*.js|*.json|*.env) : ;; *) continue ;; esac
+    case $f in (scripts/validate.sh) continue ;; esac
+    case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
     grep -EnH 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f" 2>/dev/null
   done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }

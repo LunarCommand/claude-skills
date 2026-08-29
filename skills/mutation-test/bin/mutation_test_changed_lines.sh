@@ -99,7 +99,9 @@ if [ -n "$SUFFIXES" ]; then
     p=${line%	*}
     printf '%s\n' "$SUFFIXES" | while IFS= read -r sfx; do
       [ -n "$sfx" ] || continue
-      case $p in *"$sfx") printf '%s\n' "$line"; break ;; esac
+      # Leading '(': bash 3.2 scans $( ) for the matching paren, so an
+      # unbalanced case pattern ends the substitution early.
+      case $p in (*"$sfx") printf '%s\n' "$line"; break ;; esac
     done
   done)
 fi

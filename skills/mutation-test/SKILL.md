@@ -231,10 +231,12 @@ exact command that will execute.
 
 ## The isolation layer: `mutation_test_worktree.sh`
 
-This skill ships one script. **The manual procedure above does not use it** —
-that mutates in place, which is the whole point of the in-place rule. The script
-is for the case where you genuinely need an isolated tree, and it is the
-foundation the scoped runs below will be built on.
+This skill ships three scripts, and this is the one the other two rest on.
+**The manual procedure above uses none of them** — Path A mutates in place,
+which is the whole point of the in-place rule. This script is for the case
+where you genuinely need an isolated tree, and [Path B](#path-b-a-scoped-run)
+below is built on it: it hands the worktree to
+`mutation_test_run_mutants.sh`, which refuses to run anywhere else.
 
 ```
 mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
