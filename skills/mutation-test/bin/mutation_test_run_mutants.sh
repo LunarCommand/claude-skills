@@ -20,9 +20,10 @@
 # SPEC FORMAT. One mutant per line, TAB-separated, in a file OUTSIDE the
 # repository (the worktree will not contain an untracked file):
 #
-#   file<TAB>line<TAB>find<TAB>replace[<TAB>desc]
+#   file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
 #   src/pkg/limits.py	42	>=	>	trip the boundary
 #   src/pkg/limits.py	51	return True	return False
+#   src/pkg/parse.py	12	==	!=	a line you KNOW is covered	control
 #
 # Blank lines and lines starting with # are skipped. find and replace are
 # LITERAL and apply to the single line given, first occurrence only. Because
@@ -40,17 +41,25 @@
 # than a bug: the code is usually correct as written, and the finding is that a
 # future edit could change behaviour with the suite still green.
 #
-# THE ONE RESULT THAT IS NOT A FINDING: if every mutant on two or more DISTINCT
-# lines survives, suspect the environment before believing the coverage. That
-# is what a suite resolving to a different copy of the source looks like, and
-# it is indistinguishable from real absence of coverage except by how unlikely
-# it is. This refuses rather than reporting it.
+# MARK ONE MUTANT `control` AND THE GUESSWORK GOES AWAY. A control is a mutant
+# on a line you are confident IS covered. If it dies, the tests demonstrably see
+# your edits, so every survivor beside it is a real coverage gap. If it survives
+# too, the environment is the cause and the run refuses.
+#
+# Without a control this falls back to a heuristic: every mutant surviving,
+# across two or more distinct lines, is refused as probable mis-wiring. That
+# heuristic is wrong exactly where this tool is most often pointed. Running it
+# against a freshly written module — where coverage is genuinely thinnest — was
+# measured refusing four mutants whose lines a coverage report independently
+# called untested. The environment was fine; the refusal was a false alarm.
+# A control turns "suspect the environment" from a guess into a test.
 #
 # Serial by design: two mutants in one working tree cannot be told apart.
 #
 # Refusals print `mutation_test_run_mutants: refused: <slug>` before exiting:
 #   50 usage   51 missing dependency   52 spec or apply problem
-#   53 baseline red   54 every mutant survived   55 the test never ran
+#   53 baseline red   54 every mutant survived, or a control did
+#   55 the test never ran
 set -uo pipefail
 
 SPEC=''
@@ -69,7 +78,12 @@ Runs ONLY inside a throwaway git worktree; use mutation_test_worktree.sh to
 make one. Keep the spec OUTSIDE the repository and pass an absolute path — an
 untracked file in the repo will not exist inside the worktree.
 
-  --spec <file>  one mutant per line: file<TAB>line<TAB>find<TAB>replace[<TAB>desc]
+  --spec <file>  one mutant per line:
+                   file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
+                 Mark one mutant `control` on a line you know is covered: if it
+                 dies the wiring is proven and every other survivor is a real
+                 gap. Without one, all-mutants-surviving is refused as probable
+                 mis-wiring, which is wrong on genuinely untested code.
   --test <cmd>   the command that judges a mutant; must exit 0 on clean source
   --dry-run      resolve and check every mutant, run no mutants. Composed with
                  mutation_test_worktree.sh you still pay that script's baseline
@@ -137,7 +151,7 @@ ROOT=$(git rev-parse --show-toplevel) || refuse no-toplevel 52 "cannot find the 
 # One line per mutant, so a malformed record cannot silently merge with its
 # neighbour. bash 3.2 has no arrays worth using here, so the fields are kept as
 # newline-joined strings and read back by line number.
-M_FILE=''; M_LINE=''; M_FIND=''; M_REPL=''; M_DESC=''; M_COUNT=0
+M_FILE=''; M_LINE=''; M_FIND=''; M_REPL=''; M_DESC=''; M_CTRL=''; M_COUNT=0
 lineno=0
 while IFS= read -r sl || [ -n "$sl" ]; do
   lineno=$((lineno + 1))
@@ -147,10 +161,10 @@ while IFS= read -r sl || [ -n "$sl" ]; do
   # find and replace happened to be the same string.
   ntab=$(printf '%s' "$sl" | awk -F'\t' '{print NF-1}')
   case $ntab in
-    3|4) : ;;
-    *) refuse spec-fields 52 "spec line $lineno: expected 4 or 5 tab-separated fields
-       (file, line, find, replace, and optionally desc), found $((ntab + 1)).
-       A tab inside find or replace is not representable in this format." ;;
+    (3|4|5) : ;;
+    (*) refuse spec-fields 52 "spec line $lineno: expected 4 to 6 tab-separated fields
+       (file, line, find, replace, then optionally desc and the word 'control'),
+       found $((ntab + 1)). A tab inside find or replace is not representable." ;;
   esac
   # Split positionally, NOT with `IFS=$'\t' read`. Tab is whitespace to the
   # shell, so read strips leading tabs and collapses consecutive ones — an
@@ -162,7 +176,20 @@ while IFS= read -r sl || [ -n "$sl" ]; do
   f=${sl%%"$tab"*};  r1=${sl#*"$tab"}
   l=${r1%%"$tab"*};  r2=${r1#*"$tab"}
   fd=${r2%%"$tab"*}; r3=${r2#*"$tab"}
-  if [ "$ntab" -eq 3 ]; then rp=$r3; ds=''; else rp=${r3%%"$tab"*}; ds=${r3#*"$tab"}; fi
+  ct=''
+  if [ "$ntab" -eq 3 ]; then
+    rp=$r3; ds=''
+  else
+    rp=${r3%%"$tab"*}; r4=${r3#*"$tab"}
+    if [ "$ntab" -eq 4 ]; then ds=$r4; else ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}; fi
+  fi
+  # A sixth field must be exactly `control`. Anything else is refused rather
+  # than ignored: a typo that silently stopped being a control would remove the
+  # evidence the run depends on.
+  case $ct in
+    (''|control) : ;;
+    (*) refuse spec-bad-control 52 "spec line $lineno: the sixth field must be the word 'control', not '$ct'" ;;
+  esac
   case $l in *[!0-9]*|'') refuse spec-bad-line 52 "spec line $lineno: '$l' is not a line number" ;; esac
   [ -n "$f" ]  || refuse spec-no-file 52 "spec line $lineno: the file field is empty"
   [ -n "$fd" ] || refuse spec-no-find 52 "spec line $lineno: the find field is empty"
@@ -171,6 +198,7 @@ while IFS= read -r sl || [ -n "$sl" ]; do
 "; M_FIND="$M_FIND$fd
 "; M_REPL="$M_REPL$rp
 "; M_DESC="$M_DESC${ds:-$fd -> $rp}
+"; M_CTRL="$M_CTRL${ct:-no}
 "
   M_COUNT=$((M_COUNT + 1))
 done < "$SPEC"
@@ -236,10 +264,12 @@ if [ "$rc" -ne 0 ]; then show_out; refuse baseline-red 53 "the baseline is RED (
 
 # --- run them ----------------------------------------------------------------
 killed=0; survived=0; SURV_KEYS=''
+ctrl_total=0; ctrl_killed=0
 i=1
 while [ "$i" -le "$M_COUNT" ]; do
   f=$(nth "$M_FILE" "$i"); ln=$(nth "$M_LINE" "$i")
   fd=$(nth "$M_FIND" "$i"); rp=$(nth "$M_REPL" "$i"); ds=$(nth "$M_DESC" "$i")
+  ct=$(nth "$M_CTRL" "$i")
   target="$ROOT/$f"
 
   # Preserve whether the file ended with a newline: awk would otherwise add
@@ -275,38 +305,58 @@ while [ "$i" -le "$M_COUNT" ]; do
   restore_mutated
   check_ran "$rc" "the --test command (mutant $i)"
 
+  [ "$ct" = control ] && ctrl_total=$((ctrl_total + 1))
   if [ "$rc" -eq 0 ]; then
     survived=$((survived + 1)); verdict=SURVIVED
     SURV_KEYS="$SURV_KEYS$f:$ln
 "
   else
     killed=$((killed + 1)); verdict=killed
+    [ "$ct" = control ] && ctrl_killed=$((ctrl_killed + 1))
   fi
-  printf '%-9s %s:%s\t%s\n' "$verdict" "$f" "$ln" "$ds"
+  [ "$ct" = control ] && verdict="$verdict*"
+  printf '%-10s %s:%s\t%s\n' "$verdict" "$f" "$ln" "$ds"
   i=$((i + 1))
 done
 rm -f "$OUT"; OUT=''
 
 say ""
 say "$M_COUNT mutant(s): $killed killed, $survived survived"
+[ "$ctrl_total" -gt 0 ] && say "  (* = control, $ctrl_killed of $ctrl_total killed)"
 
-# Distinct LINES, not spec records: two mutants on one uncovered line are one
-# piece of evidence, and counting them as two turned a genuine coverage gap
-# into a false alarm about the environment.
-distinct=$(printf '%s' "$SURV_KEYS" | sed '/^$/d' | sort -u | grep -c . || true)
-if [ "$killed" -eq 0 ] && [ "$distinct" -ge 2 ]; then
-  refuse all-survived 54 "every mutant survived, across $distinct distinct lines.
+# A control settles what the heuristic can only guess. If one died, the tests
+# demonstrably see edits to this checkout, so every other survivor is a real
+# coverage gap and there is nothing to refuse.
+if [ "$ctrl_total" -gt 0 ]; then
+  if [ "$ctrl_killed" -eq 0 ]; then
+    refuse control-survived 54 "every control mutant survived.
 
-       Read that as the environment before believing it is coverage. A test
-       suite resolving to a DIFFERENT copy of the source produces exactly this
-       — an editable install records an absolute path, so the tests import the
-       tree you did not mutate — and it is indistinguishable from genuine
-       absence of coverage except by how unlikely it is.
+       A control is a line you said was covered, so its mutant should have been
+       killed. It was not, which points at the environment rather than at the
+       coverage: a test suite resolving to a DIFFERENT copy of the source
+       produces exactly this — an editable install records an absolute path, so
+       the tests import the tree you did not mutate.
 
        Check that --test exercises these files and runs against this directory
-       rather than an installed copy. If the coverage really is absent, mutate
-       one line you are certain is covered: that mutant should be killed, and
-       if it is not, the environment is the cause."
+       rather than an installed copy. If the control line turns out not to be
+       covered after all, pick one that is."
+  fi
+else
+  # No control, so fall back to a heuristic — and say what it cannot know.
+  distinct=$(printf '%s' "$SURV_KEYS" | sed '/^$/d' | sort -u | grep -c . || true)
+  if [ "$killed" -eq 0 ] && [ "$distinct" -ge 2 ]; then
+    refuse all-survived 54 "every mutant survived, across $distinct distinct lines, and no
+       control was given.
+
+       That is what a suite resolving to a DIFFERENT copy of the source looks
+       like — an editable install records an absolute path, so the tests import
+       the tree you did not mutate. It is ALSO what genuinely untested code
+       looks like, and this run cannot tell the two apart.
+
+       Settle it by marking one mutant 'control' in a sixth column, on a line
+       you are confident is covered. If that mutant dies, the wiring is proven
+       and the survivors are real coverage gaps rather than a warning."
+  fi
 fi
 
 if [ "$survived" -gt 0 ]; then

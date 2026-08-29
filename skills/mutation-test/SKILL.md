@@ -292,11 +292,20 @@ mutant per line, tab-separated, `find` and `replace` matched **literally**
 against the single line given:
 
 ```
-file<TAB>line<TAB>find<TAB>replace[<TAB>desc]
+file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
 
 src/pkg/limits.py	42	>=	>	trip the boundary
 src/pkg/limits.py	51	return True	return False
+src/pkg/parse.py	12	==	!=	a line you KNOW is covered	control
 ```
+
+**Include one `control`** — a mutant on a line you are confident the tests
+cover. It is the difference between a result and a guess. If the control dies,
+the tests demonstrably see your edits, so every other survivor is a real
+coverage gap. If it survives too, the environment is the cause and the run
+refuses. Without a control, a run where *everything* survives is refused as
+probable mis-wiring — which is wrong precisely where this tool is most often
+pointed, since freshly changed code is where coverage is thinnest.
 
 **Write it outside the repository** — `/tmp/mutants.tsv` — and pass an absolute
 path. A spec written inside the repo is an untracked file, so the worktree will
@@ -332,13 +341,15 @@ test you had forgotten still stops the run.
 A **killed** mutant means that line is covered. A **survivor** is a coverage
 gap, not a bug — the same reading as the manual path.
 
-**If every mutant survives, the run refuses.** That is what a suite resolving to
-a different copy of your source looks like, and it is indistinguishable from
-genuine absence of coverage except by how unlikely it is. Reporting it as a
-coverage gap would be the confident, entirely false clean run this skill exists
-to prevent. Check that the test command exercises those files and runs against
-that directory rather than an installed copy; if the coverage really is absent,
-mutate one line you are certain is covered and confirm it gets killed.
+**If your control survives, the run refuses.** You said that line was covered
+and its mutant lived, which points at the environment rather than the coverage —
+a suite resolving to a different copy of your source produces exactly this.
+
+**With no control, a run where everything survives is also refused**, because
+nothing present can tell mis-wiring from genuinely untested code. That is not a
+hypothetical: pointing this at a freshly changed module refused four mutants
+whose lines a coverage report independently called untested. Add a control and
+the same run reports them as the gaps they are.
 
 ### What is still not here
 

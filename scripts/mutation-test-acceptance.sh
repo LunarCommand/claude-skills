@@ -580,7 +580,30 @@ else
 fi
 
 rm_run "$SPECD/two.tsv" ./t_trap.sh
-rm_expect 54 all-survived "every mutant surviving is refused, not reported as a gap"
+rm_expect 54 all-survived "with no control, every mutant surviving is refused"
+
+# A control settles what that heuristic can only guess. UAT found the heuristic
+# firing on genuinely untested code — four mutants on lines a coverage report
+# independently called uncovered — which is a false alarm on exactly the code
+# this tool is pointed at. A killed control proves the wiring instead.
+printf 'src/limits.py\t2\t>=\t>\tcovered, so this must die\tcontrol\nsrc/limits.py\t5\t* 2\t* 3\tuncovered\n' > "$SPECD/ctrl.tsv"
+rm_run "$SPECD/ctrl.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
+  pass "a killed control proves the wiring, so survivors are reported not refused"
+else
+  fail "a killed control did not suppress the refusal (exit $RM_RC)"
+fi
+printf '%s' "$RM_OUT" | grep -q 'killed\*' \
+  && pass "the control is marked in the output" || fail "the control was not marked"
+
+# ...and a control that survives is the strong signal, so it must refuse.
+printf 'src/limits.py\t5\t* 2\t* 3\tI wrongly believed this was covered\tcontrol\n' > "$SPECD/badctrl.tsv"
+rm_run "$SPECD/badctrl.tsv" ./t.sh
+rm_expect 54 control-survived "a control that survives is refused, even alone"
+
+printf 'src/limits.py\t2\t>=\t>\tdesc\tcontrl\n' > "$SPECD/typoctrl.tsv"
+rm_run "$SPECD/typoctrl.tsv" ./t.sh
+rm_expect 52 spec-bad-control "a misspelled sixth field is refused, not ignored"
 rm_run "$SPECD/one.tsv" ./t.sh
 [ "$RM_RC" -eq 0 ] && pass "a single surviving line is reported, not refused" || fail "one survivor exited $RM_RC"
 # The worktree layer refuses a red or unrunnable --test before the runner ever

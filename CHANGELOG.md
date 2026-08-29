@@ -50,8 +50,15 @@ nothing tests.
   It does not invent mutations — choosing a semantically meaningful edit needs
   reading the code, and a generated edit that breaks the syntax goes red for a
   reason that says nothing about coverage.
-- **If every mutant survives, the run refuses instead of reporting a coverage
-  gap.** That is what a suite resolving to a different copy of your source looks
+- **Mark one mutant `control`** — on a line you are confident is covered — and
+  the run can tell a coverage gap from a broken environment instead of guessing.
+  A killed control proves the tests see your edits, so the other survivors are
+  real findings; a surviving control means the environment and refuses. This
+  came out of using it: pointed at a freshly changed module, the heuristic below
+  refused four mutants whose lines a coverage report independently called
+  untested — a false alarm on exactly the code this feature is aimed at.
+- **With no control, a run where every mutant survives is refused** rather than
+  reported as coverage gaps. That is what a suite resolving to a different copy of your source looks
   like, and it cannot be told from genuine absence of coverage except by how
   unlikely it is. Reporting it would be exactly the confident, false clean run
   this skill exists to prevent. One survivor cannot make that distinction, so it
