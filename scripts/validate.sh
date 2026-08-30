@@ -653,15 +653,18 @@ scan_file() { grep -EnH "$1" -- "$2" 2>/dev/null; }
 # Positive control for the two file-content scans below. The cruft scan greps a
 # stream of names on stdin and takes no file operand, so it is not covered here.
 # A tracked file whose name starts with a dash was silently exempt until grep
-# was given `--`: the name is consumed as options, the file is never opened, and
-# the scan reports nothing — indistinguishable from a clean file.
+# was given `--`. GNU grep reads `-probe.md` as options and dies with `invalid
+# option -- 'p'` and exit 2, which the `2>/dev/null` then swallows, so the file
+# is never opened and the scan reports nothing — indistinguishable from a clean
+# file. Verified against GNU grep 3.11, which is what scripts here actually get.
 #
 # The canary calls scan_file, so dropping `--` from the one implementation turns
 # it red. An earlier version inlined its own `grep ... --` and so tested only
 # that the local grep honours `--`, which would have stayed green while both
 # scans skipped the file. It also ASSERTS ON OUTPUT rather than exit status:
-# greps disagree about what to return for an operand they could not open, but
-# none of them prints a matching line from a file it never read.
+# greps disagree about what to return for an operand they could not open — GNU
+# grep exits 2, ugrep exits 0 having matched nothing — but none of them prints a
+# matching line from a file it never read.
 dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX")
 printf 'x /home/someone/secret\n' > "$dashprobe/-probe.md"
 # cd in and use the BARE relative name. An absolute path begins with '/', so

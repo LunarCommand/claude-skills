@@ -202,8 +202,9 @@ cmd_run() {
         refuse removed-flag 40 "$1 was removed. This script no longer probes whether --test
        can see a mutation: nothing exit-code-shaped can establish that, and three
        designs that tried were each defeated by a step that reads the file
-       without running it. Judge it from your results instead — if every mutant
-       survives, suspect the environment." ;;
+       without running it. Mark one mutant 'control' in the runner's spec
+       instead, on a line you are confident is covered: if it dies, the wiring
+       is proven by the run itself rather than guessed at beforehand." ;;
       *) refuse unknown-argument 40 "unknown argument: $1" ;;
     esac
   done
@@ -342,7 +343,8 @@ cmd_run() {
        uninitialised submodule, an absent build step. Pass it with --setup."
 
   say "ok: baseline green at $ref. Whether --test can SEE a mutation is not"
-  say "    established here — if every mutant survives, suspect the environment."
+  say "    established here. Mark one mutant 'control' in the runner's spec, on a"
+  say "    line you are confident is covered, and its verdict settles it."
 
   # The caller owns the worktree from here. Its exit status passes through,
   # which is why every refusal above used 40-44.

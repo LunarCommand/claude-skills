@@ -260,9 +260,10 @@ observed:
 
 **What it deliberately does NOT establish** is that `--test` can see a mutation
 at all. Nothing exit-code-shaped can: three designs tried and each was defeated
-by a step that reads a file without executing it. Judge that from your results —
-if every mutant survives, suspect the environment. It says so on success rather
-than implying more.
+by a step that reads a file without executing it. That is what a `control`
+mutant is for — the runner establishes by experiment, mid-run, what this layer
+cannot establish in advance. This script says so on success rather than implying
+more.
 
 It refuses rather than guessing, and every refusal prints a machine-readable
 `mutation_test_worktree: refused: <slug>` line before exiting. It asks for
