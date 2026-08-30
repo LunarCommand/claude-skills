@@ -42,9 +42,20 @@
 # future edit could change behaviour with the suite still green.
 #
 # MARK ONE MUTANT `control` AND THE GUESSWORK GOES AWAY. A control is a mutant
-# on a line you are confident IS covered. If it dies, the tests demonstrably see
-# your edits, so every survivor beside it is a real coverage gap. If it survives
-# too, the environment is the cause and the run refuses.
+# on a line you are confident IS covered.
+#
+# THE RULE IS: A RUN IN WHICH NOTHING AT ALL DIED IS REFUSED. Anything killed --
+# control or not -- proves the tests see edits to this checkout, so every
+# survivor beside it is a real coverage gap and the run reports normally. What a
+# control buys is a refusal that can say why: "you told me this line was covered
+# and its mutant lived too" is a diagnosis, where the shape of the result alone
+# is only a suspicion.
+#
+# So a surviving control is NOT a refusal once something else has died. The
+# wiring is proven, and the honest reading is that the line you picked is not
+# covered after all. The run says so in a NOTE and carries on. Refusing there
+# would throw away a sound report over one wrong guess about coverage -- and
+# since there is deliberately no coverage map, guessing is the normal case.
 #
 # Without a control this falls back to a heuristic: every mutant surviving,
 # across two or more distinct lines, is refused as probable mis-wiring. That
@@ -58,7 +69,7 @@
 #
 # Refusals print `mutation_test_run_mutants: refused: <slug>` before exiting:
 #   50 usage   51 missing dependency   52 spec or apply problem
-#   53 baseline red   54 every mutant survived, or a control did
+#   53 baseline red   54 nothing was killed, so no result can be trusted
 #   55 the test never ran
 set -uo pipefail
 
@@ -80,10 +91,14 @@ untracked file in the repo will not exist inside the worktree.
 
   --spec <file>  one mutant per line:
                    file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
-                 Mark one mutant `control` on a line you know is covered: if it
-                 dies the wiring is proven and every other survivor is a real
-                 gap. Without one, all-mutants-surviving is refused as probable
-                 mis-wiring, which is wrong on genuinely untested code.
+                 `control` is the SIXTH field, so leave the description empty to
+                 reach it without writing one:
+                   file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control
+                 Mark one mutant `control` on a line you know is covered. A run
+                 in which nothing at all was killed is refused; a control makes
+                 that refusal specific instead of a guess. Without one,
+                 all-mutants-surviving is refused as probable mis-wiring, which
+                 is wrong on genuinely untested code.
   --test <cmd>   the command that judges a mutant; must exit 0 on clean source
   --dry-run      resolve and check every mutant, run no mutants. Composed with
                  mutation_test_worktree.sh you still pay that script's baseline
@@ -153,8 +168,14 @@ ROOT=$(git rev-parse --show-toplevel) || refuse no-toplevel 52 "cannot find the 
 # newline-joined strings and read back by line number.
 M_FILE=''; M_LINE=''; M_FIND=''; M_REPL=''; M_DESC=''; M_CTRL=''; M_COUNT=0
 lineno=0
+cr=$(printf '\r')
 while IFS= read -r sl || [ -n "$sl" ]; do
   lineno=$((lineno + 1))
+  # A spec written on Windows carries a CR into the LAST field, so `control\r`
+  # is not `control` and the refusal below printed "must be 'control', not
+  # 'control'" -- two strings that render identically, sending the reader to
+  # look for a typo that is not there.
+  sl=${sl%"$cr"}
   case $sl in ''|'#'*) continue ;; esac
   # Count the separators rather than comparing a remainder to the field before
   # it: an earlier version did the latter and refused a legitimate mutant whose
@@ -181,14 +202,25 @@ while IFS= read -r sl || [ -n "$sl" ]; do
     rp=$r3; ds=''
   else
     rp=${r3%%"$tab"*}; r4=${r3#*"$tab"}
-    if [ "$ntab" -eq 4 ]; then ds=$r4; else ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}; fi
+    if [ "$ntab" -eq 4 ]; then
+      ds=$r4
+      # The likeliest way to believe you marked a control and not have. The run
+      # would lose its only wiring evidence and report a confident coverage gap
+      # -- silently, and in the direction this whole mechanism exists to stop.
+      [ "$ds" = control ] && refuse spec-control-needs-desc 52 "spec line $lineno: 'control' must be the SIXTH field, not the fifth.
+Leave the description empty to reach it:
+  file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control"
+    else
+      ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}
+    fi
   fi
   # A sixth field must be exactly `control`. Anything else is refused rather
   # than ignored: a typo that silently stopped being a control would remove the
   # evidence the run depends on.
   case $ct in
     (''|control) : ;;
-    (*) refuse spec-bad-control 52 "spec line $lineno: the sixth field must be the word 'control', not '$ct'" ;;
+    (*) refuse spec-bad-control 52 "spec line $lineno: the sixth field must be the word 'control', not [$ct].
+The brackets are there so trailing whitespace is visible." ;;
   esac
   case $l in *[!0-9]*|'') refuse spec-bad-line 52 "spec line $lineno: '$l' is not a line number" ;; esac
   [ -n "$f" ]  || refuse spec-no-file 52 "spec line $lineno: the file field is empty"
@@ -220,6 +252,15 @@ while [ "$i" -le "$M_COUNT" ]; do
   [ -L "$ROOT/$f" ] && refuse symlink-target 52 "mutant $i: $f is a symlink; mutating it would write through
        the link, outside the worktree. Name the file it points at."
   [ -f "$ROOT/$f" ] || refuse not-a-regular-file 52 "mutant $i: not a regular file: $f"
+  # The worktree guard above cannot tell a throwaway checkout from a long-lived
+  # worktree someone keeps work in, and restore is a whole-file `git checkout
+  # --`, which discards uncommitted edits rather than the mutation alone. Only
+  # the files this run will restore need to be clean, so a --setup that dirties
+  # something else does not trip it.
+  git diff --quiet HEAD -- "$f" 2>/dev/null || refuse dirty-target 52 "mutant $i: $f has uncommitted changes in this worktree.
+Each mutant is undone with 'git checkout -- $f', which would discard them
+along with the mutation. Commit or stash them first, or point this at a
+throwaway worktree from 'mutation_test_worktree.sh run'."
   [ "$fd" = "$rp" ] && refuse no-op-mutant 52 "mutant $i: find and replace are identical ('$fd'), so the file
        would be unchanged and the mutant reported as a survivor — a coverage
        gap that does not exist."
@@ -231,10 +272,25 @@ while [ "$i" -le "$M_COUNT" ]; do
 done
 
 if [ "$DRY" = yes ]; then
-  say "$M_COUNT mutant(s) resolve cleanly; nothing was run"
+  dctrl=0
   i=1; while [ "$i" -le "$M_COUNT" ]; do
-    printf '%s:%s\t%s\n' "$(nth "$M_FILE" "$i")" "$(nth "$M_LINE" "$i")" "$(nth "$M_DESC" "$i")"
+    [ "$(nth "$M_CTRL" "$i")" = control ] && dctrl=$((dctrl + 1))
     i=$((i + 1)); done
+  say "$M_COUNT mutant(s) resolve cleanly, $dctrl marked control; nothing was run"
+  i=1; while [ "$i" -le "$M_COUNT" ]; do
+    mark=' '; [ "$(nth "$M_CTRL" "$i")" = control ] && mark='*'
+    printf '%s %s:%s\t%s\n' "$mark" "$(nth "$M_FILE" "$i")" "$(nth "$M_LINE" "$i")" "$(nth "$M_DESC" "$i")"
+    i=$((i + 1)); done
+  # Whether a control registered is the one thing a dry run has to show. Without
+  # it the spec that mis-slots `control` into the description listed a mutant
+  # described as "control" -- reading as confirmation of the very thing that had
+  # failed to happen.
+  if [ "$dctrl" -eq 0 ]; then
+    say ""
+    say "No control in this spec. If every mutant survives, the run will be"
+    say "REFUSED rather than reported. Mark one 'control' in a sixth field, on"
+    say "a line you are confident is covered, to get a verdict either way."
+  fi
   exit 0
 fi
 
@@ -264,7 +320,7 @@ if [ "$rc" -ne 0 ]; then show_out; refuse baseline-red 53 "the baseline is RED (
 
 # --- run them ----------------------------------------------------------------
 killed=0; survived=0; SURV_KEYS=''
-ctrl_total=0; ctrl_killed=0
+ctrl_total=0; ctrl_killed=0; CTRL_SURV=''
 i=1
 while [ "$i" -le "$M_COUNT" ]; do
   f=$(nth "$M_FILE" "$i"); ln=$(nth "$M_LINE" "$i")
@@ -310,6 +366,8 @@ while [ "$i" -le "$M_COUNT" ]; do
     survived=$((survived + 1)); verdict=SURVIVED
     SURV_KEYS="$SURV_KEYS$f:$ln
 "
+    [ "$ct" = control ] && CTRL_SURV="$CTRL_SURV$f:$ln
+"
   else
     killed=$((killed + 1)); verdict=killed
     [ "$ct" = control ] && ctrl_killed=$((ctrl_killed + 1))
@@ -324,15 +382,19 @@ say ""
 say "$M_COUNT mutant(s): $killed killed, $survived survived"
 [ "$ctrl_total" -gt 0 ] && say "  (* = control, $ctrl_killed of $ctrl_total killed)"
 
-# A control settles what the heuristic can only guess. If one died, the tests
-# demonstrably see edits to this checkout, so every other survivor is a real
-# coverage gap and there is nothing to refuse.
-if [ "$ctrl_total" -gt 0 ]; then
-  if [ "$ctrl_killed" -eq 0 ]; then
-    refuse control-survived 54 "every control mutant survived.
+# Anything killed -- control or not -- proves the tests see edits to THIS
+# checkout, so nothing in such a run is refusable. Only a run in which nothing
+# at all died is indistinguishable from a suite reading a different copy of the
+# source. An earlier version refused whenever every CONTROL survived without
+# consulting `killed`, so a control that was merely a bad guess about coverage
+# threw away a report the same run had just proven sound -- and blamed an
+# environment the killed mutant exonerated.
+if [ "$killed" -eq 0 ]; then
+  if [ "$ctrl_total" -gt 0 ]; then
+    refuse control-survived 54 "nothing was killed, including the $ctrl_total mutant(s) you marked control.
 
        A control is a line you said was covered, so its mutant should have been
-       killed. It was not, which points at the environment rather than at the
+       killed. Nothing was, which points at the environment rather than at the
        coverage: a test suite resolving to a DIFFERENT copy of the source
        produces exactly this — an editable install records an absolute path, so
        the tests import the tree you did not mutate.
@@ -341,10 +403,9 @@ if [ "$ctrl_total" -gt 0 ]; then
        rather than an installed copy. If the control line turns out not to be
        covered after all, pick one that is."
   fi
-else
   # No control, so fall back to a heuristic — and say what it cannot know.
   distinct=$(printf '%s' "$SURV_KEYS" | sed '/^$/d' | sort -u | grep -c . || true)
-  if [ "$killed" -eq 0 ] && [ "$distinct" -ge 2 ]; then
+  if [ "$distinct" -ge 2 ]; then
     refuse all-survived 54 "every mutant survived, across $distinct distinct lines, and no
        control was given.
 
@@ -357,6 +418,19 @@ else
        you are confident is covered. If that mutant dies, the wiring is proven
        and the survivors are real coverage gaps rather than a warning."
   fi
+fi
+
+# Reached only when something died, so the wiring is not in question. A control
+# that survived here is not a refusal: it is the caller's belief about coverage
+# being wrong, which is worth saying plainly and is no reason to discard the
+# rest of the report.
+if [ -n "$CTRL_SURV" ]; then
+  say ""
+  say "NOTE: you marked these lines 'control', and their mutants survived:"
+  printf '%s' "$CTRL_SURV" | sed '/^$/d;s/^/  /' >&2
+  say "Something else WAS killed, so the tests do see this checkout. Those"
+  say "lines are simply not covered after all. Pick a control that is, if you"
+  say "want the next run's verdict to rest on something."
 fi
 
 if [ "$survived" -gt 0 ]; then

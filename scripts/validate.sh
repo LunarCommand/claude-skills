@@ -559,7 +559,11 @@ HELPERS = {
 }
 bad, total, cov = [], 0, 0
 asserted = set()
-for helper, slug in re.findall(r'\b([a-z_]*expect) \d+ ([a-z][a-z0-9-]*) ', suite):
+# Matches the CALL SHAPE (`helper <code> <slug> "message"`), not names ending in
+# `expect`. The narrower pattern could not see a helper called anything else, so
+# renaming one made its assertions vanish from the tally without the complaint
+# below ever firing — the guard was unreachable for exactly the case it names.
+for helper, slug in re.findall(r'\b([a-z_]+) \d+ ([a-z][a-z0-9-]*) "', suite):
     if helper not in HELPERS:
         bad.append(f'the suite uses an assertion helper {helper!r} this check does not '
                    'know, so its assertions cannot be attributed to a script; add it to HELPERS')
@@ -641,19 +645,34 @@ section "Hygiene (this repo is public)"
 # the set that can travel.
 publishable() { git ls-files -c -o --exclude-standard -z 2>/dev/null; }
 
-# Positive control for the three scans below. A tracked file whose name starts
-# with a dash was silently exempt until grep was given `--`, and nothing would
-# have noticed: the failure is an exit 2 that 2>/dev/null hides.
+# Both file-content scans below read a file through THIS function and nothing
+# else, so the `--` that keeps a dash-named file readable exists in exactly one
+# place — which is what lets the canary underneath it mean something.
+scan_file() { grep -EnH "$1" -- "$2" 2>/dev/null; }
+
+# Positive control for the two file-content scans below. The cruft scan greps a
+# stream of names on stdin and takes no file operand, so it is not covered here.
+# A tracked file whose name starts with a dash was silently exempt until grep
+# was given `--`: the name is consumed as options, the file is never opened, and
+# the scan reports nothing — indistinguishable from a clean file.
+#
+# The canary calls scan_file, so dropping `--` from the one implementation turns
+# it red. An earlier version inlined its own `grep ... --` and so tested only
+# that the local grep honours `--`, which would have stayed green while both
+# scans skipped the file. It also ASSERTS ON OUTPUT rather than exit status:
+# greps disagree about what to return for an operand they could not open, but
+# none of them prints a matching line from a file it never read.
 dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX")
 printf 'x /home/someone/secret\n' > "$dashprobe/-probe.md"
 # cd in and use the BARE relative name. An absolute path begins with '/', so
 # grep never sees a leading dash and the canary would pass either way — which
 # is exactly what it did on the first attempt. `git ls-files` emits relative
 # paths, so this is the shape the scans below actually pass.
-if ( cd "$dashprobe" && grep -qE '/home/' -- '-probe.md' ) 2>/dev/null; then
-  pass "scan canary  a leading-dash filename is still readable by grep"
+dashhit=$( cd "$dashprobe" && scan_file '/home/' '-probe.md' )
+if [[ -n "$dashhit" ]]; then
+  pass "scan canary  the hygiene scans still read a leading-dash filename"
 else
-  fail "grep cannot read a leading-dash filename — the hygiene scans would skip it"
+  fail "scan_file cannot read a leading-dash filename — both hygiene scans would skip it"
 fi
 rm -rf "$dashprobe"
 
@@ -675,9 +694,7 @@ markers=$(publishable | while IFS= read -r -d '' f; do
     # the script dies at the ';;'. macOS ships bash 3.2, and CI runs there.
     case $f in (scripts/validate.sh) continue ;; esac
     case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
-    # `--`: a tracked file may be named -notes.md, and grep would read it as
-    # options and exit 2, which 2>/dev/null then hides — silently exempting it.
-    grep -qE '/home/|/Users/|~/Sandbox' -- "$f" 2>/dev/null && printf '%s\n' "$f"
+    scan_file '/home/|/Users/|~/Sandbox' "$f" >/dev/null && printf '%s\n' "$f"
   done || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
 
@@ -687,7 +704,7 @@ markers=$(publishable | while IFS= read -r -d '' f; do
 secrets=$(publishable | while IFS= read -r -d '' f; do
     case $f in (scripts/validate.sh) continue ;; esac
     case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
-    grep -EnH 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' -- "$f" 2>/dev/null
+    scan_file 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f"
   done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
 

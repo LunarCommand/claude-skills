@@ -510,6 +510,21 @@ else
   fail "--out still exists or created a file (exit $CL_RC)"
 fi
 
+# The diff is written by the author of the PR under review. An added line
+# reading `++ foo` renders as `+++ foo`, so matching `^+++ ` anywhere let that
+# author reassign their own later lines to a path of their choosing: the line
+# went unmutated and unreported while the count still read as a full inventory.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,2 +10,4 @@\n context\n+# note:\n+++ b/README.md\n+    tok = "letmein"\n' > "$FIXTURE/inject.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/inject.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "an added line beginning '++ ' was read as a header and re-attributed the lines after it"
+else
+  pass "added content cannot re-attribute later lines to another path"
+fi
+printf '%s' "$CL_OUT" | grep -q 'src/auth.py	13' \
+  && pass "the line that injection hid is still reported, under its real path" \
+  || fail "the injected hunk lost a line entirely"
+
 echo
 echo "Running mutants"
 
@@ -585,25 +600,75 @@ rm_expect 54 all-survived "with no control, every mutant surviving is refused"
 # A control settles what that heuristic can only guess. UAT found the heuristic
 # firing on genuinely untested code — four mutants on lines a coverage report
 # independently called uncovered — which is a false alarm on exactly the code
-# this tool is pointed at. A killed control proves the wiring instead.
+# this tool is pointed at. A control proves the wiring instead.
+#
+# Line 2 of the fixture is covered by t.sh and line 5 is not, so a mutant on 2
+# dies and a mutant on 5 lives. Every case below is built from that pair.
 printf 'src/limits.py\t2\t>=\t>\tcovered, so this must die\tcontrol\nsrc/limits.py\t5\t* 2\t* 3\tuncovered\n' > "$SPECD/ctrl.tsv"
 rm_run "$SPECD/ctrl.tsv" ./t.sh
+# Deliberately labelled for what it proves and no more. It does NOT prove the
+# refusal was suppressed: a killed control implies killed>=1, and the fallback
+# heuristic only fires when killed==0, so there was never a refusal here to
+# suppress. Claiming otherwise is what the previous label did, and deleting the
+# whole control branch left it green.
 if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
-  pass "a killed control proves the wiring, so survivors are reported not refused"
+  pass "a six-field record parses, runs, and reports its survivor"
 else
-  fail "a killed control did not suppress the refusal (exit $RM_RC)"
+  fail "a killed control plus a survivor did not report cleanly (exit $RM_RC)"
 fi
 printf '%s' "$RM_OUT" | grep -q 'killed\*' \
   && pass "the control is marked in the output" || fail "the control was not marked"
 
-# ...and a control that survives is the strong signal, so it must refuse.
+# THE RULE, and the assertion that can actually fail: anything killed proves the
+# tests see this checkout, so a surviving control is a wrong guess about
+# coverage, not a broken environment — report it, do not refuse. The previous
+# code refused here on ctrl_killed==0 without consulting killed, so this case
+# exited 54 and threw away a report the same run had just proven sound.
+printf 'src/limits.py\t5\t* 2\t* 3\tI believed this was covered\tcontrol\nsrc/limits.py\t2\t>=\t>\treal mutant\n' > "$SPECD/ctrlsurv.tsv"
+rm_run "$SPECD/ctrlsurv.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ]; then
+  pass "a surviving control beside a killed mutant is reported, not refused"
+else
+  fail "a surviving control refused despite a kill in the same run (exit $RM_RC)"
+fi
+printf '%s' "$RM_ERR" | grep -q "NOTE: you marked these lines 'control'" \
+  && pass "the surviving control is named rather than passed off as a coverage gap" \
+  || fail "no NOTE naming the surviving control"
+
+# Two controls, one each way. Nothing constrained the count, and the docs said
+# flatly that a surviving control refuses — false for this spec under the old
+# code, which asked only whether EVERY control survived.
+printf 'src/limits.py\t2\t>=\t>\tcovered\tcontrol\nsrc/limits.py\t5\t* 2\t* 3\tbelieved covered\tcontrol\n' > "$SPECD/twoctrl.tsv"
+rm_run "$SPECD/twoctrl.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_ERR" | grep -q "NOTE: you marked these lines 'control'"; then
+  pass "with two controls, one killed and one surviving, the run reports and says so"
+else
+  fail "one-killed-one-surviving controls did not report with a NOTE (exit $RM_RC)"
+fi
+
+# ...and a control that survives with NOTHING killed is the strong signal.
 printf 'src/limits.py\t5\t* 2\t* 3\tI wrongly believed this was covered\tcontrol\n' > "$SPECD/badctrl.tsv"
 rm_run "$SPECD/badctrl.tsv" ./t.sh
-rm_expect 54 control-survived "a control that survives is refused, even alone"
+rm_expect 54 control-survived "a control that survives with nothing killed is refused"
 
 printf 'src/limits.py\t2\t>=\t>\tdesc\tcontrl\n' > "$SPECD/typoctrl.tsv"
 rm_run "$SPECD/typoctrl.tsv" ./t.sh
 rm_expect 52 spec-bad-control "a misspelled sixth field is refused, not ignored"
+
+# `control` is the SIXTH field. Writing it fifth is how you believe you marked a
+# control and did not: it parsed as the description, the run lost its only
+# wiring evidence, and it reported a confident coverage gap with exit 0.
+printf 'src/limits.py\t5\t* 2\t* 3\tcontrol\n' > "$SPECD/fifthctrl.tsv"
+rm_run "$SPECD/fifthctrl.tsv" ./t.sh
+rm_expect 52 spec-control-needs-desc "'control' in the fifth field is refused, not read as a description"
+
+# A spec written on Windows put a CR on the last field, so the refusal read
+# "must be the word 'control', not 'control'" — two strings that render alike.
+printf 'src/limits.py\t2\t>=\t>\tdesc\tcontrol\r\n' > "$SPECD/crlf.tsv"
+rm_run "$SPECD/crlf.tsv" ./t.sh
+[ "$RM_RC" -ne 52 ] \
+  && pass "a CRLF spec is not refused for an invisible carriage return" \
+  || fail "a CRLF spec was refused (exit $RM_RC): $RM_ERR"
 rm_run "$SPECD/one.tsv" ./t.sh
 [ "$RM_RC" -eq 0 ] && pass "a single surviving line is reported, not refused" || fail "one survivor exited $RM_RC"
 # The worktree layer refuses a red or unrunnable --test before the runner ever
@@ -678,9 +743,37 @@ rm_run "$SPECD/nonl.tsv" ./t.sh
   || fail "the no-trailing-newline file was altered"
 
 rm_run "$SPECD/two.tsv" ./t.sh --dry-run 2>/dev/null
-RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>/dev/null )
+RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>"$FIXTURE/rmerr.txt" )
 [ "$?" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'limits.py:2' \
   && pass "--dry-run lists every mutant" || fail "--dry-run did not list the mutants"
+# Whether a control registered is the one thing a dry run has to show, and it
+# showed nothing: the spec that mis-slotted `control` into the description
+# listed a mutant described as "control", reading as confirmation of the very
+# thing that had failed to happen.
+printf '%s' "$(cat "$FIXTURE/rmerr.txt")" | grep -q 'No control in this spec' \
+  && pass "--dry-run says when a spec has no control, and what that will cost" \
+  || fail "--dry-run did not warn about the missing control"
+RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/ctrl.tsv" --test ./t.sh --dry-run 2>"$FIXTURE/rmerr.txt" )
+printf '%s' "$RM_OUT" | grep -q '^\* src/limits.py:2' \
+  && pass "--dry-run marks which mutants are controls" || fail "--dry-run did not mark the control"
+printf '%s' "$(cat "$FIXTURE/rmerr.txt")" | grep -q '1 marked control' \
+  && pass "--dry-run counts the controls it found" || fail "--dry-run did not count the controls"
+
+# A linked worktree is not necessarily a THROWAWAY one — the `/worktrees/` guard
+# cannot tell a scratch checkout from a long-lived worktree someone keeps work
+# in — and restore is a whole-file `git checkout --`, which discards uncommitted
+# edits along with the mutation. SKILL.md briefly told readers to run the runner
+# in "a worktree you already have"; following that sentence destroyed real work.
+DIRTYWT=$(mktemp -d "$FIXTURE/dirtywt.XXXXXX"); rmdir "$DIRTYWT"
+git -C "$MREPO" worktree add --detach "$DIRTYWT" HEAD >/dev/null 2>&1
+printf '\n# uncommitted work nobody wants to lose\n' >> "$DIRTYWT/src/limits.py"
+DIRTY_BEFORE=$(content_id "$DIRTYWT/src/limits.py")
+RM_ERR=$( cd "$DIRTYWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 dirty-target "a target carrying uncommitted work is refused, not quietly restored over"
+[ "$(content_id "$DIRTYWT/src/limits.py")" = "$DIRTY_BEFORE" ] \
+  && pass "that uncommitted work is still there afterwards" \
+  || fail "the runner altered work in a tree it refused to mutate"
+git -C "$MREPO" worktree remove --force "$DIRTYWT" >/dev/null 2>&1; rm -rf "$DIRTYWT"
 
 # The two halves of the worktree requirement, each by its own slug.
 STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?

@@ -183,15 +183,15 @@ on evidence — delete it, run the tests, see what breaks.
 **Two paths.** The default runs one claim at a time in your tree, which is the
 right answer for code you just wrote — a worktree cannot hold uncommitted work.
 For a PR or a diff there is a scoped path: it resolves the changed lines, cuts a
-throwaway checkout at the reviewed commit, and runs a batch of mutants there, so
-your files are never touched.
+throwaway checkout at the revision you name, and runs a batch of mutants there,
+so your files are never touched.
 
 **It is still not a sweep.** You pick the lines that carry real risk; no coverage
 map picks them for you, and the suite runs once per mutant. Mark one mutant as
 the `control`, on a line you are confident is covered — if it dies, the tests
-demonstrably see the edits and every other survivor is a real gap; if it
-survives, the environment is at fault and the run refuses instead of reporting a
-false alarm.
+demonstrably see the edits, so every other survivor is a real gap. A run in
+which nothing at all died is refused rather than reported, because that is
+equally what a suite reading a different copy of your source looks like.
 
 #### `/pr-review` — work through review comments
 

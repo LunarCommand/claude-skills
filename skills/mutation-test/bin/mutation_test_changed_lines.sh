@@ -80,20 +80,45 @@ fi
 # Diff syntax only. `+++ /dev/null` marks a deleted file, whose lines cannot be
 # mutated; the hunk header gives the first line number in the NEW file, and a
 # context line advances it while a `+` line both records and advances it.
+#
+# The diff is UNTRUSTED INPUT: it is written by the author of the PR under
+# review, who controls the text of every line they add. An added line reading
+# `++ foo` renders as `+++ foo` in a unified diff, so matching `^\+\+\+ `
+# anywhere let that author reassign their own subsequent lines to a path of
+# their choosing -- reproduced: a hunk on src/auth.py whose middle line was
+# `+++ b/README.md` reported the line after it under README.md, so the line went
+# unmutated and unreported while the summary still read as a complete inventory.
+# Two pieces of state close it: a `+++ ` line is a header only DIRECTLY after a
+# `--- ` or `diff --git` line, and the hunk header's declared new-file length is
+# a budget, so content past it is attributed nowhere.
 pairs=$(awk '
+  /^diff --git / { hdr = 1; path = ""; left = 0; next }
+  /^--- / { hdr = 1; next }
   /^\+\+\+ / {
+    if (!hdr) { if (left > 0) { print path "\t" lineno; lineno++; left-- } next }
+    hdr = 0
     path = substr($0, 5)
     sub(/[ \t]+$/, "", path)
     if (path == "/dev/null") { path = "" } else { sub(/^b\//, "", path) }
+    left = 0
     next
   }
   /^@@/ {
+    hdr = 0
     if (match($0, /\+[0-9]+/)) { lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0 }
+    # `+c` alone means a one-line hunk; `+c,d` gives the length explicitly.
+    if (match($0, /\+[0-9]+,[0-9]+/)) {
+      left = substr($0, RSTART + 1, RLENGTH - 1)
+      sub(/^[0-9]+,/, "", left)
+      left = left + 0
+    } else { left = 1 }
     next
   }
+  { hdr = 0 }
   path == "" { next }
-  /^\+/ { print path "\t" lineno; lineno++; next }
-  /^ /  { lineno++; next }
+  left <= 0 { next }
+  /^\+/ { print path "\t" lineno; lineno++; left--; next }
+  /^ /  { lineno++; left--; next }
 ')
 
 # Suffix filter, done here rather than in awk so the suffixes stay literal —

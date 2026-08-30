@@ -231,7 +231,9 @@ exact command that will execute.
 
 ## The isolation layer: `mutation_test_worktree.sh`
 
-This skill ships three scripts, and this is the one the other two rest on.
+This skill ships three scripts, and this is the one `mutation_test_run_mutants.sh`
+rests on. `mutation_test_changed_lines.sh` is a standalone diff parser that opens
+no repository and is run on its own, in Path B step 1.
 **The manual procedure above uses none of them** — Path A mutates in place,
 which is the whole point of the in-place rule. This script is for the case
 where you genuinely need an isolated tree, and [Path B](#path-b-a-scoped-run)
@@ -284,6 +286,14 @@ gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
 Every added or modified line in the diff, as `path<TAB>line`. Deleted lines are
 absent — there is nothing left to mutate.
 
+**Note the PR's head SHA now** — `gh pr view 277 --json headRefOid --jq
+.headRefOid` — because step 3 needs it. These line numbers address the PR's
+head, and the worktree defaults to your own `HEAD`. Reviewing someone else's PR
+from your own main is the ordinary case, so without `--ref` the numbers and the
+files come from different revisions: most mutants fail to resolve, and the ones
+that do can apply a short literal like `>=` cleanly to an entirely different
+statement and report a verdict against it.
+
 **2. Choose the mutations, and write them down.**
 
 This is the part no tool does for you. Pick the lines that carry real risk,
@@ -300,12 +310,21 @@ src/pkg/parse.py	12	==	!=	a line you KNOW is covered	control
 ```
 
 **Include one `control`** — a mutant on a line you are confident the tests
-cover. It is the difference between a result and a guess. If the control dies,
-the tests demonstrably see your edits, so every other survivor is a real
-coverage gap. If it survives too, the environment is the cause and the run
-refuses. Without a control, a run where *everything* survives is refused as
-probable mis-wiring — which is wrong precisely where this tool is most often
-pointed, since freshly changed code is where coverage is thinnest.
+cover. It is the difference between a result and a guess: if it dies, the tests
+demonstrably see your edits, so every other survivor is a real coverage gap.
+
+`control` is the **sixth** field, so leave the description empty to reach it
+without writing one: `file⇥line⇥find⇥replace⇥⇥control`. Writing `control` in the
+fifth field is refused rather than read as a description — that is the way to
+believe you marked a control and not have.
+
+**The rule is that a run in which nothing at all died is refused.** Anything
+killed, control or not, proves the tests see this checkout. So a control that
+survives *beside a kill* is not a refusal: it means the line you picked is not
+covered after all, and the run says so and carries on. Without a control, a run
+where *everything* survives is refused as probable mis-wiring — which is wrong
+precisely where this tool is most often pointed, since freshly changed code is
+where coverage is thinnest.
 
 **Write it outside the repository** — `/tmp/mutants.tsv` — and pass an absolute
 path. A spec written inside the repo is an untracked file, so the worktree will
@@ -319,9 +338,12 @@ coverage.
 **3. Run them in a throwaway checkout.**
 
 ```
-mutation_test_worktree.sh run --test 'make test' -- \
+mutation_test_worktree.sh run --ref <pr-head-sha> --test 'make test' -- \
     mutation_test_run_mutants.sh --spec /tmp/mutants.tsv --test 'make test'
 ```
+
+`--ref` is the head SHA from step 1. It is not optional for a PR: it defaults to
+your `HEAD`, and the spec's line numbers do not address that.
 
 The worktree layer checks the tree is clean and the baseline is green; the
 runner applies each mutant, runs the suite, restores it with `git checkout`,
@@ -329,8 +351,12 @@ and reports. Your files are never touched — and the runner **refuses to run
 outside a throwaway worktree**, so that is enforced rather than promised. `--dry-run` resolves every mutant against the source and runs no mutants — but
 in this composed form it still pays the worktree layer's baseline, so it costs
 **one full suite run**, not nothing. That is still worth it before ten of them.
-To check a spec for typos without paying even that, run the runner directly
-inside a worktree you already have.
+To check a spec for typos without paying even that, run the runner with
+`--dry-run` directly inside a worktree you already have — but note that
+**without `--dry-run` it will mutate that worktree**, and it undoes each mutant
+with a whole-file `git checkout --`. It refuses a target carrying uncommitted
+changes for exactly that reason, so the worst case is a refusal rather than lost
+work, but the composed form above is the one to reach for by default.
 
 If an unrelated untracked file blocks the run, name it — `--untracked-ok
 scratch.md`. That acknowledges one path; it does not excuse the others, so a
@@ -341,11 +367,18 @@ test you had forgotten still stops the run.
 A **killed** mutant means that line is covered. A **survivor** is a coverage
 gap, not a bug — the same reading as the manual path.
 
-**If your control survives, the run refuses.** You said that line was covered
-and its mutant lived, which points at the environment rather than the coverage —
-a suite resolving to a different copy of your source produces exactly this.
+**If nothing at all was killed, the run refuses** — and with a control it can
+say why: you named a line as covered and its mutant lived too, which points at
+the environment rather than the coverage, since a suite resolving to a different
+copy of your source produces exactly this.
 
-**With no control, a run where everything survives is also refused**, because
+**A control that survives beside a kill is reported, not refused.** Something
+died, so the tests demonstrably see this checkout; the honest reading is that
+the line you picked is not covered. The run names it in a NOTE and carries on,
+rather than discarding a report it has just proven sound over one wrong guess —
+and since there is no coverage map, guessing is the normal case.
+
+**With no control, a run where everything survives is refused**, because
 nothing present can tell mis-wiring from genuinely untested code. That is not a
 hypothetical: pointing this at a freshly changed module refused four mutants
 whose lines a coverage report independently called untested. Add a control and

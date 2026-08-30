@@ -50,23 +50,31 @@ nothing tests.
   It does not invent mutations — choosing a semantically meaningful edit needs
   reading the code, and a generated edit that breaks the syntax goes red for a
   reason that says nothing about coverage.
-- **Mark one mutant `control`** — on a line you are confident is covered — and
-  the run can tell a coverage gap from a broken environment instead of guessing.
-  A killed control proves the tests see your edits, so the other survivors are
-  real findings; a surviving control means the environment and refuses. This
-  came out of using it: pointed at a freshly changed module, the heuristic below
-  refused four mutants whose lines a coverage report independently called
-  untested — a false alarm on exactly the code this feature is aimed at.
-- **With no control, a run where every mutant survives is refused** rather than
-  reported as coverage gaps. That is what a suite resolving to a different copy of your source looks
-  like, and it cannot be told from genuine absence of coverage except by how
-  unlikely it is. Reporting it would be exactly the confident, false clean run
-  this skill exists to prevent. One survivor cannot make that distinction, so it
-  stays a finding.
+- **Mark one mutant `control`** — on a line you are confident is covered, in a
+  sixth tab-separated field — and the run can tell a coverage gap from a broken
+  environment instead of guessing. A killed control proves the tests see your
+  edits, so the other survivors are real findings. This came out of using it:
+  pointed at a freshly changed module, the heuristic below refused four mutants
+  whose lines a coverage report independently called untested — a false alarm on
+  exactly the code this feature is aimed at.
+- **A run in which nothing at all was killed is refused** rather than reported as
+  coverage gaps, and a control makes that refusal specific instead of a guess.
+  Everything surviving is what a suite resolving to a different copy of your
+  source looks like, and it cannot be told from genuine absence of coverage
+  except by how unlikely it is. Reporting it would be exactly the confident,
+  false clean run this skill exists to prevent.
+- **A control that survives beside a kill is reported, not refused.** Something
+  died, so the tests demonstrably see that checkout; the honest reading is that
+  the line you named is not covered after all, and the run says so in a NOTE. It
+  does not discard a report it has just proven sound over one wrong guess about
+  coverage — and with no coverage map, guessing is the normal case.
 - Shell only. No `jq` and no `python3`, so a scoped run adds no dependency to a
   Go or Rust project.
-- `--dry-run` resolves every mutant against the source and runs nothing, so a
-  typo in a spec costs a second rather than ten test runs.
+- `--dry-run` resolves every mutant against the source and runs no mutants,
+  listing which of them are controls. Composed with `mutation_test_worktree.sh`
+  — the only supported invocation, since the runner refuses to run outside a
+  worktree — it still pays that script's baseline, so a spec typo costs one full
+  suite run rather than ten.
 - There is no coverage map. It is where "0 covering tests for all nine mutants"
   came from, and without it every mutant runs the full suite — slower, and
   unable to be subtly wrong.
