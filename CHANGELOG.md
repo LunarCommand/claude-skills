@@ -70,6 +70,17 @@ nothing tests.
   the line you named is not covered after all, and the run says so in a NOTE. It
   does not discard a report it has just proven sound over one wrong guess about
   coverage — and with no coverage map, guessing is the normal case.
+- **Each mutant is undone from a byte-exact copy**, taken immediately before it
+  is applied and verified after it is put back. This replaced `git checkout --`,
+  which was wrong four ways: it restores from the INDEX, so any test command
+  that stages — `pre-commit`, `lint-staged`, `git add -A` — turned every restore
+  into a silent no-op and let mutants accumulate, with later ones scored against
+  earlier ones and the run reporting a confident clean result; a pathspec globs,
+  so a file named `[id].tsx` matched its tracked siblings and the restore missed
+  it; it cannot restore an untracked file at all; and whether it restores an
+  `--assume-unchanged` file depends on the git version. A copy has none of those
+  properties, so the three guards that existed to refuse the files git could not
+  restore are gone with it.
 - Shell only. No `jq` and no `python3`, so a scoped run adds no dependency to a
   Go or Rust project.
 - `--dry-run` resolves every mutant against the source and runs no mutants,

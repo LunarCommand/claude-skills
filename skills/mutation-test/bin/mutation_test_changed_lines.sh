@@ -77,53 +77,58 @@ if [ -n "$DIFF_FILE" ]; then
   exec < "$DIFF_FILE"
 fi
 
-# Diff syntax only. `+++ /dev/null` marks a deleted file, whose lines cannot be
-# mutated; the hunk header gives the first line number in the NEW file, and a
-# context line advances it while a `+` line both records and advances it.
+# Diff syntax only. The hunk header gives the first line number in the NEW file
+# and the LENGTHS of both sides; a context line advances the new-file counter and
+# a `+` line both records and advances it.
 #
 # The diff is UNTRUSTED INPUT: it is written by the author of the PR under
-# review, who controls the text of every line they add. An added line reading
-# `++ foo` renders as `+++ foo` in a unified diff, so matching `^\+\+\+ `
-# anywhere let that author reassign their own subsequent lines to a path of
-# their choosing -- reproduced: a hunk on src/auth.py whose middle line was
-# `+++ b/README.md` reported the line after it under README.md, so the line went
-# unmutated and unreported while the summary still read as a complete inventory.
-# Two pieces of state close it: a `+++ ` line is a header only DIRECTLY after a
-# `--- ` or `diff --git` line, and the hunk header's declared new-file length is
-# a budget, so content past it is attributed nowhere.
+# review, who controls the text of every line they add or delete. Both marker
+# shapes can be forged as CONTENT -- an added line reading `++ x` renders as
+# `+++ x`, a deleted line reading `-- x` renders as `--- x` -- so `--- ` and
+# `+++ ` are treated as file headers ONLY between hunks. Two earlier versions
+# were defeated here: matching `^+++ ` anywhere let the author re-attribute
+# their own lines to another path, and then a "saw --- last" flag let them
+# re-arm it by deleting a line beginning `-- `.
+#
+# Being between hunks is decided by BOTH budgets from the `@@` header, not just
+# the new-file one: a `-` line consumes only the old budget, so tracking one
+# side alone left the counter stranded and ate the next file's header.
+#
+# `diff --git` needs no such guard: every hunk line carries a leading space, +,
+# - or \, so an unprefixed one cannot appear inside a hunk.
 pairs=$(awk '
-  # `left` is how many NEW-file lines this hunk still owes, from the @@ header.
-  # While it is positive we are INSIDE a hunk, and inside a hunk every line is
-  # content: a deleted line reading `-- x` renders as `--- x` and an added line
-  # reading `++ x` renders as `+++ x`. So the header rules below apply only
-  # BETWEEN hunks. An earlier fix used a "saw --- last" flag instead, which the
-  # author of the diff could re-arm by deleting a line beginning `-- ` -- the
-  # spoof it was written to stop, one step further along.
-  #
-  # `diff --git` needs no such guard: hunk content always carries a leading
-  # space, +, - or \, so an unprefixed one cannot appear inside a hunk.
-  /^diff --git / { path = ""; left = 0; next }
-  left <= 0 && /^--- / { next }
-  left <= 0 && /^\+\+\+ / {
+  function hunk_open() { return oldleft > 0 || newleft > 0 }
+  /^diff --git / { path = ""; oldleft = 0; newleft = 0; next }
+  !hunk_open() && /^--- / { next }
+  !hunk_open() && /^\+\+\+ / {
     path = substr($0, 5)
     sub(/[ \t]+$/, "", path)
     if (path == "/dev/null") { path = "" } else { sub(/^b\//, "", path) }
     next
   }
   /^@@/ {
-    if (match($0, /\+[0-9]+/)) { lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0 }
-    # `+c` alone means a one-line hunk; `+c,d` gives the length explicitly.
-    if (match($0, /\+[0-9]+,[0-9]+/)) {
-      left = substr($0, RSTART + 1, RLENGTH - 1)
-      sub(/^[0-9]+,/, "", left)
-      left = left + 0
-    } else { left = 1 }
+    # Read ONLY the header portion. The text after the closing @@ is a function
+    # context heading, also written by the diff author, and taking the leftmost
+    # +N,N anywhere on the line let that text set the budget that decides where
+    # a hunk ends.
+    h = $0
+    sub(/^@@+ */, "", h)
+    sub(/ *@@.*$/, "", h)
+    oldleft = 1; newleft = 1
+    if (match(h, /-[0-9]+,[0-9]+/)) {
+      oldleft = substr(h, RSTART + 1, RLENGTH - 1); sub(/^[0-9]+,/, "", oldleft); oldleft += 0
+    }
+    if (match(h, /\+[0-9]+,[0-9]+/)) {
+      newleft = substr(h, RSTART + 1, RLENGTH - 1); sub(/^[0-9]+,/, "", newleft); newleft += 0
+    }
+    if (match(h, /\+[0-9]+/)) { lineno = substr(h, RSTART + 1, RLENGTH - 1) + 0 }
     next
   }
   path == "" { next }
-  left <= 0 { next }
-  /^\+/ { print path "\t" lineno; lineno++; left--; next }
-  /^ /  { lineno++; left--; next }
+  !hunk_open() { next }
+  /^\+/ { print path "\t" lineno; lineno++; newleft--; next }
+  /^-/  { oldleft--; next }
+  /^ /  { lineno++; newleft--; oldleft--; next }
 ')
 
 # Suffix filter, done here rather than in awk so the suffixes stay literal —

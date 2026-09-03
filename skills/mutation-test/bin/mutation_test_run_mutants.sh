@@ -82,6 +82,10 @@ TEST_CMD=''
 DRY=no
 TEST_PID=''
 MUTATED=''
+BACKUP=''
+BACKUP_KEPT=''
+RESTORE_FAILED=''
+RESTORE_ERR=''
 OUT=''
 
 usage() {
@@ -124,25 +128,55 @@ require_cmd() {
   done
 }
 
-# git owns the restore. In a worktree that is about to be deleted this cannot
-# lose anything: the content is in the object database, not in a temp file we
-# might drop.
+# Restores the ONE file this run has mutated, from a byte-exact copy taken
+# before the write. This was `git checkout -- <path>`, which was wrong in four
+# separate ways, each found the hard way:
+#
+#   - it restores from the INDEX, not HEAD. A --test that stages anything
+#     (pre-commit, lint-staged, a codegen step, `git add -A`) put each mutant
+#     into the index, so every restore became a silent no-op: mutants
+#     accumulated, later ones were judged against earlier ones, and a three
+#     mutant run reported "3 killed, 0 survived" with all three still applied.
+#   - a pathspec GLOBS, so a file literally named `[id].tsx` -- the Next.js and
+#     SvelteKit routing convention -- matched other tracked paths and the
+#     restore was a no-op on the real file, exiting 0.
+#   - it cannot restore an untracked path at all.
+#   - whether it restores an --assume-unchanged path is git-version-dependent.
+#
+# A copy has none of those properties, and needs no guards against them. The
+# runner is serial by design -- exactly one file is mutated at any moment -- so
+# this is ONE backup with no key derived from the path. A non-injective path key
+# was the original runner's worst defect; there is no key here to get wrong.
+#
+# It REPORTS rather than decides: on the normal path a failed restore is fatal,
+# but inside the EXIT trap refusing would overwrite the exit code the run had
+# already earned. And it VERIFIES the bytes instead of trusting an exit status,
+# which is what hid the accumulation above.
 restore_mutated() {
   [ -n "$MUTATED" ] || return 0
-  # A failed restore leaves a mutated file in place, so every verdict after it
-  # is computed against a corrupted tree. That was a WARNING, which meant the
-  # run carried on and reported those verdicts as results.
-  if ! git checkout -- "$MUTATED" 2>/dev/null; then
-    local lost=$MUTATED
-    MUTATED=''
-    refuse restore-failed 52 "could not restore $lost with 'git checkout --'.
-It is still MUTATED. Everything this run would report from here on is measured
-against a tree that no longer matches your source, so it stops instead."
+  lost=$MUTATED; keep=$BACKUP
+  MUTATED=''; BACKUP=''
+  # The cmp is defence against a partial write (a full disk or quota), NOT a
+  # tested branch -- deleting it leaves the suite green, and no fixture here can
+  # fill a filesystem. It is kept because it is cheap and the alternative is
+  # trusting an exit status, which is exactly what hid the accumulation above.
+  if [ -n "$keep" ]; then
+    RESTORE_ERR=$(cat "$keep" > "$ROOT/$lost" 2>&1) || true
+    if [ -z "$RESTORE_ERR" ] && cmp -s "$keep" "$ROOT/$lost"; then
+      rm -f "$keep"
+      return 0
+    fi
   fi
-  MUTATED=''
+  RESTORE_FAILED=$lost; BACKUP_KEPT=$keep
+  return 1
 }
-cleanup() { [ -n "$TEST_PID" ] && kill "$TEST_PID" 2>/dev/null; restore_mutated; [ -n "$OUT" ] && rm -f "$OUT"; return 0; }
-on_signal() { cleanup; trap - EXIT; say ""; say "interrupted — the mutated file was restored with git checkout"; exit 130; }
+cleanup() {
+  [ -n "$TEST_PID" ] && kill "$TEST_PID" 2>/dev/null
+  restore_mutated || say "WARNING: $RESTORE_FAILED is STILL MUTATED — its backup copy is $BACKUP_KEPT"
+  [ -n "$OUT" ] && rm -f "$OUT"
+  return 0
+}
+on_signal() { cleanup; trap - EXIT; say ""; say "interrupted — the mutated file was restored from its backup copy"; exit 130; }
 trap on_signal INT TERM HUP QUIT
 trap cleanup EXIT
 
@@ -170,22 +204,21 @@ gitdir=$(git rev-parse --absolute-git-dir 2>/dev/null) \
 case $gitdir in
   */worktrees/*) : ;;
   *) refuse main-worktree 52 "this is a MAIN working tree, not a throwaway worktree.
-       Mutating here would edit your real files, and this script restores with
-       'git checkout' on the assumption that the checkout is disposable. Run it
-       as the command of 'mutation_test_worktree.sh run'." ;;
+       Mutating here would edit your real files. Every mutant IS undone from a
+       byte-exact copy, but a crash between the write and the restore would
+       leave one applied, and this design rests on the checkout being
+       disposable. Run it as the command of 'mutation_test_worktree.sh run'." ;;
 esac
 ROOT=$(git rev-parse --show-toplevel) || refuse no-toplevel 52 "cannot find the worktree root"
 # The spec path is resolved BEFORE the cd below, so a relative --spec keeps
 # working from wherever the caller stood.
 case $SPEC in (/*) : ;; (*) SPEC="$PWD/$SPEC" ;; esac
-# Every git pathspec here is relative to the worktree ROOT, and git resolves a
-# pathspec against the CURRENT DIRECTORY. Run from a subdirectory without this
-# and `git diff -- src/x.py` matches nothing: the dirty-target guard goes
-# silent, the post-apply effect check reports no change, and `git checkout --`
-# restores nothing while claiming success. The mutation still lands, because it
-# is written through the absolute "$ROOT/$f". So the whole script works from the
-# root. mutation_test_worktree.sh already documents this exact class of bug in
-# its own history; nothing but this line keeps it from recurring here.
+# The script works from the worktree root. This mattered far more when git
+# pathspecs decided whether a target was safe to touch: run from a subdirectory
+# those resolved against the CURRENT directory, matched nothing, and every guard
+# went quiet while the mutation still landed through the absolute "$ROOT/$f".
+# Those guards are gone with the pathspecs, but the cd stays -- --test expects
+# to run at the root, and so do relative paths in a spec.
 cd "$ROOT" || refuse root-unreachable 52 "cannot enter the worktree root: $ROOT"
 
 # --- read the spec -----------------------------------------------------------
@@ -230,20 +263,29 @@ while IFS= read -r sl || [ -n "$sl" ]; do
     rp=${r3%%"$tab"*}; r4=${r3#*"$tab"}
     if [ "$ntab" -eq 4 ]; then
       ds=$r4
-      # The likeliest way to believe you marked a control and not have. The run
-      # would lose its only wiring evidence and report a confident coverage gap
-      # -- silently, and in the direction this whole mechanism exists to stop.
-      # Matched as loosely as the sixth field is refused strictly: capitalising,
-      # or padding while aligning columns, produced exactly the outcome this
-      # guard exists to prevent.
-      case $ds in
-        ([Cc][Oo][Nn][Tt][Rr][Oo][Ll]|' '*[Cc][Oo][Nn][Tt][Rr][Oo][Ll]|*[Cc][Oo][Nn][Tt][Rr][Oo][Ll]' ')
+    else
+      ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}
+    fi
+    # `control` is the SIXTH field. Writing it fifth is how you believe you
+    # marked a control and did not: it parsed as the description, the run lost
+    # its only wiring evidence, and it reported a confident coverage gap.
+    #
+    # Checked AFTER ct is known, so a trailing tab (`...<TAB>control<TAB>`, five
+    # separators with an empty sixth field) is caught too -- it skipped the
+    # check entirely when this lived in the four-separator branch. And the value
+    # is TRIMMED before an exact compare rather than matched with globs that
+    # allowed exactly one space: column-aligned specs pad with several, and the
+    # glob form also refused a legitimate description ending in the word.
+    if [ -z "$ct" ]; then
+      dtrim=$ds
+      while [ "${dtrim# }" != "$dtrim" ]; do dtrim=${dtrim# }; done
+      while [ "${dtrim%% }" != "$dtrim" ]; do dtrim=${dtrim%% }; done
+      case $dtrim in
+        ([Cc][Oo][Nn][Tt][Rr][Oo][Ll])
           refuse spec-control-needs-desc 52 "spec line $lineno: 'control' must be the SIXTH field, not the fifth.
 Leave the description empty to reach it:
   file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control" ;;
       esac
-    else
-      ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}
     fi
   fi
   # A sixth field must be exactly `control`. Anything else is refused rather
@@ -284,51 +326,19 @@ while [ "$i" -le "$M_COUNT" ]; do
   [ -L "$ROOT/$f" ] && refuse symlink-target 52 "mutant $i: $f is a symlink; mutating it would write through
        the link, outside the worktree. Name the file it points at."
   [ -f "$ROOT/$f" ] || refuse not-a-regular-file 52 "mutant $i: not a regular file: $f"
-  # Undo is `git checkout -- <path>`, which can only restore a path git TRACKS.
-  # An untracked target is therefore unrestorable by construction: the mutation
-  # is written, the restore fails, and the file is gone with no backup. It is
-  # also the archetypal target — a module you have just written and not yet
-  # added — so this is checked before anything is written, not after.
-  git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || refuse untracked-target 52 "mutant $i: $f is not tracked by git in this worktree.
-Each mutant is undone with 'git checkout -- $f', which cannot restore a file
-git does not track, so mutating it would overwrite it with no way back. Commit
-or stage it first."
-  # --assume-unchanged and --skip-worktree are promises to git that the file will
-  # not change, and git is entitled to act on them. Whether `git checkout --`
-  # restores such a path is VERSION-DEPENDENT: git 2.43 restores it, git 2.55
-  # leaves it mutated. Found by an acceptance assertion that passed on Linux and
-  # failed on the macOS CI runner. So this is the untracked case again -- a file
-  # whose restore we cannot rely on must not be written in the first place.
-  # `git ls-files -v` prefixes each path with a status letter: H is an ordinary
-  # cached file, S is skip-worktree, and ANY lowercase letter means
-  # assume-unchanged. Only the first character is tested, against an explicit
-  # set -- a range like [a-z] is collation-dependent, which is precisely the kind
-  # of thing that passes here and fails on the macOS runner. The raw line is
-  # quoted in the message so an unexpected letter names itself rather than
-  # needing another CI round trip to diagnose.
-  idx_line=$(git ls-files -v -- "$f")
-  idx_flag=${idx_line%% *}
-  case $idx_flag in
-    (S|a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z)
-      refuse ignored-target 52 "mutant $i: git has been told to ignore changes to $f
-(--assume-unchanged or --skip-worktree; git ls-files -v says [$idx_line]).
-Whether 'git checkout --' restores such a path depends on the git version, so
-mutating it risks leaving it changed with no way back. Clear the bit first:
-  git update-index --no-assume-unchanged $f" ;;
-  esac
-  # The worktree guard above cannot tell a throwaway checkout from a long-lived
-  # worktree someone keeps work in, and the same whole-file restore discards
-  # uncommitted edits along with the mutation. Only the files this run will
-  # restore need to be clean, so a --setup that dirties something else does not
-  # trip it. A dry run writes nothing and restores nothing, so it is exempt --
-  # refusing there would break the one cheap way to check a spec for typos.
-  [ "$DRY" = yes ] || git diff --quiet HEAD -- "$f" 2>/dev/null || refuse dirty-target 52 "mutant $i: $f has uncommitted changes in this worktree.
-Each mutant is undone with 'git checkout -- $f', which would discard them
-along with the mutation. Commit or stash them first, or point this at a
-throwaway worktree from 'mutation_test_worktree.sh run'."
+  # No tracked/clean/index-bit guards here. They existed because the restore was
+  # `git checkout --`, which cannot undo a mutation to an untracked file, a
+  # glob-shadowed name, or a path git has been told to ignore -- so those files
+  # had to be refused rather than touched. Restoring from a byte-exact copy
+  # undoes any of them, so the guards went with the primitive that needed them.
   [ "$fd" = "$rp" ] && refuse no-op-mutant 52 "mutant $i: find and replace are identical ('$fd'), so the file
        would be unchanged and the mutant reported as a survivor — a coverage
        gap that does not exist."
+  # Without this, an unreadable target made awk fail, left `total` empty, and the
+  # line-range test below died with "[: : integer expression expected" -- a raw
+  # shell error rather than a refusal, which under the bundled-script invariant
+  # sends the reader editing a script that is working correctly.
+  [ -r "$ROOT/$f" ] || refuse unreadable-target 52 "mutant $i: cannot read $f. Check its permissions."
   total=$(awk 'END{print NR}' "$ROOT/$f")
   [ "$ln" -le "$total" ] || refuse line-out-of-range 52 "mutant $i: $f has $total lines, spec says line $ln"
   MT_FIND="$fd" awk -v ln="$ln" 'NR==ln && index($0, ENVIRON["MT_FIND"]) > 0 { ok=1 } END{ exit(ok?0:1) }' "$ROOT/$f" \
@@ -341,7 +351,12 @@ if [ "$DRY" = yes ]; then
   i=1; while [ "$i" -le "$M_COUNT" ]; do
     [ "$(nth "$M_CTRL" "$i")" = control ] && dctrl=$((dctrl + 1))
     i=$((i + 1)); done
-  say "$M_COUNT mutant(s) resolve cleanly, $dctrl marked control; nothing was run"
+  # Say what they resolved AGAINST. A dry run reads the worktree as it stands,
+  # which for a borrowed worktree includes uncommitted edits; the composed run
+  # cuts a fresh checkout from a ref and will not see them, so a spec that dry-
+  # runs clean here can still fail to resolve there.
+  say "$M_COUNT mutant(s) resolve cleanly against the files in $ROOT as they are"
+  say "now, $dctrl marked control; nothing was run"
   i=1; while [ "$i" -le "$M_COUNT" ]; do
     mark=' '; [ "$(nth "$M_CTRL" "$i")" = control ] && mark='*'
     printf '%s %s:%s\t%s\n' "$mark" "$(nth "$M_FILE" "$i")" "$(nth "$M_LINE" "$i")" "$(nth "$M_DESC" "$i")"
@@ -412,21 +427,29 @@ while [ "$i" -le "$M_COUNT" ]; do
   ' "$target" > "$tmp" || { rm -f "$tmp"; refuse apply-build-failed 52 "mutant $i: could not build the mutated $f"; }
   [ "$had_nl" = yes ] && printf '\n' >> "$tmp"
 
+  # Taken BEFORE the write, so the trap never sees a mutated file it cannot
+  # undo. MUTATED is set only once the backup exists.
+  BACKUP=$(mktemp "${TMPDIR:-/tmp}/mutation-test-backup.XXXXXX") || { rm -f "$tmp"; refuse tmpfile-backup 52 "cannot create a temporary file to back up $f"; }
+  cat "$target" > "$BACKUP" || { rm -f "$tmp" "$BACKUP"; BACKUP=''; refuse backup-failed 52 "mutant $i: could not copy $f before mutating it"; }
   MUTATED=$f
   cat "$tmp" > "$target" || { rm -f "$tmp"; refuse apply-write-failed 52 "mutant $i: could not write $f"; }
   rm -f "$tmp"
 
-  # The edit must actually change the file, or a "survivor" means nothing.
-  if git diff --quiet -- "$f" 2>/dev/null; then
-    refuse mutant-had-no-effect 52 "mutant $i: git reports $f unchanged after applying it, so a survivor
-       would be a coverage gap that does not exist. The target is tracked and was
-       clean, so either the edit genuinely made no difference, or git has been
-       told to stop looking at this file — check for --assume-unchanged and
-       --skip-worktree on it."
+  # The edit must actually change the file, or a "survivor" means nothing. This
+  # compares BYTES against the backup. It used to ask git, which answers about
+  # the index rather than the file and says nothing for an untracked or
+  # glob-shadowed path -- so it once denied an overwrite it had just performed.
+  if cmp -s "$BACKUP" "$target"; then
+    refuse mutant-had-no-effect 52 "mutant $i: $f is byte-identical after applying the mutant, so a
+       survivor would be a coverage gap that does not exist."
   fi
 
   rc=0; run_test || rc=$?
-  restore_mutated
+  restore_mutated || refuse restore-failed 52 "mutant $i: could not restore $RESTORE_FAILED from its backup copy.
+It is still MUTATED, so every verdict from here on would be measured against a
+file that no longer matches your source. The run stops rather than report them.
+The backup was kept: $BACKUP_KEPT
+${RESTORE_ERR:+The error was: $RESTORE_ERR}"
   check_ran "$rc" "the --test command (mutant $i)"
 
   [ "$ct" = control ] && ctrl_total=$((ctrl_total + 1))

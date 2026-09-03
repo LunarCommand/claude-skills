@@ -184,7 +184,10 @@ on evidence — delete it, run the tests, see what breaks.
 right answer for code you just wrote — a worktree cannot hold uncommitted work.
 For a PR or a diff there is a scoped path: it resolves the changed lines, cuts a
 throwaway checkout at the revision you name, and runs a batch of mutants there,
-so your files are never touched.
+so your files are never touched. Inside that checkout each mutant is undone from
+a byte-exact copy taken just before it is applied, and the restore is verified —
+not delegated to git, which restores from the index and so quietly did nothing
+whenever a test command staged anything.
 
 **It is still not a sweep.** You pick the lines that carry real risk; no coverage
 map picks them for you, and the suite runs once per mutant. Mark one mutant as

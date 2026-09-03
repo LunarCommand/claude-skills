@@ -9,11 +9,10 @@ description: >-
   chosen few in a throwaway worktree, to find which of them no test covers.
   Triggers on "mutation test", "mutation testing", "prove it fails", "are these
   tests real", "does this test actually assert anything", "is that assertion
-  live", "did you verify it's not vacuous", "how do you know it's checking
-  anything", "which changed lines are tested", "is this PR actually covered",
-  "are the changes in PR 123 tested", "check the coverage on this diff", "mutation
-  test this PR", or any claim that a test passes being offered as evidence the
-  behaviour is correct. Also use it proactively before reporting harness or
+  live", "did you verify it's not vacuous", "which changed lines are tested",
+  "is this PR actually covered", "are the changes in PR 123 tested", "check the
+  coverage on this diff", "mutation test this PR", or any claim that a test
+  passes being offered as evidence the behaviour is correct. Also use it proactively before reporting harness or
   fixture work as done.
 ---
 
@@ -259,7 +258,11 @@ Before your command runs it establishes three things, all of them directly
 observed:
 
 1. the repository has no uncommitted or untracked changes, so the checkout
-   matches what you are looking at — a worktree holds committed work only
+   matches what you are looking at — a worktree holds committed work only.
+   **This one is skipped when `--ref` names something other than `HEAD`**, since
+   the reasoning only holds while the worktree is cut from the commit your tree
+   is sitting on. Path B's PR recipe always passes such a ref, so it always
+   skips this; the run says so when it does
 2. a `--setup` command you named ran successfully in it
 3. `--test` exits 0 in it, so the baseline is green
 
@@ -375,20 +378,22 @@ The worktree layer checks the baseline is green — and, when `--ref` is HEAD or
 absent, that the tree is clean; the
 runner applies each mutant, runs the suite, restores it with `git checkout`,
 and reports. Your files are never touched — and the runner **refuses to run
-outside a throwaway worktree**, so that is enforced rather than promised. `--dry-run` resolves every mutant against the source and runs no mutants — but
+outside a linked worktree**, so it can never touch your main checkout. It cannot
+tell a throwaway worktree from a long-lived one, which is why the restore has to
+be exact rather than merely likely. `--dry-run` resolves every mutant against the source and runs no mutants — but
 in this composed form it still pays the worktree layer's baseline, so it costs
 **one full suite run**, not nothing. That is still worth it before ten of them.
 To check a spec for typos without paying even that, run the runner with
 `--dry-run` directly inside a worktree you already have. A dry run writes
 nothing, so it is allowed even when your targets carry uncommitted work.
 
-**Without `--dry-run` it will mutate that worktree**, undoing each mutant with a
-whole-file `git checkout --`. Two per-target guards stand in the way: it refuses
-a target with uncommitted changes, and it refuses one git does not track at all,
-since `git checkout --` cannot restore what git is not tracking. So the expected
-outcome there is a refusal rather than lost work — but the composed form above
-is still the one to reach for by default, because a fresh throwaway worktree has
-nothing to lose in the first place.
+**Without `--dry-run` it will mutate that worktree.** Each mutant is undone from
+a byte-exact copy taken immediately before the write, and the restore is verified
+rather than assumed, so uncommitted work, untracked files and files git has been
+told to ignore all come back exactly as they were. The composed form above is
+still the one to reach for by default, because a fresh throwaway worktree has
+nothing to lose in the first place — and a crash between the write and the
+restore would still leave one mutant applied.
 
 If an unrelated untracked file blocks the run, name it — `--untracked-ok
 scratch.md`. That acknowledges one path; it does not excuse the others, so a
@@ -412,8 +417,10 @@ the line you picked is not covered. The run names it in a NOTE and carries on,
 rather than discarding a report it has just proven sound over one wrong guess —
 and since there is no coverage map, guessing is the normal case.
 
-**With no control, a run where everything survives is refused**, because
-nothing present can tell mis-wiring from genuinely untested code. That is not a
+**With no control, a run where everything survives across two or more distinct
+lines is refused**, because nothing present can tell mis-wiring from genuinely
+untested code. A lone survivor, or survivors all on one line, stays a reported
+finding — one mutant cannot make that distinction. That is not a
 hypothetical: pointing this at a freshly changed module refused four mutants
 whose lines a coverage report independently called untested. Add a control and
 the same run reports them as the gaps they are.

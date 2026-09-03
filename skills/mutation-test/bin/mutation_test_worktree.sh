@@ -311,7 +311,11 @@ cmd_run() {
 
     # A file marked assume-unchanged or skip-worktree is invisible to status,
     # so the checks above cannot see it. Lower-case tags mean one of those.
-    hidden=$(git -C "$REPO" ls-files -v 2>/dev/null | sed -n 's/^[a-z] //p')
+    # An explicit set, not a RANGE: `[a-z]` is collation-dependent and on the
+    # macOS runner it matched uppercase too. `S` is skip-worktree, which this
+    # missed entirely while the refusal below and the CHANGELOG both claimed it
+    # was caught; every lowercase letter is assume-unchanged.
+    hidden=$(git -C "$REPO" ls-files -v 2>/dev/null | sed -n 's/^[abcdefghijklmnopqrstuvwxyzS] //p')
     if [ -n "$hidden" ]; then
       say "files hidden from git status in $REPO (assume-unchanged or skip-worktree):"
       printf '%s\n' "$hidden" | sed 's/^/       /' >&2

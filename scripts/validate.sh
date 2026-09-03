@@ -254,6 +254,31 @@ for d in skills/*/; do
   awk '/^---$/{n++; next} n==1 && /^description:/{found=1} END{exit !found}' "$f" \
     || fail "$name — frontmatter missing 'description' (the auto-trigger text)"
 
+  # ...and it has a hard 1024-character cap. Nothing here measured it, and adding
+  # trigger phrases for a new feature pushed one description to 1025 — over by a
+  # single character, with no local signal. Folded scalars join their lines with
+  # a space, so that is how the length is counted.
+  # Handles BOTH forms: `description: text on one line` and a folded `>-` block.
+  # An earlier version read only the folded form and reported 0 characters for
+  # the three skills using the other -- a length check that measured nothing for
+  # half the repo, which is the failure mode this suite keeps shipping.
+  desclen=$(awk '
+    /^---$/ { n++; if (n == 2) exit; next }
+    n == 1 && /^description:/ {
+      rest = $0; sub(/^description:[ \t]*/, "", rest)
+      if (rest != "" && rest !~ /^[>|]/) { out = rest }
+      indesc = 1; next
+    }
+    n == 1 && indesc && /^[^ \t]/ { indesc = 0 }
+    n == 1 && indesc { gsub(/^[ \t]+|[ \t]+$/, ""); out = out (out == "" ? "" : " ") $0 }
+    END { print length(out) }
+  ' "$f")
+  if [[ "$desclen" -gt 1024 ]]; then
+    fail "$name — frontmatter description is $desclen characters, over the 1024 cap"
+  else
+    pass "description  $name, $desclen/1024 characters"
+  fi
+
   # bin/ is what Claude Code puts on the Bash tool's PATH. A non-executable file
   # there is invisible to the skill, which then falls back to prompting.
   for s in "$d"bin/*.sh; do
@@ -530,23 +555,26 @@ scripts = {
         # Keep this list SHORT and true. Its predecessor exempted the whole
         # restore path with reasons that were simply wrong -- every one of them
         # was reachable with a chmod -- and that exemption is why no assertion
-        # covered two data-loss defects. The restore path it described no
-        # longer exists: git checkout does the restoring now.
-        'missing-dependency':  'requires git or awk to be absent from PATH',
+        # covered two data-loss defects. It happened AGAIN in this PR:
+        # `restore-failed` was excused as needing git checkout to fail and
+        # `mutant-had-no-effect` as needing a gitattributes filter, when a chmod
+        # reached the first and an ordinary untracked file the second. Both are
+        # asserted now. If you are about to add an entry here, try a chmod.
+        'missing-dependency':  'requires git, awk, cmp or mktemp to be absent from PATH',
         'tmpfile-out':         'requires mktemp to fail',
         'tmpfile-apply':       'requires mktemp to fail',
+        'tmpfile-backup':      'requires mktemp to fail',
+        'backup-failed':       'requires the target to stop being readable between '
+                               'the resolve-phase check and the backup copy',
         'apply-build-failed':  'requires awk to fail writing a file it just read',
         'apply-write-failed':  'requires a write to fail inside a worktree we just created',
         'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
-        'restore-failed':      'requires git checkout to fail on a tracked path in a '
-                               'worktree just verified clean',
-        # Reachable ONLY through a gitattributes clean filter that normalises the
-        # edit away. The obvious route -- --assume-unchanged, where git reports no
-        # diff for a file that did change -- is refused as `ignored-target` before
-        # anything is written, because whether git restores such a path afterwards
-        # depends on the git version.
-        'mutant-had-no-effect': 'requires a clean tracked target whose edit a '
-                               'gitattributes filter normalises away',
+        # True now the check is a byte comparison against the backup copy rather
+        # than a question to git: `find` is verified present on the line and
+        # differs from `replace`, so awk cannot emit identical bytes.
+        'mutant-had-no-effect': 'requires awk to emit bytes identical to its input '
+                               'after replacing a string verified present with a '
+                               'different one',
         'root-unreachable':    'requires the worktree root to stop being enterable '
                                'between rev-parse --show-toplevel and the cd',
         'test-killed':         'requires the test command to die by signal mid-run',
@@ -666,7 +694,10 @@ scan_file() {
   # clean while shipping that path. Scan the link text instead, in the same
   # path:line:match shape the callers expect.
   if [[ -L "$2" ]]; then
-    local link; link=$(readlink "$2")
+    # `--` here for the same reason as on the grep below: without it a symlink
+    # named -notes.md is read as options, which is the exact hole this whole
+    # function exists to close.
+    local link; link=$(readlink -- "$2")
     printf '%s' "$link" | grep -qE "$1" 2>/dev/null && printf '%s:1:%s\n' "$2" "$link"
     return
   fi
@@ -708,6 +739,15 @@ if [[ -n "$linkhit" ]]; then
   pass "scan canary  a symlink is scanned by its link text, which is what git commits"
 else
   fail "scan_file follows symlinks — a tracked link to a personal path would ship unseen"
+fi
+# Both hazards at once: a symlink whose NAME also starts with a dash. readlink
+# needs its own `--`; the grep's is no help on this branch.
+ln -s /home/someone/private-notes.md "$dashprobe/-linked.md"
+dashlinkhit=$( cd "$dashprobe" && scan_file '/home/' '-linked.md' )
+if [[ -n "$dashlinkhit" ]]; then
+  pass "scan canary  a dash-named symlink is scanned too"
+else
+  fail "readlink drops a leading-dash symlink — it would ship unseen"
 fi
 rm -rf "$dashprobe"
 
