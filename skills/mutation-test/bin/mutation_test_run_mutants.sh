@@ -293,6 +293,19 @@ while [ "$i" -le "$M_COUNT" ]; do
 Each mutant is undone with 'git checkout -- $f', which cannot restore a file
 git does not track, so mutating it would overwrite it with no way back. Commit
 or stage it first."
+  # --assume-unchanged and --skip-worktree are promises to git that the file will
+  # not change, and git is entitled to act on them. Whether `git checkout --`
+  # restores such a path is VERSION-DEPENDENT: git 2.43 restores it, git 2.55
+  # leaves it mutated. Found by an acceptance assertion that passed on Linux and
+  # failed on the macOS CI runner. So this is the untracked case again -- a file
+  # whose restore we cannot rely on must not be written in the first place.
+  case $(git ls-files -v -- "$f") in
+    ([a-z]*|S*) refuse ignored-target 52 "mutant $i: git has been told to ignore changes to $f
+(--assume-unchanged or --skip-worktree). Whether 'git checkout --' restores such
+a path depends on the git version, so mutating it risks leaving it changed with
+no way back. Clear the bit first:
+  git update-index --no-assume-unchanged $f" ;;
+  esac
   # The worktree guard above cannot tell a throwaway checkout from a long-lived
   # worktree someone keeps work in, and the same whole-file restore discards
   # uncommitted edits along with the mutation. Only the files this run will

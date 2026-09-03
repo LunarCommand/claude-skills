@@ -844,19 +844,23 @@ rm_expect 52 untracked-target "an untracked target is refused: git checkout coul
   || fail "the runner overwrote an untracked file it cannot restore"
 git -C "$MREPO" worktree remove --force "$UNTRWT" >/dev/null 2>&1; rm -rf "$UNTRWT"
 
-# Reachable, despite having been exempted as "requires an edit that changes
-# bytes yet leaves git diff empty" -- which is what --assume-unchanged does.
-# That exemption forbade the suite from covering the slug at all.
-AUWT=$(mktemp -d "$FIXTURE/auwt.XXXXXX"); rmdir "$AUWT"
-git -C "$MREPO" worktree add --detach "$AUWT" HEAD >/dev/null 2>&1
-git -C "$AUWT" update-index --assume-unchanged src/limits.py
-AU_BEFORE=$(content_id "$AUWT/src/limits.py")
-RM_ERR=$( cd "$AUWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
-rm_expect 52 mutant-had-no-effect "a target git has been told to ignore is refused, not scored"
-[ "$(content_id "$AUWT/src/limits.py")" = "$AU_BEFORE" ] \
-  && pass "and that file is restored byte-for-byte" \
-  || fail "an assume-unchanged target was left mutated"
-git -C "$MREPO" worktree remove --force "$AUWT" >/dev/null 2>&1; rm -rf "$AUWT"
+# --assume-unchanged and --skip-worktree tell git the file will not change, and
+# whether `git checkout --` restores one anyway is version-dependent: git 2.43
+# does, git 2.55 does not. An earlier version of this suite let the run proceed
+# and asserted the restore, which passed on Linux and left the file mutated on
+# the macOS runner -- so the target is refused before anything is written.
+for bit in assume-unchanged skip-worktree; do
+  AUWT=$(mktemp -d "$FIXTURE/auwt.XXXXXX"); rmdir "$AUWT"
+  git -C "$MREPO" worktree add --detach "$AUWT" HEAD >/dev/null 2>&1
+  git -C "$AUWT" update-index "--$bit" src/limits.py
+  AU_BEFORE=$(content_id "$AUWT/src/limits.py")
+  RM_ERR=$( cd "$AUWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+  rm_expect 52 ignored-target "a --$bit target is refused before it is written"
+  [ "$(content_id "$AUWT/src/limits.py")" = "$AU_BEFORE" ] \
+    && pass "and the --$bit file is byte-identical afterwards" \
+    || fail "a --$bit target was left mutated"
+  git -C "$MREPO" worktree remove --force "$AUWT" >/dev/null 2>&1; rm -rf "$AUWT"
+done
 
 # The two halves of the worktree requirement, each by its own slug.
 STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?

@@ -540,6 +540,13 @@ scripts = {
         'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
         'restore-failed':      'requires git checkout to fail on a tracked path in a '
                                'worktree just verified clean',
+        # Reachable ONLY through a gitattributes clean filter that normalises the
+        # edit away. The obvious route -- --assume-unchanged, where git reports no
+        # diff for a file that did change -- is refused as `ignored-target` before
+        # anything is written, because whether git restores such a path afterwards
+        # depends on the git version.
+        'mutant-had-no-effect': 'requires a clean tracked target whose edit a '
+                               'gitattributes filter normalises away',
         'root-unreachable':    'requires the worktree root to stop being enterable '
                                'between rev-parse --show-toplevel and the cd',
         'test-killed':         'requires the test command to die by signal mid-run',
