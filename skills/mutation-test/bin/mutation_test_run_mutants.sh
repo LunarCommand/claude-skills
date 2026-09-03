@@ -299,11 +299,21 @@ or stage it first."
   # leaves it mutated. Found by an acceptance assertion that passed on Linux and
   # failed on the macOS CI runner. So this is the untracked case again -- a file
   # whose restore we cannot rely on must not be written in the first place.
-  case $(git ls-files -v -- "$f") in
-    ([a-z]*|S*) refuse ignored-target 52 "mutant $i: git has been told to ignore changes to $f
-(--assume-unchanged or --skip-worktree). Whether 'git checkout --' restores such
-a path depends on the git version, so mutating it risks leaving it changed with
-no way back. Clear the bit first:
+  # `git ls-files -v` prefixes each path with a status letter: H is an ordinary
+  # cached file, S is skip-worktree, and ANY lowercase letter means
+  # assume-unchanged. Only the first character is tested, against an explicit
+  # set -- a range like [a-z] is collation-dependent, which is precisely the kind
+  # of thing that passes here and fails on the macOS runner. The raw line is
+  # quoted in the message so an unexpected letter names itself rather than
+  # needing another CI round trip to diagnose.
+  idx_line=$(git ls-files -v -- "$f")
+  idx_flag=${idx_line%% *}
+  case $idx_flag in
+    (S|a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z)
+      refuse ignored-target 52 "mutant $i: git has been told to ignore changes to $f
+(--assume-unchanged or --skip-worktree; git ls-files -v says [$idx_line]).
+Whether 'git checkout --' restores such a path depends on the git version, so
+mutating it risks leaving it changed with no way back. Clear the bit first:
   git update-index --no-assume-unchanged $f" ;;
   esac
   # The worktree guard above cannot tell a throwaway checkout from a long-lived
