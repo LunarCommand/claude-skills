@@ -161,7 +161,12 @@ restore_mutated() {
   # fill a filesystem. It is kept because it is cheap and the alternative is
   # trusting an exit status, which is exactly what hid the accumulation above.
   if [ -n "$keep" ]; then
-    RESTORE_ERR=$(cat "$keep" > "$ROOT/$lost" 2>&1) || true
+    # `2>&1 >file`, in that order: stderr goes to the substitution and stdout to
+    # the file. Written the other way round (`>file 2>&1`) stderr follows stdout
+    # INTO the file being restored, so a failure would write its own error
+    # message over the content it is meant to be putting back. The linter here
+    # was silent about it at 0.9.0; the newer one on the macOS runner was not.
+    RESTORE_ERR=$(cat "$keep" 2>&1 > "$ROOT/$lost") || true
     if [ -z "$RESTORE_ERR" ] && cmp -s "$keep" "$ROOT/$lost"; then
       rm -f "$keep"
       return 0
