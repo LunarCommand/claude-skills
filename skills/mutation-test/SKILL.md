@@ -4,12 +4,17 @@ description: >-
   Proves a test actually checks something, by breaking the behaviour it claims to
   cover and confirming it goes red. Use when a test, fixture, assertion or guard
   has been reported as working and you want evidence rather than a green run, or
-  to check a claim that some code is dead, unused or unreachable. Triggers on
-  "mutation test", "mutation testing", "prove it fails", "are these tests real",
-  "does this test actually assert anything", "is that assertion live", "did you
-  verify it's not vacuous", "how do you know it's checking anything", or any claim
-  that a test passes being offered as evidence the behaviour is correct. Also use
-  it proactively before reporting harness or fixture work as done.
+  to check a claim that some code is dead, unused or unreachable. Also use it for
+  a SCOPED run over a PR or a diff — resolving the changed lines and mutating a
+  chosen few in a throwaway worktree, to find which of them no test covers.
+  Triggers on "mutation test", "mutation testing", "prove it fails", "are these
+  tests real", "does this test actually assert anything", "is that assertion
+  live", "did you verify it's not vacuous", "how do you know it's checking
+  anything", "which changed lines are tested", "is this PR actually covered",
+  "are the changes in PR 123 tested", "check the coverage on this diff", "mutation
+  test this PR", or any claim that a test passes being offered as evidence the
+  behaviour is correct. Also use it proactively before reporting harness or
+  fixture work as done.
 ---
 
 # Mutation testing

@@ -651,7 +651,20 @@ publishable() { git ls-files -c -o --exclude-standard -z 2>/dev/null; }
 # Both file-content scans below read a file through THIS function and nothing
 # else, so the `--` that keeps a dash-named file readable exists in exactly one
 # place — which is what lets the canary underneath it mean something.
-scan_file() { grep -EnH "$1" -- "$2" 2>/dev/null; }
+scan_file() {
+  # A SYMLINK's publishable content is its LINK TEXT -- that is the blob git
+  # stores -- but grep follows the link and scans whatever is at the other end,
+  # or nothing at all when the target is absent, an exit 2 the 2>/dev/null then
+  # hides. So a tracked `notes.md -> /home/someone/private` passed both scans
+  # clean while shipping that path. Scan the link text instead, in the same
+  # path:line:match shape the callers expect.
+  if [[ -L "$2" ]]; then
+    local link; link=$(readlink "$2")
+    printf '%s' "$link" | grep -qE "$1" 2>/dev/null && printf '%s:1:%s\n' "$2" "$link"
+    return
+  fi
+  grep -EnH "$1" -- "$2" 2>/dev/null
+}
 
 # Positive control for the two file-content scans below. The cruft scan greps a
 # stream of names on stdin and takes no file operand, so it is not covered here.
@@ -679,6 +692,15 @@ if [[ -n "$dashhit" ]]; then
   pass "scan canary  the hygiene scans still read a leading-dash filename"
 else
   fail "scan_file cannot read a leading-dash filename — both hygiene scans would skip it"
+fi
+# Second canary, same reasoning: the link points at a path that does NOT exist,
+# so a scan that dereferences it finds nothing and reports the file clean.
+ln -s /home/someone/private-notes.md "$dashprobe/linked.md"
+linkhit=$( cd "$dashprobe" && scan_file '/home/' 'linked.md' )
+if [[ -n "$linkhit" ]]; then
+  pass "scan canary  a symlink is scanned by its link text, which is what git commits"
+else
+  fail "scan_file follows symlinks — a tracked link to a personal path would ship unseen"
 fi
 rm -rf "$dashprobe"
 
