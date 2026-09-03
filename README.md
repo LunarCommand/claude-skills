@@ -190,8 +190,10 @@ so your files are never touched.
 map picks them for you, and the suite runs once per mutant. Mark one mutant as
 the `control`, on a line you are confident is covered — if it dies, the tests
 demonstrably see the edits, so every other survivor is a real gap. A run in
-which nothing at all died is refused rather than reported, because that is
-equally what a suite reading a different copy of your source looks like.
+which nothing died is refused rather than reported — when there is enough to
+conclude from, meaning a control, or survivors on two or more distinct lines —
+because that is equally what a suite reading a different copy of your source
+looks like.
 
 #### `/pr-review` — work through review comments
 

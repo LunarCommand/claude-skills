@@ -44,7 +44,11 @@
 # MARK ONE MUTANT `control` AND THE GUESSWORK GOES AWAY. A control is a mutant
 # on a line you are confident IS covered.
 #
-# THE RULE IS: A RUN IN WHICH NOTHING AT ALL DIED IS REFUSED. Anything killed --
+# THE RULE IS: A RUN IN WHICH NOTHING DIED IS REFUSED, PROVIDED THERE IS ENOUGH
+# TO CONCLUDE FROM -- either a control was given, or the survivors span two or
+# more distinct lines. A LONE SURVIVOR IS REPORTED, not refused: one mutant on
+# one line cannot tell a broken environment from an uncovered line, so refusing
+# it would be a guess in the other direction. Anything killed --
 # control or not -- proves the tests see edits to this checkout, so every
 # survivor beside it is a real coverage gap and the run reports normally. What a
 # control buys is a refusal that can say why: "you told me this line was covered
@@ -69,7 +73,7 @@
 #
 # Refusals print `mutation_test_run_mutants: refused: <slug>` before exiting:
 #   50 usage   51 missing dependency   52 spec or apply problem
-#   53 baseline red   54 nothing was killed, so no result can be trusted
+#   53 baseline red   54 nothing was killed and the result cannot be read
 #   55 the test never ran
 set -uo pipefail
 
@@ -95,10 +99,11 @@ untracked file in the repo will not exist inside the worktree.
                  reach it without writing one:
                    file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control
                  Mark one mutant `control` on a line you know is covered. A run
-                 in which nothing at all was killed is refused; a control makes
-                 that refusal specific instead of a guess. Without one,
-                 all-mutants-surviving is refused as probable mis-wiring, which
-                 is wrong on genuinely untested code.
+                 in which nothing was killed is refused when there is enough to
+                 conclude from -- a control, or survivors on two or more distinct
+                 lines. A control makes that refusal specific instead of a guess.
+                 A lone survivor is reported, because one mutant cannot tell a
+                 broken environment from an uncovered line.
   --test <cmd>   the command that judges a mutant; must exit 0 on clean source
   --dry-run      resolve and check every mutant, run no mutants. Composed with
                  mutation_test_worktree.sh you still pay that script's baseline
@@ -124,7 +129,16 @@ require_cmd() {
 # might drop.
 restore_mutated() {
   [ -n "$MUTATED" ] || return 0
-  git checkout -- "$MUTATED" 2>/dev/null || say "WARNING: could not restore $MUTATED with git checkout"
+  # A failed restore leaves a mutated file in place, so every verdict after it
+  # is computed against a corrupted tree. That was a WARNING, which meant the
+  # run carried on and reported those verdicts as results.
+  if ! git checkout -- "$MUTATED" 2>/dev/null; then
+    local lost=$MUTATED
+    MUTATED=''
+    refuse restore-failed 52 "could not restore $lost with 'git checkout --'.
+It is still MUTATED. Everything this run would report from here on is measured
+against a tree that no longer matches your source, so it stops instead."
+  fi
   MUTATED=''
 }
 cleanup() { [ -n "$TEST_PID" ] && kill "$TEST_PID" 2>/dev/null; restore_mutated; [ -n "$OUT" ] && rm -f "$OUT"; return 0; }
@@ -161,6 +175,18 @@ case $gitdir in
        as the command of 'mutation_test_worktree.sh run'." ;;
 esac
 ROOT=$(git rev-parse --show-toplevel) || refuse no-toplevel 52 "cannot find the worktree root"
+# The spec path is resolved BEFORE the cd below, so a relative --spec keeps
+# working from wherever the caller stood.
+case $SPEC in (/*) : ;; (*) SPEC="$PWD/$SPEC" ;; esac
+# Every git pathspec here is relative to the worktree ROOT, and git resolves a
+# pathspec against the CURRENT DIRECTORY. Run from a subdirectory without this
+# and `git diff -- src/x.py` matches nothing: the dirty-target guard goes
+# silent, the post-apply effect check reports no change, and `git checkout --`
+# restores nothing while claiming success. The mutation still lands, because it
+# is written through the absolute "$ROOT/$f". So the whole script works from the
+# root. mutation_test_worktree.sh already documents this exact class of bug in
+# its own history; nothing but this line keeps it from recurring here.
+cd "$ROOT" || refuse root-unreachable 52 "cannot enter the worktree root: $ROOT"
 
 # --- read the spec -----------------------------------------------------------
 # One line per mutant, so a malformed record cannot silently merge with its
@@ -207,9 +233,15 @@ while IFS= read -r sl || [ -n "$sl" ]; do
       # The likeliest way to believe you marked a control and not have. The run
       # would lose its only wiring evidence and report a confident coverage gap
       # -- silently, and in the direction this whole mechanism exists to stop.
-      [ "$ds" = control ] && refuse spec-control-needs-desc 52 "spec line $lineno: 'control' must be the SIXTH field, not the fifth.
+      # Matched as loosely as the sixth field is refused strictly: capitalising,
+      # or padding while aligning columns, produced exactly the outcome this
+      # guard exists to prevent.
+      case $ds in
+        ([Cc][Oo][Nn][Tt][Rr][Oo][Ll]|' '*[Cc][Oo][Nn][Tt][Rr][Oo][Ll]|*[Cc][Oo][Nn][Tt][Rr][Oo][Ll]' ')
+          refuse spec-control-needs-desc 52 "spec line $lineno: 'control' must be the SIXTH field, not the fifth.
 Leave the description empty to reach it:
-  file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control"
+  file<TAB>line<TAB>find<TAB>replace<TAB><TAB>control" ;;
+      esac
     else
       ds=${r4%%"$tab"*}; ct=${r4#*"$tab"}
     fi
@@ -252,12 +284,22 @@ while [ "$i" -le "$M_COUNT" ]; do
   [ -L "$ROOT/$f" ] && refuse symlink-target 52 "mutant $i: $f is a symlink; mutating it would write through
        the link, outside the worktree. Name the file it points at."
   [ -f "$ROOT/$f" ] || refuse not-a-regular-file 52 "mutant $i: not a regular file: $f"
+  # Undo is `git checkout -- <path>`, which can only restore a path git TRACKS.
+  # An untracked target is therefore unrestorable by construction: the mutation
+  # is written, the restore fails, and the file is gone with no backup. It is
+  # also the archetypal target — a module you have just written and not yet
+  # added — so this is checked before anything is written, not after.
+  git ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || refuse untracked-target 52 "mutant $i: $f is not tracked by git in this worktree.
+Each mutant is undone with 'git checkout -- $f', which cannot restore a file
+git does not track, so mutating it would overwrite it with no way back. Commit
+or stage it first."
   # The worktree guard above cannot tell a throwaway checkout from a long-lived
-  # worktree someone keeps work in, and restore is a whole-file `git checkout
-  # --`, which discards uncommitted edits rather than the mutation alone. Only
-  # the files this run will restore need to be clean, so a --setup that dirties
-  # something else does not trip it.
-  git diff --quiet HEAD -- "$f" 2>/dev/null || refuse dirty-target 52 "mutant $i: $f has uncommitted changes in this worktree.
+  # worktree someone keeps work in, and the same whole-file restore discards
+  # uncommitted edits along with the mutation. Only the files this run will
+  # restore need to be clean, so a --setup that dirties something else does not
+  # trip it. A dry run writes nothing and restores nothing, so it is exempt --
+  # refusing there would break the one cheap way to check a spec for typos.
+  [ "$DRY" = yes ] || git diff --quiet HEAD -- "$f" 2>/dev/null || refuse dirty-target 52 "mutant $i: $f has uncommitted changes in this worktree.
 Each mutant is undone with 'git checkout -- $f', which would discard them
 along with the mutation. Commit or stash them first, or point this at a
 throwaway worktree from 'mutation_test_worktree.sh run'."
@@ -287,9 +329,10 @@ if [ "$DRY" = yes ]; then
   # failed to happen.
   if [ "$dctrl" -eq 0 ]; then
     say ""
-    say "No control in this spec. If every mutant survives, the run will be"
-    say "REFUSED rather than reported. Mark one 'control' in a sixth field, on"
-    say "a line you are confident is covered, to get a verdict either way."
+    say "No control in this spec. If every mutant survives across two or more"
+    say "distinct lines, the run will be REFUSED rather than reported. Mark one"
+    say "'control' in a sixth field, on a line you are confident is covered, to"
+    say "get a verdict either way."
   fi
   exit 0
 fi
@@ -352,9 +395,11 @@ while [ "$i" -le "$M_COUNT" ]; do
 
   # The edit must actually change the file, or a "survivor" means nothing.
   if git diff --quiet -- "$f" 2>/dev/null; then
-    restore_mutated
-    refuse mutant-had-no-effect 52 "mutant $i: applying it left $f unchanged, so a survivor would be a
-       coverage gap that does not exist."
+    refuse mutant-had-no-effect 52 "mutant $i: git reports $f unchanged after applying it, so a survivor
+       would be a coverage gap that does not exist. The target is tracked and was
+       clean, so either the edit genuinely made no difference, or git has been
+       told to stop looking at this file — check for --assume-unchanged and
+       --skip-worktree on it."
   fi
 
   rc=0; run_test || rc=$?

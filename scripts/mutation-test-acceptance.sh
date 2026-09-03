@@ -525,13 +525,37 @@ printf '%s' "$CL_OUT" | grep -q 'src/auth.py	13' \
   && pass "the line that injection hid is still reported, under its real path" \
   || fail "the injected hunk lost a line entirely"
 
+# The first fix for the above used a "saw --- last" flag, which the same author
+# could re-arm: DELETE a line whose text begins `-- ` (an SQL or Lua comment, a
+# signature delimiter) and it renders as `--- `, so the next `+++ ` was read as
+# a header again. That was worse than the original -- the hunk's added lines
+# were dropped from the inventory rather than misfiled.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,4 +10,5 @@\n context\n--- legacy sql comment\n+++ b/README.md\n+    tok = "letmein"\n+    passwd = "hunter2"\n@@ -40,1 +41,2 @@\n other\n+    another_secret = 1\n' > "$FIXTURE/rearm.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/rearm.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "a deleted line beginning '-- ' re-armed the header branch"
+else
+  pass "a deleted line beginning '-- ' cannot re-arm the header branch"
+fi
+# 11, 12 and 13 are the three added lines of hunk one (the spoofed header IS an
+# added line); 42 is the added line of hunk two.
+for want in 11 12 13 42; do
+  printf '%s' "$CL_OUT" | grep -q "src/auth.py	$want" \
+    || fail "the re-arm spoof lost src/auth.py:$want"
+done
+[ "$(printf '%s' "$CL_OUT" | grep -c 'src/auth.py')" -eq 4 ] \
+  && pass "every added line of the spoofed diff is reported under its real path" \
+  || fail "wrong line count for the re-arm spoof"
+
 echo
 echo "Running mutants"
 
-# The runner now REFUSES to run outside a throwaway worktree, so every case
-# here goes through one. That is the point: the standalone mode it used to have
-# is what forced a bulletproof restore path, and two data-loss defects lived in
-# that path. git checkout in a disposable checkout replaced all of it.
+# The runner REFUSES to run outside a linked worktree, so every case here is in
+# one. Most go through mutation_test_worktree.sh, which makes a THROWAWAY one --
+# the recommended form, and what the standalone mode it used to have was
+# replaced by after two data-loss defects lived in that mode's restore path.
+# Some cases below run the runner directly inside a worktree the suite builds,
+# which is also supported and is what SKILL.md recommends for a cheap --dry-run.
 MREPO="$FIXTURE/mrepo"; mkdir -p "$MREPO/src"
 cat > "$MREPO/src/limits.py" <<'PY'
 def over(n):
@@ -661,6 +685,14 @@ rm_expect 52 spec-bad-control "a misspelled sixth field is refused, not ignored"
 printf 'src/limits.py\t5\t* 2\t* 3\tcontrol\n' > "$SPECD/fifthctrl.tsv"
 rm_run "$SPECD/fifthctrl.tsv" ./t.sh
 rm_expect 52 spec-control-needs-desc "'control' in the fifth field is refused, not read as a description"
+# The sixth-field check refuses every near-miss, so the fifth-field guard has to
+# be at least as loose or the strictness is backwards: capitalising, or padding
+# while aligning columns, silently produced the outcome it exists to prevent.
+for variant in 'Control' 'CONTROL' 'control '; do
+  printf 'src/limits.py\t5\t* 2\t* 3\t%s\n' "$variant" > "$SPECD/fifthvar.tsv"
+  rm_run "$SPECD/fifthvar.tsv" ./t.sh
+  rm_expect 52 spec-control-needs-desc "'$variant' in the fifth field is refused too"
+done
 
 # A spec written on Windows put a CR on the last field, so the refusal read
 # "must be the word 'control', not 'control'" — two strings that render alike.
@@ -773,7 +805,58 @@ rm_expect 52 dirty-target "a target carrying uncommitted work is refused, not qu
 [ "$(content_id "$DIRTYWT/src/limits.py")" = "$DIRTY_BEFORE" ] \
   && pass "that uncommitted work is still there afterwards" \
   || fail "the runner altered work in a tree it refused to mutate"
+# ...but a DRY run writes nothing and restores nothing, so refusing there breaks
+# the one cheap way to check a spec for typos -- in exactly the worktree the
+# docs recommend it for.
+RM_OUT=$( cd "$DIRTYWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>"$FIXTURE/rmerr.txt" ); RM_RC=$?
+{ [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'limits.py:2'; } \
+  && pass "a dry run against a dirty target is allowed, and lists the mutants" \
+  || fail "a dry run against a dirty target was refused (exit $RM_RC)"
+
+# git resolves a pathspec against the CURRENT DIRECTORY, but every path here is
+# relative to the worktree ROOT. Run from a subdirectory, the guard matched
+# nothing and went silent -- while the mutation still landed, because it is
+# written through an absolute path. The restore missed for the same reason, so
+# a CLEAN worktree was left with every mutant applied.
+mkdir -p "$DIRTYWT/sub"
+RM_ERR=$( cd "$DIRTYWT/sub" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 dirty-target "the guard still fires when the runner is invoked from a subdirectory"
+[ "$(content_id "$DIRTYWT/src/limits.py")" = "$DIRTY_BEFORE" ] \
+  && pass "and the uncommitted work survives a subdirectory invocation" \
+  || fail "a subdirectory invocation altered the uncommitted work"
 git -C "$MREPO" worktree remove --force "$DIRTYWT" >/dev/null 2>&1; rm -rf "$DIRTYWT"
+
+# `git checkout -- <path>` can only restore a path git TRACKS, so an untracked
+# target is unrestorable by construction. `git diff --quiet HEAD -- <untracked>`
+# exits 0, so the dirty-target guard was blind to it: the runner mutated the
+# file, the restore failed with a warning, and it refused `mutant-had-no-effect`
+# -- a message asserting the file was unchanged, moments after overwriting it.
+# An unadded module is the archetypal target for this tool.
+UNTRWT=$(mktemp -d "$FIXTURE/untrwt.XXXXXX"); rmdir "$UNTRWT"
+git -C "$MREPO" worktree add --detach "$UNTRWT" HEAD >/dev/null 2>&1
+printf 'x = 1\ny = 2 >= 3\nz = 4\n' > "$UNTRWT/src/new_feature.py"
+UNTR_BEFORE=$(content_id "$UNTRWT/src/new_feature.py")
+printf 'src/new_feature.py\t2\t>=\t>\tnever added\n' > "$SPECD/untracked.tsv"
+RM_ERR=$( cd "$UNTRWT" && "$RM_SH" --spec "$SPECD/untracked.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 untracked-target "an untracked target is refused: git checkout could never restore it"
+[ "$(content_id "$UNTRWT/src/new_feature.py")" = "$UNTR_BEFORE" ] \
+  && pass "the untracked file is byte-identical afterwards" \
+  || fail "the runner overwrote an untracked file it cannot restore"
+git -C "$MREPO" worktree remove --force "$UNTRWT" >/dev/null 2>&1; rm -rf "$UNTRWT"
+
+# Reachable, despite having been exempted as "requires an edit that changes
+# bytes yet leaves git diff empty" -- which is what --assume-unchanged does.
+# That exemption forbade the suite from covering the slug at all.
+AUWT=$(mktemp -d "$FIXTURE/auwt.XXXXXX"); rmdir "$AUWT"
+git -C "$MREPO" worktree add --detach "$AUWT" HEAD >/dev/null 2>&1
+git -C "$AUWT" update-index --assume-unchanged src/limits.py
+AU_BEFORE=$(content_id "$AUWT/src/limits.py")
+RM_ERR=$( cd "$AUWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 mutant-had-no-effect "a target git has been told to ignore is refused, not scored"
+[ "$(content_id "$AUWT/src/limits.py")" = "$AU_BEFORE" ] \
+  && pass "and that file is restored byte-for-byte" \
+  || fail "an assume-unchanged target was left mutated"
+git -C "$MREPO" worktree remove --force "$AUWT" >/dev/null 2>&1; rm -rf "$AUWT"
 
 # The two halves of the worktree requirement, each by its own slug.
 STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?

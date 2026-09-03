@@ -229,7 +229,11 @@ cmd_run() {
   REPO=$(abspath_dir "$REPO") || refuse unresolvable-toplevel 40 "cannot resolve the repository root"
 
   git -C "$REPO" rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 ||
-    refuse bad-ref 40 "ref does not resolve to a commit in $REPO: $ref"
+    refuse bad-ref 40 "ref does not resolve to a commit in $REPO: $ref.
+       A PR head is the usual case: 'gh pr view N --json headRefOid' reads it
+       from the API without fetching the object, and a fork's head is never
+       fetched by the default refspec. Fetch it first:
+         git fetch origin pull/N/head"
 
   # The WHOLE tree, not one file. An earlier version checked only the file
   # about to be mutated, so a dirty TEST file — the normal state when this

@@ -287,8 +287,17 @@ gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
 Every added or modified line in the diff, as `path<TAB>line`. Deleted lines are
 absent — there is nothing left to mutate.
 
-**Note the PR's head SHA now** — `gh pr view 277 --json headRefOid --jq
-.headRefOid` — because step 3 needs it. These line numbers address the PR's
+**Fetch the PR's head and note its SHA now**, because step 3 needs both:
+
+```
+git fetch origin pull/277/head
+gh pr view 277 --json headRefOid --jq .headRefOid
+```
+
+`gh pr diff` and `gh pr view` are API calls that write nothing to your object
+database, and a fork's head is never fetched by the default refspec — so without
+the `git fetch` the SHA is real but absent locally, and step 3 stops with
+`refused: bad-ref`. These line numbers address the PR's
 head, and the worktree defaults to your own `HEAD`. Reviewing someone else's PR
 from your own main is the ordinary case, so without `--ref` the numbers and the
 files come from different revisions: most mutants fail to resolve, and the ones
@@ -319,7 +328,11 @@ without writing one: `file⇥line⇥find⇥replace⇥⇥control`. Writing `contr
 fifth field is refused rather than read as a description — that is the way to
 believe you marked a control and not have.
 
-**The rule is that a run in which nothing at all died is refused.** Anything
+**The rule is that a run in which nothing died is refused — when there is
+enough to conclude from.** That means a control was given, or the survivors
+span two or more distinct lines. A lone survivor is reported rather than
+refused, because one mutant on one line cannot tell a broken environment from an
+uncovered one. Anything
 killed, control or not, proves the tests see this checkout. So a control that
 survives *beside a kill* is not a refusal: it means the line you picked is not
 covered after all, and the run says so and carries on. Without a control, a run
@@ -346,30 +359,45 @@ mutation_test_worktree.sh run --ref <pr-head-sha> --test 'make test' -- \
 `--ref` is the head SHA from step 1. It is not optional for a PR: it defaults to
 your `HEAD`, and the spec's line numbers do not address that.
 
-The worktree layer checks the tree is clean and the baseline is green; the
+**A non-HEAD `--ref` also turns the working-tree checks off.** They exist to
+catch work that would be missing from the worktree, and that reasoning only
+holds when the worktree is being cut from the commit your tree is sitting on. So
+on this path the clean-tree and untracked-file guards below do not run, and the
+run says `the working tree is not consulted` when it skips them. The runner's
+own per-target guards still apply.
+
+The worktree layer checks the baseline is green — and, when `--ref` is HEAD or
+absent, that the tree is clean; the
 runner applies each mutant, runs the suite, restores it with `git checkout`,
 and reports. Your files are never touched — and the runner **refuses to run
 outside a throwaway worktree**, so that is enforced rather than promised. `--dry-run` resolves every mutant against the source and runs no mutants — but
 in this composed form it still pays the worktree layer's baseline, so it costs
 **one full suite run**, not nothing. That is still worth it before ten of them.
 To check a spec for typos without paying even that, run the runner with
-`--dry-run` directly inside a worktree you already have — but note that
-**without `--dry-run` it will mutate that worktree**, and it undoes each mutant
-with a whole-file `git checkout --`. It refuses a target carrying uncommitted
-changes for exactly that reason, so the worst case is a refusal rather than lost
-work, but the composed form above is the one to reach for by default.
+`--dry-run` directly inside a worktree you already have. A dry run writes
+nothing, so it is allowed even when your targets carry uncommitted work.
+
+**Without `--dry-run` it will mutate that worktree**, undoing each mutant with a
+whole-file `git checkout --`. Two per-target guards stand in the way: it refuses
+a target with uncommitted changes, and it refuses one git does not track at all,
+since `git checkout --` cannot restore what git is not tracking. So the expected
+outcome there is a refusal rather than lost work — but the composed form above
+is still the one to reach for by default, because a fresh throwaway worktree has
+nothing to lose in the first place.
 
 If an unrelated untracked file blocks the run, name it — `--untracked-ok
 scratch.md`. That acknowledges one path; it does not excuse the others, so a
-test you had forgotten still stops the run.
+test you had forgotten still stops the run. **This applies to the HEAD path
+only** — with the non-HEAD `--ref` of the PR recipe above, the scan does not run
+and `--untracked-ok` has nothing to do.
 
 ### Reading the result
 
 A **killed** mutant means that line is covered. A **survivor** is a coverage
 gap, not a bug — the same reading as the manual path.
 
-**If nothing at all was killed, the run refuses** — and with a control it can
-say why: you named a line as covered and its mutant lived too, which points at
+**If nothing was killed, the run refuses** — provided a control was given or the
+survivors span two or more distinct lines. With a control it can say why: you named a line as covered and its mutant lived too, which points at
 the environment rather than the coverage, since a suite resolving to a different
 copy of your source produces exactly this.
 

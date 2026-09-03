@@ -57,12 +57,14 @@ nothing tests.
   pointed at a freshly changed module, the heuristic below refused four mutants
   whose lines a coverage report independently called untested — a false alarm on
   exactly the code this feature is aimed at.
-- **A run in which nothing at all was killed is refused** rather than reported as
-  coverage gaps, and a control makes that refusal specific instead of a guess.
-  Everything surviving is what a suite resolving to a different copy of your
-  source looks like, and it cannot be told from genuine absence of coverage
-  except by how unlikely it is. Reporting it would be exactly the confident,
-  false clean run this skill exists to prevent.
+- **A run in which nothing was killed is refused** rather than reported as
+  coverage gaps, provided there is enough to conclude from: a control was given,
+  or the survivors span two or more distinct lines. A lone survivor stays a
+  reported finding, since one mutant cannot tell the two cases apart. A control
+  makes the refusal specific instead of a guess. Everything surviving is what a
+  suite resolving to a different copy of your source looks like, and reporting
+  it would be exactly the confident, false clean run this skill exists to
+  prevent.
 - **A control that survives beside a kill is reported, not refused.** Something
   died, so the tests demonstrably see that checkout; the honest reading is that
   the line you named is not covered after all, and the run says so in a NOTE. It
@@ -72,9 +74,10 @@ nothing tests.
   Go or Rust project.
 - `--dry-run` resolves every mutant against the source and runs no mutants,
   listing which of them are controls. Composed with `mutation_test_worktree.sh`
-  — the only supported invocation, since the runner refuses to run outside a
-  worktree — it still pays that script's baseline, so a spec typo costs one full
-  suite run rather than ten.
+  — the recommended form, because the worktree it makes is throwaway — it still
+  pays that script's baseline, so a spec typo costs one full suite run rather
+  than ten. Run directly inside a worktree you already have it costs nothing,
+  and is allowed even when the targets carry uncommitted work.
 - There is no coverage map. It is where "0 covering tests for all nine mutants"
   came from, and without it every mutant runs the full suite — slower, and
   unable to be subtly wrong.

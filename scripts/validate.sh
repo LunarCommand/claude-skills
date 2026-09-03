@@ -538,7 +538,10 @@ scripts = {
         'apply-build-failed':  'requires awk to fail writing a file it just read',
         'apply-write-failed':  'requires a write to fail inside a worktree we just created',
         'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
-        'mutant-had-no-effect': 'requires an edit that changes bytes yet leaves git diff empty',
+        'restore-failed':      'requires git checkout to fail on a tracked path in a '
+                               'worktree just verified clean',
+        'root-unreachable':    'requires the worktree root to stop being enterable '
+                               'between rev-parse --show-toplevel and the cd',
         'test-killed':         'requires the test command to die by signal mid-run',
         'no-toplevel':         'requires rev-parse --show-toplevel to fail inside a '
                                'worktree whose git dir already resolved',

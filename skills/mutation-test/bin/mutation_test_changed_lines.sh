@@ -92,19 +92,25 @@ fi
 # `--- ` or `diff --git` line, and the hunk header's declared new-file length is
 # a budget, so content past it is attributed nowhere.
 pairs=$(awk '
-  /^diff --git / { hdr = 1; path = ""; left = 0; next }
-  /^--- / { hdr = 1; next }
-  /^\+\+\+ / {
-    if (!hdr) { if (left > 0) { print path "\t" lineno; lineno++; left-- } next }
-    hdr = 0
+  # `left` is how many NEW-file lines this hunk still owes, from the @@ header.
+  # While it is positive we are INSIDE a hunk, and inside a hunk every line is
+  # content: a deleted line reading `-- x` renders as `--- x` and an added line
+  # reading `++ x` renders as `+++ x`. So the header rules below apply only
+  # BETWEEN hunks. An earlier fix used a "saw --- last" flag instead, which the
+  # author of the diff could re-arm by deleting a line beginning `-- ` -- the
+  # spoof it was written to stop, one step further along.
+  #
+  # `diff --git` needs no such guard: hunk content always carries a leading
+  # space, +, - or \, so an unprefixed one cannot appear inside a hunk.
+  /^diff --git / { path = ""; left = 0; next }
+  left <= 0 && /^--- / { next }
+  left <= 0 && /^\+\+\+ / {
     path = substr($0, 5)
     sub(/[ \t]+$/, "", path)
     if (path == "/dev/null") { path = "" } else { sub(/^b\//, "", path) }
-    left = 0
     next
   }
   /^@@/ {
-    hdr = 0
     if (match($0, /\+[0-9]+/)) { lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0 }
     # `+c` alone means a one-line hunk; `+c,d` gives the length explicitly.
     if (match($0, /\+[0-9]+,[0-9]+/)) {
@@ -114,7 +120,6 @@ pairs=$(awk '
     } else { left = 1 }
     next
   }
-  { hdr = 0 }
   path == "" { next }
   left <= 0 { next }
   /^\+/ { print path "\t" lineno; lineno++; left--; next }
