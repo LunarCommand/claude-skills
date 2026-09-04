@@ -287,6 +287,17 @@ shellcheck blocks at `warning` severity and the scripts are clean at that level,
 so keep them there. `SHELLCHECK_SEVERITY=error` exists to stage a noisy new
 script without turning CI red; it is not the normal setting.
 
+**Which shellcheck ran is part of the result.** CI pins **0.10.0** on both
+runners, installed from the upstream static binary. It used to be `apt` on Linux
+and `brew` on macOS, which silently meant 0.9.0 on two of the three lint runs
+(local included, since 0.9.0 is the newest this distro's apt offers) and 0.10.x
+on one — so SC2327/SC2328, which catch a redirection that writes an error
+message into the file it is meant to be restoring, fired on the macOS job and
+nowhere else, after the commit had landed. `validate.sh` now prints the version
+beside every `shellcheck` line and warns when it is below what CI pins. If that
+warning appears, the local run is a subset of CI's: install the pinned binary to
+`~/.local/bin` rather than trusting a green local run.
+
 A **missing** shellcheck is a failure, not a warning — a machine that isn't
 linting should not report a clean run, which is how unlinted shell once got past
 the pre-commit hook and was first seen by CI. Install it

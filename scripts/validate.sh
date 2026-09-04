@@ -54,10 +54,30 @@ section "Shell scripts"
 # the run continued past the failure into an unset SH_FILES, so every check below
 # this line was skipped on a Mac — reported as a pass on bash 4.4+, which stopped
 # treating an unset array under `set -u` as an error.
+# Ask git what this repo actually ships, rather than walking the filesystem. A
+# plain `find . -name '*.sh'` also descended into .claude/worktrees/, where the
+# adversarial-review skill puts its throwaway checkouts -- so running this while
+# a review was in flight linted seven extra copies of every script, taken from
+# the DEFAULT BRANCH, under paths that look local. A failure there would have
+# been someone else's code reported as yours. CI never sees it, because no
+# worktrees exist there.
 SH_FILES=()
-while IFS= read -r f; do
-  SH_FILES+=("$f")
-done < <(find . -name '*.sh' -not -path './.git/*' | sort)
+while IFS= read -r -d '' f; do
+  SH_FILES+=("./$f")
+done < <(git ls-files -c -o --exclude-standard -z -- '*.sh' 2>/dev/null)
+if [[ ${#SH_FILES[@]} -eq 0 ]]; then
+  # Not a git checkout: fall back, but prune the same directories by hand.
+  while IFS= read -r f; do
+    SH_FILES+=("$f")
+  done < <(find . -name '*.sh' -not -path './.git/*' -not -path './.claude/*' | sort)
+fi
+# Say the property out loud rather than trusting the command above to keep it.
+sh_stray=''
+for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
+  case $f in (*/.claude/*|./.git/*) sh_stray="$sh_stray $f" ;; esac
+done
+[[ -z "$sh_stray" ]] && pass "discovery   ${#SH_FILES[@]} shell file(s), none from a review worktree" \
+  || { fail "discovery picked up files that are not this repo's:"; printf '%s\n' $sh_stray | sed 's/^/        /'; }
 
 # The ${a[@]+"${a[@]}"} guard is for the same bash 3.2: there, expanding an empty
 # array under `set -u` is itself an "unbound variable" error.
@@ -67,11 +87,24 @@ for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
+  # WHICH shellcheck ran is part of the result. Two of the three lint runs in
+  # this project were 0.9.0 from apt (local and the Linux CI job) and only the
+  # macOS job had 0.10.x from brew -- so a redirection bug that writes an error
+  # message into the file being restored was invisible to two of them and
+  # reported by the third, after the commit. A clean run that does not say what
+  # checked it invites reading it as stronger than it is.
+  sc_version=$(shellcheck --version 2>/dev/null | awk '/^version:/{print $2}')
+  sc_version="${sc_version:-unknown}"
+  # SC2327/SC2328 arrived in 0.10.0. Below that the lint is a subset of what CI
+  # applies, which is worth saying out loud rather than discovering on a push.
+  case $sc_version in
+    (unknown|0.[0-9].*) warn "shellcheck $sc_version is older than the 0.10.0 CI pins — some checks (e.g. SC2327/SC2328) will not run here" ;;
+  esac
   # The scripts were clean at `warning` on the first CI run, so that is the
   # gate. Loosen with SHELLCHECK_SEVERITY=error only to stage a noisy import.
   sev="${SHELLCHECK_SEVERITY:-warning}"
   for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
-    if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f"
+    if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f  [$sc_version]"
     else fail "shellcheck  $f"; printf '%s\n' "$out" | sed 's/^/        /'; fi
   done
   if [[ "$sev" == "error" ]]; then
