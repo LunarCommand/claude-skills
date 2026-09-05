@@ -10,71 +10,10 @@
 # directly on your real files, which meant its restore path had to be perfect,
 # and it was not — a failed restore deleted the backup it had just named, and a
 # not-yet-written backup could be copied over an untouched file. Both are gone,
-# because restoring is now `git checkout -- <file>` in a checkout that is about
-# to be deleted anyway. There is no backup to lose.
-#
-# It does NOT invent mutations. Choosing a semantically meaningful edit needs
-# reading the code, and a generated edit that breaks the syntax goes red for a
-# reason that says nothing about coverage. You choose; this runs them.
-#
-# SPEC FORMAT. One mutant per line, TAB-separated, in a file OUTSIDE the
-# repository (the worktree will not contain an untracked file):
-#
-#   file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
-#   src/pkg/limits.py	42	>=	>	trip the boundary
-#   src/pkg/limits.py	51	return True	return False
-#   src/pkg/parse.py	12	==	!=	a line you KNOW is covered	control
-#
-# Blank lines and lines starting with # are skipped. find and replace are
-# LITERAL and apply to the single line given, first occurrence only. Because
-# the fields are tab-separated, find and replace cannot contain a tab; nothing
-# else is off limits, including spaces, colons and quotes.
-#
-# An earlier version used blank-line-separated `key: value` records. A spec
-# missing one blank line silently collapsed two mutants into one, and that
-# dropped the run below the all-survived floor, turning a mis-wired environment
-# into a confident "coverage gap" report. One line per mutant cannot do that:
-# the wrong number of fields is refused.
-#
-# WHAT A RESULT MEANS. A mutant the suite catches is KILLED — that line is
-# covered. A mutant nothing catches SURVIVED, which is a coverage gap rather
-# than a bug: the code is usually correct as written, and the finding is that a
-# future edit could change behaviour with the suite still green.
-#
-# MARK ONE MUTANT `control` AND THE GUESSWORK GOES AWAY. A control is a mutant
-# on a line you are confident IS covered.
-#
-# THE RULE IS: A RUN IN WHICH NOTHING DIED IS REFUSED, PROVIDED THERE IS ENOUGH
-# TO CONCLUDE FROM -- either a control was given, or the survivors span two or
-# more distinct lines. A LONE SURVIVOR IS REPORTED, not refused: one mutant on
-# one line cannot tell a broken environment from an uncovered line, so refusing
-# it would be a guess in the other direction. Anything killed --
-# control or not -- proves the tests see edits to this checkout, so every
-# survivor beside it is a real coverage gap and the run reports normally. What a
-# control buys is a refusal that can say why: "you told me this line was covered
-# and its mutant lived too" is a diagnosis, where the shape of the result alone
-# is only a suspicion.
-#
-# So a surviving control is NOT a refusal once something else has died. The
-# wiring is proven, and the honest reading is that the line you picked is not
-# covered after all. The run says so in a NOTE and carries on. Refusing there
-# would throw away a sound report over one wrong guess about coverage -- and
-# since there is deliberately no coverage map, guessing is the normal case.
-#
-# Without a control this falls back to a heuristic: every mutant surviving,
-# across two or more distinct lines, is refused as probable mis-wiring. That
-# heuristic is wrong exactly where this tool is most often pointed. Running it
-# against a freshly written module — where coverage is genuinely thinnest — was
-# measured refusing four mutants whose lines a coverage report independently
-# called untested. The environment was fine; the refusal was a false alarm.
-# A control turns "suspect the environment" from a guess into a test.
-#
-# Serial by design: two mutants in one working tree cannot be told apart.
-#
-# Refusals print `mutation_test_run_mutants: refused: <slug>` before exiting:
-#   50 usage   51 missing dependency   52 spec or apply problem
-#   53 baseline red   54 nothing was killed and the result cannot be read
-#   55 the test never ran
+# because every mutant is undone from a byte-exact copy taken immediately before
+# it is applied, and both the apply and the restore land by renaming a file into
+# place rather than writing into the target. A rename is atomic, so there is no
+# moment where the file is half-written for an interrupt to catch.
 set -uo pipefail
 
 SPEC=''
@@ -86,6 +25,8 @@ BACKUP=''
 BACKUP_KEPT=''
 RESTORE_FAILED=''
 RESTORE_ERR=''
+RESTORE_TMP=''
+APPLY_TMP=''
 OUT=''
 
 usage() {
@@ -152,36 +93,94 @@ require_cmd() {
 # but inside the EXIT trap refusing would overwrite the exit code the run had
 # already earned. And it VERIFIES the bytes instead of trusting an exit status,
 # which is what hid the accumulation above.
+# Returns 0 restored and verified, 1 NOT restored (file still mutated), 2
+# restored but the verification disagreed. The caller decides what each means:
+# on the normal path 1 is fatal, but inside the EXIT trap refusing would
+# overwrite the exit code the run had already earned.
+#
+# MUTATED and BACKUP stay set until the rename has actually happened. An earlier
+# version cleared them first, so a signal arriving mid-copy found the trap
+# short-circuited -- and because the copy was `cat > target`, which truncates
+# before it writes, the file was left in pieces while the handler announced it
+# had been restored and never named the surviving backup.
 restore_mutated() {
   [ -n "$MUTATED" ] || return 0
-  lost=$MUTATED; keep=$BACKUP
-  MUTATED=''; BACKUP=''
-  # The cmp is defence against a partial write (a full disk or quota), NOT a
-  # tested branch -- deleting it leaves the suite green, and no fixture here can
-  # fill a filesystem. It is kept because it is cheap and the alternative is
-  # trusting an exit status, which is exactly what hid the accumulation above.
-  if [ -n "$keep" ]; then
-    # `2>&1 >file`, in that order: stderr goes to the substitution and stdout to
-    # the file. Written the other way round (`>file 2>&1`) stderr follows stdout
-    # INTO the file being restored, so a failure would write its own error
-    # message over the content it is meant to be putting back. The linter here
-    # was silent about it at 0.9.0; the newer one on the macOS runner was not.
-    RESTORE_ERR=$(cat "$keep" 2>&1 > "$ROOT/$lost") || true
-    if [ -z "$RESTORE_ERR" ] && cmp -s "$keep" "$ROOT/$lost"; then
-      rm -f "$keep"
-      return 0
-    fi
+  local lost=$MUTATED keep=$BACKUP rtmp cperr
+  RESTORE_ERR=''
+  if [ -z "$keep" ] || [ ! -f "$keep" ]; then
+    RESTORE_FAILED=$lost; BACKUP_KEPT=$keep
+    RESTORE_ERR='the backup copy is missing'
+    return 1
   fi
-  RESTORE_FAILED=$lost; BACKUP_KEPT=$keep
-  return 1
+  # Build the replacement BESIDE the target, then rename over it. A rename is
+  # atomic, so there is no moment where the file is half-written: an interrupt
+  # lands either before it (file still mutated, backup intact, trap can retry)
+  # or after (file whole). Same directory, so it cannot cross a filesystem.
+  rtmp=$(mktemp "$(dirname "$ROOT/$lost")/.mutation-test-restore.XXXXXX" 2>/dev/null) || {
+    RESTORE_FAILED=$lost; BACKUP_KEPT=$keep
+    RESTORE_ERR="cannot create a temporary file beside $lost"
+    return 1
+  }
+  RESTORE_TMP=$rtmp
+  cperr=$(cp -p "$keep" "$rtmp" 2>&1)
+  if [ -n "$cperr" ]; then
+    rm -f "$rtmp"; RESTORE_TMP=''
+    RESTORE_FAILED=$lost; BACKUP_KEPT=$keep; RESTORE_ERR=$cperr
+    return 1
+  fi
+  if ! mv "$rtmp" "$ROOT/$lost" 2>/dev/null; then
+    rm -f "$rtmp"; RESTORE_TMP=''
+    RESTORE_FAILED=$lost; BACKUP_KEPT=$keep
+    RESTORE_ERR="could not rename the restored copy over $lost"
+    return 1
+  fi
+  RESTORE_TMP=''
+  # No byte re-check here. The rename either happened or it did not, and what it
+  # put in place is a `cp -p` of the backup. The previous version compared bytes
+  # afterwards as insurance against a PARTIAL write -- which is what `cat >` could
+  # produce and a rename cannot. Keeping it would have meant a slug nothing could
+  # assert, and this list has already carried three reasons that turned out false.
+  MUTATED=''; BACKUP=''
+  rm -f "$keep" "$keep.for"
+  return 0
 }
+# CLEAN_STATE records what cleanup actually achieved, so on_signal can say
+# something true instead of asserting a successful restore that may not have
+# happened -- it used to print "the mutated file was restored" as the last line
+# even when the warning immediately above said the file was still mutated.
+CLEAN_STATE=nothing
 cleanup() {
   [ -n "$TEST_PID" ] && kill "$TEST_PID" 2>/dev/null
-  restore_mutated || say "WARNING: $RESTORE_FAILED is STILL MUTATED — its backup copy is $BACKUP_KEPT"
+  if [ -n "$MUTATED" ]; then
+    restore_mutated; local rrc=$?
+    case $rrc in
+      (0) CLEAN_STATE=restored ;;
+      (*) CLEAN_STATE=mutated
+          say "WARNING: $RESTORE_FAILED is STILL MUTATED — its backup copy is $BACKUP_KEPT"
+          [ -n "$RESTORE_ERR" ] && say "         $RESTORE_ERR" ;;
+    esac
+  fi
+  # Temporaries built beside the target. A signal between creating one and the
+  # rename would otherwise leave it in the user's tree.
+  [ -n "$APPLY_TMP" ]   && rm -f "$APPLY_TMP"
+  [ -n "$RESTORE_TMP" ] && rm -f "$RESTORE_TMP"
+  [ -n "$BACKUP_KEPT" ] || { [ -n "$BACKUP" ] && rm -f "$BACKUP.for"; }
+  # A backup nothing is going to restore from is a full copy of the user's
+  # source sitting in TMPDIR. Only keep one when it is the last copy of
+  # something that is still mutated.
+  [ "$CLEAN_STATE" != mutated ] && [ -n "$BACKUP" ] && rm -f "$BACKUP"
   [ -n "$OUT" ] && rm -f "$OUT"
   return 0
 }
-on_signal() { cleanup; trap - EXIT; say ""; say "interrupted — the mutated file was restored from its backup copy"; exit 130; }
+on_signal() {
+  cleanup; trap - EXIT; say ""
+  case $CLEAN_STATE in
+    (restored)   say "interrupted — the mutated file was restored from its backup copy"; exit 130 ;;
+    (mutated)    say "interrupted — AND THE FILE ABOVE IS STILL MUTATED. Put it back from the"
+                 say "backup named above before trusting this checkout."; exit 131 ;;
+    (*)          say "interrupted — nothing had been mutated"; exit 130 ;;
+  esac
+}
 trap on_signal INT TERM HUP QUIT
 trap cleanup EXIT
 
@@ -225,6 +224,9 @@ case $SPEC in (/*) : ;; (*) SPEC="$PWD/$SPEC" ;; esac
 # Those guards are gone with the pathspecs, but the cd stays -- --test expects
 # to run at the root, and so do relative paths in a spec.
 cd "$ROOT" || refuse root-unreachable 52 "cannot enter the worktree root: $ROOT"
+# The physical root, symlinks resolved, so a target's real location can be
+# compared against it. `pwd -P` because /tmp is itself a symlink on macOS.
+ROOT_REAL=$(pwd -P)
 
 # --- read the spec -----------------------------------------------------------
 # One line per mutant, so a malformed record cannot silently merge with its
@@ -331,6 +333,20 @@ while [ "$i" -le "$M_COUNT" ]; do
   [ -L "$ROOT/$f" ] && refuse symlink-target 52 "mutant $i: $f is a symlink; mutating it would write through
        the link, outside the worktree. Name the file it points at."
   [ -f "$ROOT/$f" ] || refuse not-a-regular-file 52 "mutant $i: not a regular file: $f"
+  # The -L test above lstats only the FINAL component, so a path leading through
+  # a symlinked DIRECTORY -- `vendor -> /opt/shared`, ordinary in monorepo and
+  # workspace layouts -- passed every guard while the write landed outside the
+  # worktree. That boundary is the whole safety argument for this design, and it
+  # was being held up by a guard deleted for unrelated reasons. Resolve the
+  # parent and require it to be inside the worktree.
+  tdir=$(cd "$(dirname "$ROOT/$f")" 2>/dev/null && pwd -P) \
+    || refuse target-dir-unresolvable 52 "mutant $i: cannot resolve the directory holding $f"
+  case $tdir in
+    ("$ROOT_REAL"|"$ROOT_REAL"/*) : ;;
+    (*) refuse target-outside-worktree 52 "mutant $i: $f resolves to $tdir, which is outside this worktree.
+       Some directory on that path is a symlink pointing out of the checkout.
+       Mutating through it would edit a file the run cannot claim to own." ;;
+  esac
   # No tracked/clean/index-bit guards here. They existed because the restore was
   # `git checkout --`, which cannot undo a mutation to an untracked file, a
   # glob-shadowed name, or a path git has been told to ignore -- so those files
@@ -420,7 +436,34 @@ while [ "$i" -le "$M_COUNT" ]; do
   had_nl=yes
   [ -n "$(tail -c 1 "$target")" ] && had_nl=no
 
-  tmp=$(mktemp "${TMPDIR:-/tmp}/mutation-test-apply.XXXXXX") || refuse tmpfile-apply 52 "cannot create a temporary file for the edit"
+  # The backup first, and with `cp -p`, so it carries the target's MODE as well
+  # as its bytes -- the restore renames a fresh file into place, and without this
+  # the replacement would arrive with mktemp's 0600 instead of the original.
+  BACKUP=$(mktemp "${TMPDIR:-/tmp}/mutation-test-backup.XXXXXX") || refuse tmpfile-backup 52 "cannot create a temporary file to back up $f"
+  cp -p "$target" "$BACKUP" || { rm -f "$BACKUP"; BACKUP=''; refuse backup-failed 52 "mutant $i: could not copy $f before mutating it"; }
+  # A SIGKILL runs no trap, so anything that would tell you what an orphaned
+  # backup belongs to has to be on disk before the write. Nothing did: a hard
+  # kill left a mutated worktree and a randomly-named copy in TMPDIR with no way
+  # to connect them.
+  printf '%s\n' "$ROOT/$f" > "$BACKUP.for" 2>/dev/null || true
+
+  # Built beside the target for the same reason as the restore: the write lands
+  # by rename, which is atomic. `cat > target` truncates first, so an interrupt
+  # or a partial write left the file in pieces -- and needing the file itself to
+  # be writable, which a 0444 fixture is not. A rename needs the DIRECTORY.
+  adir=$(dirname "$target")
+  APPLY_TMP=$(mktemp "$adir/.mutation-test-apply.XXXXXX" 2>/dev/null) \
+    || refuse tmpfile-apply 52 "mutant $i: cannot create a temporary file in $adir. A mutant is
+       applied by writing beside the target and renaming over it, so that
+       directory has to be writable."
+  # Seeded from the target so the new file inherits its mode, then made writable
+  # so the redirect below can fill it -- `cp -p` from a 0444 fixture produces a
+  # 0444 temp, and awk then cannot write into it. The user-write bit is put back
+  # before the rename. `[ -w ]` rather than parsing stat, whose flags differ
+  # between GNU and BSD.
+  cp -p "$target" "$APPLY_TMP" || { rm -f "$APPLY_TMP"; APPLY_TMP=''; refuse apply-seed-failed 52 "mutant $i: could not copy $f to stage the edit"; }
+  target_rw=yes; [ -w "$target" ] || target_rw=no
+  chmod u+w "$APPLY_TMP" || { rm -f "$APPLY_TMP"; APPLY_TMP=''; refuse apply-chmod-failed 52 "mutant $i: could not make the staged copy of $f writable"; }
   MT_FIND="$fd" MT_REPL="$rp" awk -v ln="$ln" '
     NR > 1 { printf "\n" }
     NR == ln {
@@ -429,16 +472,17 @@ while [ "$i" -le "$M_COUNT" ]; do
       if (p > 0) { $0 = substr($0, 1, p - 1) r substr($0, p + length(f)) }
     }
     { printf "%s", $0 }
-  ' "$target" > "$tmp" || { rm -f "$tmp"; refuse apply-build-failed 52 "mutant $i: could not build the mutated $f"; }
-  [ "$had_nl" = yes ] && printf '\n' >> "$tmp"
+  ' "$target" > "$APPLY_TMP" || { rm -f "$APPLY_TMP"; APPLY_TMP=''; refuse apply-build-failed 52 "mutant $i: could not build the mutated $f"; }
+  [ "$had_nl" = yes ] && printf '\n' >> "$APPLY_TMP"
+  [ "$target_rw" = no ] && chmod u-w "$APPLY_TMP"
 
-  # Taken BEFORE the write, so the trap never sees a mutated file it cannot
-  # undo. MUTATED is set only once the backup exists.
-  BACKUP=$(mktemp "${TMPDIR:-/tmp}/mutation-test-backup.XXXXXX") || { rm -f "$tmp"; refuse tmpfile-backup 52 "cannot create a temporary file to back up $f"; }
-  cat "$target" > "$BACKUP" || { rm -f "$tmp" "$BACKUP"; BACKUP=''; refuse backup-failed 52 "mutant $i: could not copy $f before mutating it"; }
+  # MUTATED is set only once the rename has happened. Set before it, a failed
+  # write left a pristine file reported as "STILL MUTATED" -- an accurate-looking
+  # warning about damage that never occurred, which under this repo's rules sends
+  # the reader editing a file that was fine.
+  mv "$APPLY_TMP" "$target" || { rm -f "$APPLY_TMP"; APPLY_TMP=''; refuse apply-write-failed 52 "mutant $i: could not put the mutated $f into place"; }
+  APPLY_TMP=''
   MUTATED=$f
-  cat "$tmp" > "$target" || { rm -f "$tmp"; refuse apply-write-failed 52 "mutant $i: could not write $f"; }
-  rm -f "$tmp"
 
   # The edit must actually change the file, or a "survivor" means nothing. This
   # compares BYTES against the backup. It used to ask git, which answers about

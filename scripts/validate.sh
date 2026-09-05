@@ -600,6 +600,11 @@ scripts = {
         'backup-failed':       'requires the target to stop being readable between '
                                'the resolve-phase check and the backup copy',
         'apply-build-failed':  'requires awk to fail writing a file it just read',
+        'apply-seed-failed':   'requires the target to stop being readable between the '
+                               'resolve-phase check and the staging copy',
+        'apply-chmod-failed':  'requires chmod to fail on a file we just created',
+        'target-dir-unresolvable': 'requires the target\'s directory to stop being '
+                               'enterable between the -f check and the resolve',
         'apply-write-failed':  'requires a write to fail inside a worktree we just created',
         'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
         # True now the check is a byte comparison against the backup copy rather

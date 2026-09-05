@@ -376,8 +376,9 @@ own per-target guards still apply.
 
 The worktree layer checks the baseline is green — and, when `--ref` is HEAD or
 absent, that the tree is clean; the
-runner applies each mutant, runs the suite, restores it with `git checkout`,
-and reports. Your files are never touched — and the runner **refuses to run
+runner applies each mutant, runs the suite, restores the file from a byte-exact
+copy it took first, and reports. Both the apply and the restore land by renaming
+a file into place, so the target is never in a half-written state. Your files are never touched — and the runner **refuses to run
 outside a linked worktree**, so it can never touch your main checkout. It cannot
 tell a throwaway worktree from a long-lived one, which is why the restore has to
 be exact rather than merely likely. `--dry-run` resolves every mutant against the source and runs no mutants — but

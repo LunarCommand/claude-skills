@@ -514,7 +514,7 @@ fi
 # reading `++ foo` renders as `+++ foo`, so matching `^+++ ` anywhere let that
 # author reassign their own later lines to a path of their choosing: the line
 # went unmutated and unreported while the count still read as a full inventory.
-printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,2 +10,4 @@\n context\n+# note:\n+++ b/README.md\n+    tok = "letmein"\n' > "$FIXTURE/inject.diff"
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,1 +10,4 @@\n context\n+# note:\n+++ b/README.md\n+    tok = "letmein"\n' > "$FIXTURE/inject.diff"
 CL_OUT=$("$CL_SH" --file "$FIXTURE/inject.diff" 2>/dev/null)
 if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
   fail "an added line beginning '++ ' was read as a header and re-attributed the lines after it"
@@ -530,7 +530,7 @@ printf '%s' "$CL_OUT" | grep -q 'src/auth.py	13' \
 # signature delimiter) and it renders as `--- `, so the next `+++ ` was read as
 # a header again. That was worse than the original -- the hunk's added lines
 # were dropped from the inventory rather than misfiled.
-printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,4 +10,5 @@\n context\n--- legacy sql comment\n+++ b/README.md\n+    tok = "letmein"\n+    passwd = "hunter2"\n@@ -40,1 +41,2 @@\n other\n+    another_secret = 1\n' > "$FIXTURE/rearm.diff"
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,2 +10,4 @@\n context\n--- legacy sql comment\n+++ b/README.md\n+    tok = "letmein"\n+    passwd = "hunter2"\n@@ -40,1 +41,2 @@\n other\n+    another_secret = 1\n' > "$FIXTURE/rearm.diff"
 CL_OUT=$("$CL_SH" --file "$FIXTURE/rearm.diff" 2>/dev/null)
 if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
   fail "a deleted line beginning '-- ' re-armed the header branch"
@@ -815,11 +815,32 @@ restore_fidelity() { # label, setup-cmd, path, spec-line
   ( cd "$wt" && eval "$setup" ) >/dev/null 2>&1
   local before; before=$(content_id "$wt/$path")
   printf '%s\n' "$line" > "$SPECD/rf.tsv"
-  ( cd "$wt" && "$RM_SH" --spec "$SPECD/rf.tsv" --test ./t.sh >/dev/null 2>&1 )
-  if [ "$(content_id "$wt/$path")" = "$before" ]; then
-    pass "$label is restored byte-for-byte"
-  else
+  # A --test that records what the target looked like WHILE it ran. Comparing
+  # the file before and after is NOT enough on its own: an earlier version of
+  # this helper did only that, and all five of these cases stayed green with the
+  # runner replaced by `exit 0`. A run that never mutates anything also leaves
+  # the file unchanged. The witness is what separates the two.
+  local witness="$FIXTURE/rf_witness.txt"; rm -f "$witness"
+  # `cat >` rather than `cp`: cp creates the witness with the SOURCE's mode, so
+  # against a 0444 target the first copy made the witness read-only and every
+  # later one silently failed -- leaving the baseline's content there and making
+  # a correct run look like it had never mutated anything. A redirect controls
+  # the destination's mode itself.
+  printf '#!/bin/sh\ncat -- '"'"'%s'"'"' > '"'"'%s'"'"' 2>/dev/null\nexit 0\n' "$path" "$witness" > "$wt/t_w.sh"
+  chmod +x "$wt/t_w.sh"
+  ( cd "$wt" && "$RM_SH" --spec "$SPECD/rf.tsv" --test ./t_w.sh >"$FIXTURE/rf_out.txt" 2>&1 )
+  local rc=$?
+  local after; after=$(content_id "$wt/$path")
+  if [ "$rc" -ne 0 ]; then
+    fail "$label: the runner did not complete (exit $rc)"
+  elif [ ! -s "$witness" ]; then
+    fail "$label: the --test command never saw the target, so nothing was mutated"
+  elif cmp -s "$witness" "$wt/$path"; then
+    fail "$label: the target was identical during the test — the mutant was never applied"
+  elif [ "$after" != "$before" ]; then
     fail "$label was left mutated"
+  else
+    pass "$label is mutated during the test and restored byte-for-byte"
   fi
   git -C "$MREPO" worktree remove --force "$wt" >/dev/null 2>&1; rm -rf "$wt"
 }
@@ -842,6 +863,36 @@ restore_fidelity "an --assume-unchanged target" \
 restore_fidelity "a glob-named target shadowed by tracked siblings" \
   "printf 'q = 1 >= 2\n' > 'src/[ab].py'" \
   "src/[ab].py" "$(printf 'src/[ab].py\t1\t>=\t>\tglob-named')"
+
+# The -L check catches a symlinked FILE. It cannot catch a path leading through
+# a symlinked DIRECTORY, which is how a mutant reached a file outside the
+# worktree -- verified doing exactly that before this guard existed.
+TRWT=$(mktemp -d "$FIXTURE/trwt.XXXXXX"); rmdir "$TRWT"
+git -C "$MREPO" worktree add --detach "$TRWT" HEAD >/dev/null 2>&1
+TR_OUTSIDE=$(mktemp -d "$FIXTURE/outside.XXXXXX")
+printf 'REAL = "operator content"\n' > "$TR_OUTSIDE/prod.py"
+TR_BEFORE=$(content_id "$TR_OUTSIDE/prod.py")
+ln -s "$TR_OUTSIDE" "$TRWT/vendor"
+printf 'vendor/prod.py\t1\tREAL\tPWNED\ttraversal\n' > "$SPECD/traverse.tsv"
+RM_ERR=$( cd "$TRWT" && "$RM_SH" --spec "$SPECD/traverse.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 target-outside-worktree "a path through a symlinked DIRECTORY is refused"
+[ "$(content_id "$TR_OUTSIDE/prod.py")" = "$TR_BEFORE" ] \
+  && pass "and the file outside the worktree is untouched" \
+  || fail "a mutant was written outside the worktree"
+git -C "$MREPO" worktree remove --force "$TRWT" >/dev/null 2>&1; rm -rf "$TRWT" "$TR_OUTSIDE"
+
+# A deleted file gives `+++ /dev/null`. Skipping its lines without spending the
+# hunk budget stranded the counter, and the parser then ate the header of the
+# next file and dropped every file after it.
+printf 'diff --git a/gone.py b/gone.py\n--- a/gone.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-one\n-two\ndiff --git a/kept.py b/kept.py\n--- a/kept.py\n+++ b/kept.py\n@@ -1,1 +1,2 @@\n ctx\n+added\n' > "$FIXTURE/deleted.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/deleted.diff" 2>/dev/null)
+printf '%s' "$CL_OUT" | grep -q 'kept.py	2' \
+  && pass "a file after a deleted one is still reported" \
+  || fail "a deleted file stranded the hunk budget and swallowed the next file"
+
+printf 'diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1,5 +1,9 @@\n ctx\n+one\n' > "$FIXTURE/trunc.diff"
+CL_ERR=$("$CL_SH" --file "$FIXTURE/trunc.diff" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 malformed-diff "a hunk claiming more lines than it contains is refused, not guessed at"
 
 # THE REGRESSION TEST FOR THE WORST DEFECT THIS TOOL HAS HAD. `git checkout --`
 # restores from the INDEX, so any --test that stages -- pre-commit, lint-staged,
@@ -881,18 +932,27 @@ rm_expect 52 unreadable-target "an unreadable target is refused, not run into a 
 [ "$(content_id "$CHWT/src/limits.py")" = "$CH_BEFORE" ] \
   && pass "and the unreadable target is untouched" \
   || fail "the runner wrote a file it could not read"
-# Now make the RESTORE fail: readable at resolve time so the backup succeeds and
-# the mutant is written, then read-only by the time the copy goes back. The
-# baseline run must still pass, so the test only locks the file on its second
-# invocation.
-printf '#!/bin/sh\nn=$(cat .n 2>/dev/null || echo 0); n=$((n+1)); echo $n > .n\n[ "$n" -ge 2 ] && chmod a-w src/limits.py\nexit 0\n' > "$CHWT/t_lock.sh"; chmod +x "$CHWT/t_lock.sh"
+# Now make the RESTORE fail. A read-only FILE no longer does it: the mutant is
+# put in place by renaming a new file over the old one, which needs the
+# directory rather than the file -- so a 0444 target now works, which is the
+# point. Locking the DIRECTORY is what stops the rename. The baseline must still
+# pass, so the test only locks on its second invocation.
+printf '#!/bin/sh\nn=$(cat .n 2>/dev/null || echo 0); n=$((n+1)); echo $n > .n\n[ "$n" -ge 2 ] && chmod a-w src\nexit 0\n' > "$CHWT/t_lock.sh"; chmod +x "$CHWT/t_lock.sh"
 RM_ERR=$( cd "$CHWT" && "$RM_SH" --spec "$SPECD/one.tsv" --test ./t_lock.sh 2>&1 >/dev/null ); RM_RC=$?
-chmod u+w "$CHWT/src/limits.py" 2>/dev/null || true
+chmod u+w "$CHWT/src" 2>/dev/null || true
 rm_expect 52 restore-failed "a restore that fails stops the run rather than scoring on a corrupted file"
 printf '%s' "$RM_ERR" | grep -q 'backup was kept' \
   && pass "and it says where the backup copy was left" \
   || fail "restore-failed did not name the surviving backup"
 git -C "$MREPO" worktree remove --force "$CHWT" >/dev/null 2>&1; rm -rf "$CHWT"
+
+# A 0444 target is ordinary -- golden files, vendored fixtures, anything an
+# `install -m 444` produced. Renaming over it works where writing into it did
+# not, and the mode has to survive the round trip, since the replacement is a
+# different inode.
+restore_fidelity "a read-only (0444) target" \
+  "chmod 0444 src/limits.py" \
+  "src/limits.py" "$(printf 'src/limits.py\t2\t>=\t>\tread-only')"
 
 # A dry run writes nothing, so it needs no guard and must not be refused.
 DRYWT=$(mktemp -d "$FIXTURE/drywt.XXXXXX"); rmdir "$DRYWT"

@@ -96,6 +96,12 @@ fi
 #
 # `diff --git` needs no such guard: every hunk line carries a leading space, +,
 # - or \, so an unprefixed one cannot appear inside a hunk.
+#
+# KNOWN LIMIT: with `--file` on a plain `diff -u` patch that has no `diff --git`
+# lines, the only structure left is the `@@` lengths, and those are written by
+# whoever wrote the patch. A patch that lies about them can still shift where a
+# header is recognised. Truncation is caught at EOF below; a mid-file lie is
+# not. Prefer `gh pr diff` or `git diff`, which always emit `diff --git`.
 pairs=$(awk '
   function hunk_open() { return oldleft > 0 || newleft > 0 }
   /^diff --git / { path = ""; oldleft = 0; newleft = 0; next }
@@ -124,12 +130,25 @@ pairs=$(awk '
     if (match(h, /\+[0-9]+/)) { lineno = substr(h, RSTART + 1, RLENGTH - 1) + 0 }
     next
   }
-  path == "" { next }
   !hunk_open() { next }
-  /^\+/ { print path "\t" lineno; lineno++; newleft--; next }
+  # The budgets are decremented even when there is no path to report against --
+  # a deleted file gives `+++ /dev/null`, which clears path, and skipping its
+  # lines wholesale left oldleft stranded above zero. The parser then thought it
+  # was still inside that hunk and swallowed the header of the NEXT file,
+  # dropping every following file silently. (No apostrophes in here: this awk
+  # program is single-quoted, and one ends it.)
+  /^\+/ { if (path != "") print path "\t" lineno; lineno++; newleft--; next }
   /^-/  { oldleft--; next }
   /^ /  { lineno++; newleft--; oldleft--; next }
+  # A hunk still open at EOF means the declared lengths did not match the
+  # content -- a truncated or hand-edited patch. The counts below would be a
+  # guess, so say so rather than report them.
+  END { if (hunk_open()) exit 3 }
 ')
+cl_awk_rc=$?
+[ "$cl_awk_rc" -eq 3 ] && refuse malformed-diff 42 "the last hunk claims more lines than it contains, so this diff is
+       truncated or hand-edited. The line numbers after that point cannot be
+       trusted, so nothing is reported."
 
 # Suffix filter, done here rather than in awk so the suffixes stay literal —
 # a suffix like ".py" is not a pattern, and treating it as one matched "apy".

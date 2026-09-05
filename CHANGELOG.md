@@ -35,9 +35,10 @@ nothing tests.
   had to be perfect — and a review found two ways it was not: a failed restore
   deleted the backup it had just named, and a not-yet-written backup could be
   copied over an untouched file, truncating it. Both are gone rather than
-  patched: restoring is now `git checkout` in a checkout that is about to be
-  deleted, so there is no backup to lose. The refusal is enforced, not
-  documented.
+  patched: there is one backup, taken immediately before the write, and both the
+  apply and the restore land by renaming a file into place rather than writing
+  into the target — so there is no partial-write or truncation state to be
+  caught in. The refusal is enforced, not documented.
 - The spec is one mutant per line, tab-separated. The first draft used
   blank-line-separated records, where a single missing blank line silently
   merged two mutants into one — and that dropped the run below the threshold
