@@ -1,7 +1,7 @@
 {
   "name": "mutation-test",
-  "description": "Proves a test actually checks something by breaking the behaviour it covers and confirming it goes red \u2014 one claim at a time, by hand. Also answers whether code is dead by deleting it and seeing what breaks.",
-  "version": "0.10.0",
+  "description": "Proves a test actually checks something by breaking the behaviour it covers and confirming it goes red \u2014 one claim at a time by hand, or scoped over a PR or diff in a throwaway worktree. Also answers whether code is dead by deleting it and seeing what breaks.",
+  "version": "0.11.0",
   "author": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"

@@ -15,6 +15,7 @@
       "Bash(adversarial_review_path.sh:*)",
       "Bash(hdx_query.sh:*)",
       "Bash(langfuse_query.sh:*)",
+      "Bash(mutation_test_changed_lines.sh:*)",
       "Bash(pr_review_parse_comments.sh:*)",
       "Bash(pr_review_post_reply.sh:*)",
       "Bash(pr_review_resolve_thread.sh:*)",

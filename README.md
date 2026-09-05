@@ -168,6 +168,7 @@ rather than a green run you have to take on trust.
 ```
 /mutation-test is that new fixture actually asserting anything
 /mutation-test prove the retry guard fails when I break it
+/mutation-test the changed lines in PR 123
 ```
 
 A green test run is the null result: a dead assertion and a live one produce
@@ -179,9 +180,23 @@ It reports and does not fix, deliberately: a test written to kill a mutant tends
 to test the mutant rather than the behaviour. It also answers "is this code dead?"
 on evidence — delete it, run the tests, see what breaks.
 
-**This version runs one claim at a time, by hand.** Scoped runs over a whole PR or
-diff are not shipped yet; the SKILL.md says so rather than implying a sweep
-happened.
+**Two paths.** The default runs one claim at a time in your tree, which is the
+right answer for code you just wrote — a worktree cannot hold uncommitted work.
+For a PR or a diff there is a scoped path: it resolves the changed lines, cuts a
+throwaway checkout at the revision you name, and runs a batch of mutants there,
+so your files are never touched. Inside that checkout each mutant is undone from
+a byte-exact copy taken just before it is applied, and the restore is verified —
+not delegated to git, which restores from the index and so quietly did nothing
+whenever a test command staged anything.
+
+**It is still not a sweep.** You pick the lines that carry real risk; no coverage
+map picks them for you, and the suite runs once per mutant. Mark one mutant as
+the `control`, on a line you are confident is covered — if it dies, the tests
+demonstrably see the edits, so every other survivor is a real gap. A run in
+which nothing died is refused rather than reported — when there is enough to
+conclude from, meaning a control, or survivors on two or more distinct lines —
+because that is equally what a suite reading a different copy of your source
+looks like.
 
 #### `/pr-review` — work through review comments
 

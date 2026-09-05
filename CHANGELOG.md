@@ -25,6 +25,79 @@ plugins that actually changed:
 
 ## Unreleased
 
+### mutation-test — 0.11.0
+
+Scoped runs land: point it at a PR or a diff and it reports which changed lines
+nothing tests.
+
+- **The runner refuses to run anywhere but a throwaway worktree.** An earlier
+  draft also worked directly on your real files, which meant its restore path
+  had to be perfect — and a review found two ways it was not: a failed restore
+  deleted the backup it had just named, and a not-yet-written backup could be
+  copied over an untouched file, truncating it. Both are gone rather than
+  patched: there is one backup, taken immediately before the write, and both the
+  apply and the restore land by renaming a file into place rather than writing
+  into the target — so there is no partial-write or truncation state to be
+  caught in. The refusal is enforced, not documented.
+- The spec is one mutant per line, tab-separated. The first draft used
+  blank-line-separated records, where a single missing blank line silently
+  merged two mutants into one — and that dropped the run below the threshold
+  for the all-survived check, turning a mis-wired environment into a confident
+  "coverage gap" report. A wrong field count is refused instead.
+- Three steps, and the judgement stays with you.
+  `mutation_test_changed_lines.sh` turns a diff into candidate lines; you choose
+  which to mutate and write a short spec; `mutation_test_run_mutants.sh` applies
+  each one inside a throwaway worktree, runs the suite, restores, and reports.
+  It does not invent mutations — choosing a semantically meaningful edit needs
+  reading the code, and a generated edit that breaks the syntax goes red for a
+  reason that says nothing about coverage.
+- **Mark one mutant `control`** — on a line you are confident is covered, in a
+  sixth tab-separated field — and the run can tell a coverage gap from a broken
+  environment instead of guessing. A killed control proves the tests see your
+  edits, so the other survivors are real findings. This came out of using it:
+  pointed at a freshly changed module, the heuristic below refused four mutants
+  whose lines a coverage report independently called untested — a false alarm on
+  exactly the code this feature is aimed at.
+- **A run in which nothing was killed is refused** rather than reported as
+  coverage gaps, provided there is enough to conclude from: a control was given,
+  or the survivors span two or more distinct lines. A lone survivor stays a
+  reported finding, since one mutant cannot tell the two cases apart. A control
+  makes the refusal specific instead of a guess. Everything surviving is what a
+  suite resolving to a different copy of your source looks like, and reporting
+  it would be exactly the confident, false clean run this skill exists to
+  prevent.
+- **A control that survives beside a kill is reported, not refused.** Something
+  died, so the tests demonstrably see that checkout; the honest reading is that
+  the line you named is not covered after all, and the run says so in a NOTE. It
+  does not discard a report it has just proven sound over one wrong guess about
+  coverage — and with no coverage map, guessing is the normal case.
+- **Each mutant is undone from a byte-exact copy**, taken immediately before it
+  is applied and verified after it is put back. This replaced `git checkout --`,
+  which was wrong four ways: it restores from the INDEX, so any test command
+  that stages — `pre-commit`, `lint-staged`, `git add -A` — turned every restore
+  into a silent no-op and let mutants accumulate, with later ones scored against
+  earlier ones and the run reporting a confident clean result; a pathspec globs,
+  so a file named `[id].tsx` matched its tracked siblings and the restore missed
+  it; it cannot restore an untracked file at all; and whether it restores an
+  `--assume-unchanged` file depends on the git version. A copy has none of those
+  properties, so the three guards that existed to refuse the files git could not
+  restore are gone with it.
+- Shell only. No `jq` and no `python3`, so a scoped run adds no dependency to a
+  Go or Rust project.
+- `--dry-run` resolves every mutant against the source and runs no mutants,
+  listing which of them are controls. Composed with `mutation_test_worktree.sh`
+  — the recommended form, because the worktree it makes is throwaway — it still
+  pays that script's baseline, so a spec typo costs one full suite run rather
+  than ten. Run directly inside a worktree you already have it costs nothing,
+  and is allowed even when the targets carry uncommitted work.
+- There is no coverage map. It is where "0 covering tests for all nine mutants"
+  came from, and without it every mutant runs the full suite — slower, and
+  unable to be subtly wrong.
+- `--untracked-ok <path>` acknowledges one untracked file as irrelevant to a
+  run. It is not a bypass: any untracked path you do not name still refuses, so
+  a test you had forgotten still stops the run. A blanket flag would be reached
+  for reflexively, including in the one case that matters.
+
 ### mutation-test — 0.10.0
 
 - Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
@@ -83,6 +156,12 @@ plugins that actually changed:
 
 ### Repository
 
+- The three hygiene scans ask git what can be committed rather than walking the
+  filesystem. They reported a personal path from a directory excluded via
+  `.git/info/exclude`, which can never reach anyone; any local scratch directory
+  did the same, and only locally, since CI clones fresh. They are also stricter
+  in one direction now — a file someone gitignored and then force-added is
+  tracked, so it is scanned.
 - `scripts/validate.sh` checks that every refusal the mutation-test worktree
   script can print is asserted in its acceptance suite, and that no two guards
   share a refusal identity. Three review rounds each found a guard that could

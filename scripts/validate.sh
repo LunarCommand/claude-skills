@@ -54,10 +54,30 @@ section "Shell scripts"
 # the run continued past the failure into an unset SH_FILES, so every check below
 # this line was skipped on a Mac — reported as a pass on bash 4.4+, which stopped
 # treating an unset array under `set -u` as an error.
+# Ask git what this repo actually ships, rather than walking the filesystem. A
+# plain `find . -name '*.sh'` also descended into .claude/worktrees/, where the
+# adversarial-review skill puts its throwaway checkouts -- so running this while
+# a review was in flight linted seven extra copies of every script, taken from
+# the DEFAULT BRANCH, under paths that look local. A failure there would have
+# been someone else's code reported as yours. CI never sees it, because no
+# worktrees exist there.
 SH_FILES=()
-while IFS= read -r f; do
-  SH_FILES+=("$f")
-done < <(find . -name '*.sh' -not -path './.git/*' | sort)
+while IFS= read -r -d '' f; do
+  SH_FILES+=("./$f")
+done < <(git ls-files -c -o --exclude-standard -z -- '*.sh' 2>/dev/null)
+if [[ ${#SH_FILES[@]} -eq 0 ]]; then
+  # Not a git checkout: fall back, but prune the same directories by hand.
+  while IFS= read -r f; do
+    SH_FILES+=("$f")
+  done < <(find . -name '*.sh' -not -path './.git/*' -not -path './.claude/*' | sort)
+fi
+# Say the property out loud rather than trusting the command above to keep it.
+sh_stray=''
+for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
+  case $f in (*/.claude/*|./.git/*) sh_stray="$sh_stray $f" ;; esac
+done
+[[ -z "$sh_stray" ]] && pass "discovery   ${#SH_FILES[@]} shell file(s), none from a review worktree" \
+  || { fail "discovery picked up files that are not this repo's:"; printf '%s\n' $sh_stray | sed 's/^/        /'; }
 
 # The ${a[@]+"${a[@]}"} guard is for the same bash 3.2: there, expanding an empty
 # array under `set -u` is itself an "unbound variable" error.
@@ -67,11 +87,24 @@ for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
+  # WHICH shellcheck ran is part of the result. Two of the three lint runs in
+  # this project were 0.9.0 from apt (local and the Linux CI job) and only the
+  # macOS job had 0.10.x from brew -- so a redirection bug that writes an error
+  # message into the file being restored was invisible to two of them and
+  # reported by the third, after the commit. A clean run that does not say what
+  # checked it invites reading it as stronger than it is.
+  sc_version=$(shellcheck --version 2>/dev/null | awk '/^version:/{print $2}')
+  sc_version="${sc_version:-unknown}"
+  # SC2327/SC2328 arrived in 0.10.0. Below that the lint is a subset of what CI
+  # applies, which is worth saying out loud rather than discovering on a push.
+  case $sc_version in
+    (unknown|0.[0-9].*) warn "shellcheck $sc_version is older than the 0.10.0 CI pins — some checks (e.g. SC2327/SC2328) will not run here" ;;
+  esac
   # The scripts were clean at `warning` on the first CI run, so that is the
   # gate. Loosen with SHELLCHECK_SEVERITY=error only to stage a noisy import.
   sev="${SHELLCHECK_SEVERITY:-warning}"
   for f in ${SH_FILES[@]+"${SH_FILES[@]}"}; do
-    if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f"
+    if out=$(shellcheck --severity="$sev" --format=gcc "$f" 2>&1); then pass "shellcheck  $f  [$sc_version]"
     else fail "shellcheck  $f"; printf '%s\n' "$out" | sed 's/^/        /'; fi
   done
   if [[ "$sev" == "error" ]]; then
@@ -175,7 +208,7 @@ for f in skills/*/*.workflow.js; do
       fail "forbidden   ${bad//\\/} in $f — breaks workflow resume"
     fi
   done
-  grep -qE '^export const meta = \{' "$f" \
+  grep -qE '^export const meta = \{' -- "$f" \
     && pass "meta block  $f" \
     || fail "meta block  $f — must open with a pure-literal 'export const meta = {'"
 
@@ -253,6 +286,31 @@ for d in skills/*/; do
   # loads but never fires on its own.
   awk '/^---$/{n++; next} n==1 && /^description:/{found=1} END{exit !found}' "$f" \
     || fail "$name — frontmatter missing 'description' (the auto-trigger text)"
+
+  # ...and it has a hard 1024-character cap. Nothing here measured it, and adding
+  # trigger phrases for a new feature pushed one description to 1025 — over by a
+  # single character, with no local signal. Folded scalars join their lines with
+  # a space, so that is how the length is counted.
+  # Handles BOTH forms: `description: text on one line` and a folded `>-` block.
+  # An earlier version read only the folded form and reported 0 characters for
+  # the three skills using the other -- a length check that measured nothing for
+  # half the repo, which is the failure mode this suite keeps shipping.
+  desclen=$(awk '
+    /^---$/ { n++; if (n == 2) exit; next }
+    n == 1 && /^description:/ {
+      rest = $0; sub(/^description:[ \t]*/, "", rest)
+      if (rest != "" && rest !~ /^[>|]/) { out = rest }
+      indesc = 1; next
+    }
+    n == 1 && indesc && /^[^ \t]/ { indesc = 0 }
+    n == 1 && indesc { gsub(/^[ \t]+|[ \t]+$/, ""); out = out (out == "" ? "" : " ") $0 }
+    END { print length(out) }
+  ' "$f")
+  if [[ "$desclen" -gt 1024 ]]; then
+    fail "$name — frontmatter description is $desclen characters, over the 1024 cap"
+  else
+    pass "description  $name, $desclen/1024 characters"
+  fi
 
   # bin/ is what Claude Code puts on the Bash tool's PATH. A non-executable file
   # there is invisible to the skill, which then falls back to prompting.
@@ -455,6 +513,8 @@ deliberately_unruled = {
     # run unprompted approves the wrapper rather than the payload. It runs once
     # per mutation session, so the prompt is cheap and shows the exact command.
     'mutation_test_worktree.sh',
+    # --test reaches `bash -c` here too, so the same reasoning applies.
+    'mutation_test_run_mutants.sh',
 }
 # A basename shipped by two skills is unreachable for one of them: bare-name
 # invocation resolves through PATH, which can only ever pick one. The set
@@ -511,48 +571,113 @@ pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-
 # reading.
 if out=$(python3 - <<'PY' 2>&1
 import re, sys
-script = open('skills/mutation-test/bin/mutation_test_worktree.sh').read()
-suite  = open('scripts/mutation-test-acceptance.sh').read()
-# Slugs that no fixture can reach, each named with why. Anything not here and
-# not asserted fails, so this list is the only place an exemption can hide.
-unreachable = {
-    'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
-    'tmpdir':             'requires mktemp -d to fail',
-    'git-failed':         'requires git status to fail on a valid repository',
-    'worktree-add':       'requires git worktree add to fail after all preflights pass',
-    'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
-    'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+suite = open('scripts/mutation-test-acceptance.sh').read()
+# Per SCRIPT, not pooled: two scripts may legitimately both refuse with
+# 'missing-dependency', but within one script a slug used twice is two guards
+# no assertion can tell apart.
+scripts = {
+    'skills/mutation-test/bin/mutation_test_worktree.sh': {
+        'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
+        'tmpdir':             'requires mktemp -d to fail',
+        'git-failed':         'requires git status to fail on a valid repository',
+        'worktree-add':       'requires git worktree add to fail after all preflights pass',
+        'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
+        'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
+    },
+    'skills/mutation-test/bin/mutation_test_run_mutants.sh': {
+        # Keep this list SHORT and true. Its predecessor exempted the whole
+        # restore path with reasons that were simply wrong -- every one of them
+        # was reachable with a chmod -- and that exemption is why no assertion
+        # covered two data-loss defects. It happened AGAIN in this PR:
+        # `restore-failed` was excused as needing git checkout to fail and
+        # `mutant-had-no-effect` as needing a gitattributes filter, when a chmod
+        # reached the first and an ordinary untracked file the second. Both are
+        # asserted now. If you are about to add an entry here, try a chmod.
+        'missing-dependency':  'requires git, awk, cmp or mktemp to be absent from PATH',
+        'tmpfile-out':         'requires mktemp to fail',
+        'tmpfile-apply':       'requires mktemp to fail',
+        'tmpfile-backup':      'requires mktemp to fail',
+        'backup-failed':       'requires the target to stop being readable between '
+                               'the resolve-phase check and the backup copy',
+        'apply-build-failed':  'requires awk to fail writing a file it just read',
+        'apply-seed-failed':   'requires the target to stop being readable between the '
+                               'resolve-phase check and the staging copy',
+        'apply-chmod-failed':  'requires chmod to fail on a file we just created',
+        'target-dir-unresolvable': 'requires the target\'s directory to stop being '
+                               'enterable between the -f check and the resolve',
+        'apply-write-failed':  'requires a write to fail inside a worktree we just created',
+        'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
+        # True now the check is a byte comparison against the backup copy rather
+        # than a question to git: `find` is verified present on the line and
+        # differs from `replace`, so awk cannot emit identical bytes.
+        'mutant-had-no-effect': 'requires awk to emit bytes identical to its input '
+                               'after replacing a string verified present with a '
+                               'different one',
+        'root-unreachable':    'requires the worktree root to stop being enterable '
+                               'between rev-parse --show-toplevel and the cd',
+        'test-killed':         'requires the test command to die by signal mid-run',
+        'no-toplevel':         'requires rev-parse --show-toplevel to fail inside a '
+                               'worktree whose git dir already resolved',
+    },
+    'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
+        'missing-dependency': 'requires awk/sort to be absent from PATH',
+        'unreadable-diff':    'requires a file that exists but cannot be read',
+    },
 }
-# `refuse` is called inline too (`... && refuse git-failed 42 ...`), so this
-# must not anchor to the start of a line — anchoring it silently under-counted
-# the slugs, which is the opposite of what this check exists to do.
-# Per CALL SITE, not per unique name. Comparing sets of names discards call
-# multiplicity: all three validate_ref branches once shared 'malformed-ref',
-# so deleting the empty-ref guard left this check AND the suite green while
-# rev-parse quietly caught the input instead. A slug used twice is two guards
-# no assertion can tell apart, which is how a guard survived deletion in three
-# consecutive review rounds.
-bad = []
-calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', script)
-slugs = set(calls)
-for s in sorted({c for c in calls if calls.count(c) > 1}):
-    bad.append(f'refusal slug {s!r} is used at {calls.count(s)} call sites; give each guarded case its own slug or no assertion can tell them apart')
-asserted = set(re.findall(r'expect \d+ ([a-z][a-z0-9-]*) ', suite))
-asserted |= set(re.findall(r"refused: ([a-z][a-z0-9-]*)", suite))
-for s in sorted(slugs - asserted - set(unreachable)):
-    bad.append(f'refusal slug {s!r} is never asserted in the acceptance suite')
-for s in sorted(set(unreachable) & asserted):
-    bad.append(f'refusal slug {s!r} is listed unreachable but the suite asserts it')
-for s in sorted(set(unreachable) - slugs):
-    bad.append(f'refusal slug {s!r} is listed unreachable but the script no longer prints it')
-# The reverse direction, and it is the one that catches a DELETED guard: the
-# suite still asserts a slug nothing can produce, so the assertion is dead
-# rather than failing loudly.
-for s in sorted(asserted - slugs):
-    bad.append(f'the suite asserts refusal slug {s!r}, which the script never prints')
+# (script, slug) pairs, NOT a pooled set of slug names. Six slugs occur in more
+# than one script, so a pooled set meant deleting one script's assertion stayed
+# invisible while another script's assertion supplied the same name — the check
+# claimed 'per script' while only its left-hand side was.
+HELPERS = {
+    'expect':    'mutation_test_worktree.sh',
+    'rm_expect': 'mutation_test_run_mutants.sh',
+    'cl_expect': 'mutation_test_changed_lines.sh',
+}
+bad, total, cov = [], 0, 0
+asserted = set()
+# Matches the CALL SHAPE (`helper <code> <slug> "message"`), not names ending in
+# `expect`. The narrower pattern could not see a helper called anything else, so
+# renaming one made its assertions vanish from the tally without the complaint
+# below ever firing — the guard was unreachable for exactly the case it names.
+for helper, slug in re.findall(r'\b([a-z_]+) \d+ ([a-z][a-z0-9-]*) "', suite):
+    if helper not in HELPERS:
+        bad.append(f'the suite uses an assertion helper {helper!r} this check does not '
+                   'know, so its assertions cannot be attributed to a script; add it to HELPERS')
+        continue
+    asserted.add((HELPERS[helper], slug))
+# Inline assertions match the script-prefixed refusal line, which attributes
+# itself.
+for script, slug in re.findall(r"(mutation_test_[a-z_]+): refused: ([a-z][a-z0-9-]*)", suite):
+    asserted.add((script + '.sh', slug))
+for path, unreachable in sorted(scripts.items()):
+    src = open(path).read()
+    calls = re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', src)
+    slugs = set(calls)
+    total += len(slugs)
+    name = path.split('/')[-1]
+    cov += len(slugs - set(unreachable))
+    for g in sorted({c for c in calls if calls.count(c) > 1}):
+        bad.append(f'{name}: slug {g!r} is used at {calls.count(g)} call sites; '
+                   'give each guarded case its own or no assertion can tell them apart')
+    mine = {g for (sc, g) in asserted if sc == name}
+    for g in sorted(slugs - mine - set(unreachable)):
+        bad.append(f'{name}: slug {g!r} is never asserted in the acceptance suite')
+    for g in sorted(set(unreachable) & mine):
+        bad.append(f'{name}: slug {g!r} is listed unreachable but the suite asserts it')
+    for g in sorted(set(unreachable) - slugs):
+        bad.append(f'{name}: slug {g!r} is listed unreachable but the script no longer prints it')
+# A slug the suite asserts that NO script prints means a guard was deleted and
+# the assertion is dead rather than failing.
+every = set()
+for path in scripts:
+    n = path.split('/')[-1]
+    every |= {(n, g) for g in re.findall(r'\brefuse ([a-z][a-z0-9-]*) ', open(path).read())}
+for sc, g in sorted(asserted):
+    if (sc, g) not in every:
+        bad.append(f'the suite asserts {g!r} for {sc}, which that script never prints')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
-print(f'{len(slugs)} slug(s), {len(slugs - set(unreachable))} asserted, {len(unreachable)} unreachable by construction')
+print(f'{total} slug(s) across {len(scripts)} script(s), {cov} asserted, {total-cov} unreachable by construction')
 PY
 ); then
   pass "refusal slugs  $out"
@@ -588,7 +713,83 @@ fi
 # --------------------------------------------------------------------------
 section "Hygiene (this repo is public)"
 # --------------------------------------------------------------------------
-cruft=$(find . \( -name '.DS_Store' -o -name '__MACOSX' \) -not -path './.git/*')
+# These three scans exist because the repo is public, so what matters is what
+# git would let you COMMIT — not what happens to be on disk. Walking the
+# filesystem reported a leak from a directory excluded via .git/info/exclude,
+# which can never reach anyone; it also skips a file someone gitignored and
+# then force-added, which can. `ls-files -c -o --exclude-standard` is exactly
+# the set that can travel.
+publishable() { git ls-files -c -o --exclude-standard -z 2>/dev/null; }
+
+# Both file-content scans below read a file through THIS function and nothing
+# else, so the `--` that keeps a dash-named file readable exists in exactly one
+# place — which is what lets the canary underneath it mean something.
+scan_file() {
+  # A SYMLINK's publishable content is its LINK TEXT -- that is the blob git
+  # stores -- but grep follows the link and scans whatever is at the other end,
+  # or nothing at all when the target is absent, an exit 2 the 2>/dev/null then
+  # hides. So a tracked `notes.md -> /home/someone/private` passed both scans
+  # clean while shipping that path. Scan the link text instead, in the same
+  # path:line:match shape the callers expect.
+  if [[ -L "$2" ]]; then
+    # `--` here for the same reason as on the grep below: without it a symlink
+    # named -notes.md is read as options, which is the exact hole this whole
+    # function exists to close.
+    local link; link=$(readlink -- "$2")
+    printf '%s' "$link" | grep -qE "$1" 2>/dev/null && printf '%s:1:%s\n' "$2" "$link"
+    return
+  fi
+  grep -EnH "$1" -- "$2" 2>/dev/null
+}
+
+# Positive control for the two file-content scans below. The cruft scan greps a
+# stream of names on stdin and takes no file operand, so it is not covered here.
+# A tracked file whose name starts with a dash was silently exempt until grep
+# was given `--`. GNU grep reads `-probe.md` as options and dies with `invalid
+# option -- 'p'` and exit 2, which the `2>/dev/null` then swallows, so the file
+# is never opened and the scan reports nothing — indistinguishable from a clean
+# file. Verified against GNU grep 3.11, which is what scripts here actually get.
+#
+# The canary calls scan_file, so dropping `--` from the one implementation turns
+# it red. An earlier version inlined its own `grep ... --` and so tested only
+# that the local grep honours `--`, which would have stayed green while both
+# scans skipped the file. It also ASSERTS ON OUTPUT rather than exit status:
+# greps disagree about what to return for an operand they could not open — GNU
+# grep exits 2, ugrep exits 0 having matched nothing — but none of them prints a
+# matching line from a file it never read.
+dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX")
+printf 'x /home/someone/secret\n' > "$dashprobe/-probe.md"
+# cd in and use the BARE relative name. An absolute path begins with '/', so
+# grep never sees a leading dash and the canary would pass either way — which
+# is exactly what it did on the first attempt. `git ls-files` emits relative
+# paths, so this is the shape the scans below actually pass.
+dashhit=$( cd "$dashprobe" && scan_file '/home/' '-probe.md' )
+if [[ -n "$dashhit" ]]; then
+  pass "scan canary  the hygiene scans still read a leading-dash filename"
+else
+  fail "scan_file cannot read a leading-dash filename — both hygiene scans would skip it"
+fi
+# Second canary, same reasoning: the link points at a path that does NOT exist,
+# so a scan that dereferences it finds nothing and reports the file clean.
+ln -s /home/someone/private-notes.md "$dashprobe/linked.md"
+linkhit=$( cd "$dashprobe" && scan_file '/home/' 'linked.md' )
+if [[ -n "$linkhit" ]]; then
+  pass "scan canary  a symlink is scanned by its link text, which is what git commits"
+else
+  fail "scan_file follows symlinks — a tracked link to a personal path would ship unseen"
+fi
+# Both hazards at once: a symlink whose NAME also starts with a dash. readlink
+# needs its own `--`; the grep's is no help on this branch.
+ln -s /home/someone/private-notes.md "$dashprobe/-linked.md"
+dashlinkhit=$( cd "$dashprobe" && scan_file '/home/' '-linked.md' )
+if [[ -n "$dashlinkhit" ]]; then
+  pass "scan canary  a dash-named symlink is scanned too"
+else
+  fail "readlink drops a leading-dash symlink — it would ship unseen"
+fi
+rm -rf "$dashprobe"
+
+cruft=$(publishable | tr '\0' '\n' | grep -E '(^|/)(\.DS_Store|__MACOSX)$' || true)
 [[ -z "$cruft" ]] && pass "no macOS cruft" || { fail "macOS cruft committed:"; printf '%s\n' "$cruft" | sed 's/^/        /'; }
 
 # Personal absolute paths. This script names the patterns, so exclude itself.
@@ -600,19 +801,24 @@ cruft=$(find . \( -name '.DS_Store' -o -name '__MACOSX' \) -not -path './.git/*'
 # Self-exclusion is an ANCHORED filter on the path, not `--exclude=validate.sh`:
 # GNU grep lets --include win over --exclude when a file matches both, so the
 # --exclude is silently inert here.
-markers=$(grep -rlnE '/home/|/Users/|~/Sandbox' \
-  --exclude-dir=.git \
-  --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v '^\./scripts/validate\.sh$' || true)
+markers=$(publishable | while IFS= read -r -d '' f; do
+    # Leading '(' on every case pattern below: bash 3.2 scans $( ) for the
+    # matching paren, so an unbalanced pattern ends the substitution early and
+    # the script dies at the ';;'. macOS ships bash 3.2, and CI runs there.
+    case $f in (scripts/validate.sh) continue ;; esac
+    case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
+    scan_file '/home/|/Users/|~/Sandbox' "$f" >/dev/null && printf '%s\n' "$f"
+  done || true)
 [[ -z "$markers" ]] && pass "no personal absolute paths" || { fail "personal paths found in:"; printf '%s\n' "$markers" | sed 's/^/        /'; }
 
 # Credential shapes — placeholders like 'sk-lf-...' must not become real keys.
 # Same anchored self-exclusion. `-n` puts the matched text in the output, so an
 # unanchored `grep -v` would test the line CONTENT and drop real hits.
-secrets=$(grep -rEn 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' \
-  --exclude-dir=.git \
-  --include='*.md' --include='*.sh' --include='*.js' --include='*.json' --include='*.env' . 2>/dev/null \
-  | grep -v '^\./scripts/validate\.sh:' || true)
+secrets=$(publishable | while IFS= read -r -d '' f; do
+    case $f in (scripts/validate.sh) continue ;; esac
+    case $f in (*.md|*.sh|*.js|*.json|*.env) : ;; (*) continue ;; esac
+    scan_file 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f"
+  done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
 
 # --------------------------------------------------------------------------

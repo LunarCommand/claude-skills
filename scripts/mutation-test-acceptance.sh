@@ -21,6 +21,8 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 WT_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_worktree.sh"
+CL_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_changed_lines.sh"
+RM_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_run_mutants.sh"
 
 for c in git python3 sed; do
   command -v "$c" >/dev/null 2>&1 || { echo "  FAIL  missing required command: $c" >&2; exit 127; }
@@ -139,10 +141,50 @@ printf 'import sys\nsys.exit(0)\n' > "$REPO/tests/test_brand_new.py"
 UNTRACKED_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); UNTRACKED_RC=$?
 rm -f "$REPO/tests/test_brand_new.py"
 
+# --untracked-ok is an acknowledgement list, not a bypass: naming one path must
+# not excuse another. The unnamed one is the case that matters -- a test you
+# forgot about, whose absence from the worktree makes every mutant survive.
+printf 'notes\n' > "$REPO/scratch-note.md"
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true >/dev/null 2>&1; UOK_BARE_RC=$?
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true >/dev/null 2>&1; UOK_ACK_RC=$?
+printf 'import sys\n' > "$REPO/tests/test_forgotten.py"
+UOK_PARTIAL_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true 2>&1 >/dev/null); UOK_PARTIAL_RC=$?
+UOK_STALE_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh \
+  --untracked-ok scratch-note.md --untracked-ok tests/test_forgotten.py --untracked-ok never-existed.md -- true 2>&1 >/dev/null); UOK_STALE_RC=$?
+rm -f "$REPO/scratch-note.md" "$REPO/tests/test_forgotten.py"
+
 # An index bit that hides a file from git status defeats both checks above.
 git -C "$REPO" update-index --assume-unchanged tests/check.py
 HIDDEN_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); HIDDEN_RC=$?
 git -C "$REPO" update-index --no-assume-unchanged tests/check.py
+
+# Content alone cannot see a file written and then restored, which is the
+# predecessor's whole failure mode, so identity and mtime come too.
+content_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_ino}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
+# Content and mode, deliberately WITHOUT the inode. Both the apply and the
+# restore put the file in place by renaming, which is what makes them atomic --
+# and a rename necessarily gives the path a new inode. What the runner promises
+# is that the BYTES and the MODE come back, not that the identity survives.
+#
+# content_id, which does include the inode, passed on Linux anyway: the original
+# inode is freed by the first rename and the kernel handed the same number back
+# for the second temp file. On APFS it does not, so the macOS runner failed
+# every restore assertion while Linux reported them green -- an assertion that
+# was measuring the wrong thing and only accidentally agreeing with the right
+# one. Keep content_id for the cases that assert a file was never written.
+restored_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_mode:o}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
+stat_line() { python3 -c "
+import os,sys
+st=os.lstat(sys.argv[1])
+print(f'{st.st_ino}:{st.st_mtime_ns}:{st.st_size}')" "$1"; }
 
 BEFORE="$FIXTURE/before.manifest"; manifest "$REPO" > "$BEFORE"
 BEFORE_LS="$FIXTURE/before.listing"; listing "$REPO" > "$BEFORE_LS"
@@ -179,7 +221,7 @@ expect() { # rc, slug, label — matches the machine-readable refusal line
 echo "Removed surfaces"
 for sub in create destroy; do
   err=$("$WT_SH" "$sub" "$REPO" 2>&1); rc=$?
-  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'refused: removed-subcommand'; } \
+  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'mutation_test_worktree: refused: removed-subcommand'; } \
     && pass "'$sub' refused by its own guard" || fail "'$sub' exited $rc: $(printf '%s' "$err" | head -1)"
 done
 [ -d "$REPO/.git" ] && pass "fixture repository intact" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
@@ -238,7 +280,7 @@ expect 42 setup-failed "a --setup that runs and FAILS is refused as setup-failed
 
 echo
 echo "Repository state"
-if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'refused: dirty-tree'; then
+if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'mutation_test_worktree: refused: dirty-tree'; then
   pass "a dirty TEST file is refused (not just the mutated file)"
 else
   fail "dirty test file not refused (exit $DIRTY_RC)"
@@ -260,12 +302,33 @@ if [ "$DIRTY_REFOLD_RC" -eq 0 ]; then
 else
   fail "--ref HEAD~1 was refused (exit $DIRTY_REFOLD_RC)"
 fi
-if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'refused: untracked-files'; then
+if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'mutation_test_worktree: refused: untracked-files'; then
   pass "a brand-new UNTRACKED test file is refused by its own slug"
 else
   fail "untracked test file not refused (exit $UNTRACKED_RC) — the worktree would not contain it"
 fi
-if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'refused: hidden-index-bits'; then
+if [ "$UOK_BARE_RC" -eq 44 ] && [ "$UOK_ACK_RC" -eq 0 ]; then
+  pass "--untracked-ok acknowledges the path it names"
+else
+  fail "--untracked-ok did not work (bare $UOK_BARE_RC, acknowledged $UOK_ACK_RC)"
+fi
+if [ "$UOK_PARTIAL_RC" -eq 44 ] && printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'test_forgotten.py' \
+   && ! printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'scratch-note.md'; then
+  pass "an UNNAMED untracked path still refuses, and only it is named"
+else
+  fail "--untracked-ok excused a path it was not given (exit $UOK_PARTIAL_RC)"
+fi
+if [ "$UOK_STALE_RC" -eq 0 ] && printf '%s' "$UOK_STALE_ERR" | grep -qF 'acknowledgement did nothing'; then
+  pass "a stale acknowledgement is reported, not refused"
+else
+  fail "a stale --untracked-ok was not reported (exit $UOK_STALE_RC)"
+fi
+# Direct call: run_wt appends "-- true", which --untracked-ok would eat as its
+# value, so the missing-value branch would never be reached.
+run_raw run --repo "$REPO" --test ./run_correct.sh --untracked-ok
+expect 40 untracked-ok-needs-value "--untracked-ok with no value is refused"
+
+if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'mutation_test_worktree: refused: hidden-index-bits'; then
   pass "a file hidden by assume-unchanged is refused"
 else
   fail "assume-unchanged file not refused (exit $HIDDEN_RC) — it is invisible to git status"
@@ -380,6 +443,577 @@ fi
 strays=0
 for d in "$TMPRES"/mutation-test-wt.*; do [ -d "$d" ] && mine "$d" && strays=$((strays+1)); done
 [ "$strays" -eq 0 ] && pass "no worktree directories leaked (this run's only)" || fail "$strays worktree(s) leaked"
+
+echo
+echo "Scope resolution"
+
+# A diff with known answers: two added lines in a kept file, a DELETED file
+# whose lines cannot be mutated, and a file the suffix filter must exclude.
+cat > "$FIXTURE/t.diff" <<'DIFF'
+diff --git a/keep.py b/keep.py
+--- a/keep.py
++++ b/keep.py
+@@ -10,3 +10,5 @@ def f():
+ context1
++added11
++added12
+ context2
+diff --git a/gone.py b/gone.py
+--- a/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-deleted1
+-deleted2
+diff --git a/other.txt b/other.txt
+--- a/other.txt
++++ b/other.txt
+@@ -5,1 +5,2 @@
++addedtxt
+diff --git a/notes.py.txt b/notes.py.txt
+--- a/notes.py.txt
++++ b/notes.py.txt
+@@ -1,0 +1,1 @@
++contains-dot-py-but-does-not-end-in-it
+DIFF
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py)
+want="keep.py	11
+keep.py	12"
+[ "$got" = "$want" ] && pass "added lines resolved, deleted file skipped, suffix applied" \
+  || { fail "changed-lines output wrong:"; printf '%s\n' "$got" | sed 's/^/          /'; }
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 4 ] && pass "without a suffix, every added line is reported" || fail "expected 4 lines, got $got"
+
+# notes.py.txt CONTAINS '.py' but does not end in it. A filter that matched
+# anywhere in the path rather than at the end would include it.
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py | grep -c 'notes.py.txt' || true)
+[ "$got" -eq 0 ] && pass "a suffix must match the END, not appear anywhere" \
+  || fail "'.py' matched notes.py.txt, which merely contains it"
+
+# A suffix is a literal ending, not a pattern: '.py' once matched a file named
+# 'apy' because it was escaped into a regex.
+printf 'diff --git a/apy b/apy\n--- a/apy\n+++ b/apy\n@@ -1,0 +1,1 @@\n+x\n' > "$FIXTURE/p.diff"
+got=$("$CL_SH" --file "$FIXTURE/p.diff" --suffix .py | grep -c . || true)
+[ "$got" -eq 0 ] && pass "a suffix matches an ending, not a pattern" || fail "'.py' matched a file named 'apy'"
+
+# stdin is the documented primary input, not just --file
+got=$("$CL_SH" --suffix .py < "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 2 ] && pass "reads a diff on stdin" || fail "stdin path produced $got lines"
+
+cl_expect() { # rc, slug, label
+  local want=$1 slug=$2 label=$3
+  if [ "$CL_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $CL_RC)"
+  elif ! printf '%s' "$CL_ERR" | grep -qF "refused: $slug"; then
+    fail "$label (exit $want, but the slug was not '$slug')"
+  else pass "$label"; fi
+}
+CL_ERR=$("$CL_SH" --file "$FIXTURE/definitely-not-there" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 no-such-diff "a --file that does not exist is refused"
+CL_ERR=$("$CL_SH" --file 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 file-needs-value "--file with no value is refused"
+CL_ERR=$("$CL_SH" --suffix 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 suffix-needs-value "--suffix with no value is refused"
+CL_ERR=$("$CL_SH" --bogus </dev/null 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 unknown-argument "an unknown argument is refused"
+
+# It must not open a file for writing at all: a permission rule pre-approving
+# this script would otherwise pre-approve truncating any path a caller named.
+CL_ERR=$("$CL_SH" --file "$FIXTURE/t.diff" --out "$FIXTURE/should-not-exist.tsv" 2>&1 >/dev/null); CL_RC=$?
+if [ "$CL_RC" -eq 40 ] && [ ! -e "$FIXTURE/should-not-exist.tsv" ]; then
+  pass "--out is gone: the script cannot be told to write a file"
+else
+  fail "--out still exists or created a file (exit $CL_RC)"
+fi
+
+# The diff is written by the author of the PR under review. An added line
+# reading `++ foo` renders as `+++ foo`, so matching `^+++ ` anywhere let that
+# author reassign their own later lines to a path of their choosing: the line
+# went unmutated and unreported while the count still read as a full inventory.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,1 +10,4 @@\n context\n+# note:\n+++ b/README.md\n+    tok = "letmein"\n' > "$FIXTURE/inject.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/inject.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "an added line beginning '++ ' was read as a header and re-attributed the lines after it"
+else
+  pass "added content cannot re-attribute later lines to another path"
+fi
+printf '%s' "$CL_OUT" | grep -q 'src/auth.py	13' \
+  && pass "the line that injection hid is still reported, under its real path" \
+  || fail "the injected hunk lost a line entirely"
+
+# The first fix for the above used a "saw --- last" flag, which the same author
+# could re-arm: DELETE a line whose text begins `-- ` (an SQL or Lua comment, a
+# signature delimiter) and it renders as `--- `, so the next `+++ ` was read as
+# a header again. That was worse than the original -- the hunk's added lines
+# were dropped from the inventory rather than misfiled.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,2 +10,4 @@\n context\n--- legacy sql comment\n+++ b/README.md\n+    tok = "letmein"\n+    passwd = "hunter2"\n@@ -40,1 +41,2 @@\n other\n+    another_secret = 1\n' > "$FIXTURE/rearm.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/rearm.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "a deleted line beginning '-- ' re-armed the header branch"
+else
+  pass "a deleted line beginning '-- ' cannot re-arm the header branch"
+fi
+# 11, 12 and 13 are the three added lines of hunk one (the spoofed header IS an
+# added line); 42 is the added line of hunk two.
+for want in 11 12 13 42; do
+  printf '%s' "$CL_OUT" | grep -q "src/auth.py	$want" \
+    || fail "the re-arm spoof lost src/auth.py:$want"
+done
+[ "$(printf '%s' "$CL_OUT" | grep -c 'src/auth.py')" -eq 4 ] \
+  && pass "every added line of the spoofed diff is reported under its real path" \
+  || fail "wrong line count for the re-arm spoof"
+
+echo
+echo "Running mutants"
+
+# The runner REFUSES to run outside a linked worktree, so every case here is in
+# one. Most go through mutation_test_worktree.sh, which makes a THROWAWAY one --
+# the recommended form, and what the standalone mode it used to have was
+# replaced by after two data-loss defects lived in that mode's restore path.
+# Some cases below run the runner directly inside a worktree the suite builds,
+# which is also supported and is what SKILL.md recommends for a cheap --dry-run.
+MREPO="$FIXTURE/mrepo"; mkdir -p "$MREPO/src"
+cat > "$MREPO/src/limits.py" <<'PY'
+def over(n):
+    return n >= 10
+
+def unused(n):
+    return n * 2
+PY
+printf 'import sys\nsys.path.insert(0,"src")\nimport limits\nassert limits.over(10) is True\nassert limits.over(9) is False\n' > "$MREPO/check.py"
+printf '#!/bin/sh\npython3 check.py\n' > "$MREPO/t.sh"
+# Reads a DIFFERENT copy of the source: the editable-install trap in miniature.
+mkdir -p "$FIXTURE/elsewhere/src"
+printf '#!/bin/sh\ncd %s/elsewhere && python3 %s/check.py\n' "$FIXTURE" "$MREPO" > "$MREPO/t_trap.sh"
+printf '#!/bin/sh\nexit 1\n' > "$MREPO/t_red.sh"
+printf '#!/bin/sh\nexec ./definitely-not-here\n' > "$MREPO/t_gone.sh"
+chmod +x "$MREPO"/t*.sh
+git -C "$MREPO" init -q
+git -C "$MREPO" config user.email "acceptance@example.invalid"
+git -C "$MREPO" config user.name  "acceptance"
+git -C "$MREPO" add -A; git -C "$MREPO" commit -qm fixture
+cp "$MREPO/src/limits.py" "$FIXTURE/elsewhere/src/limits.py"
+
+# Specs live OUTSIDE the repository: an untracked file is not in the worktree.
+SPECD="$FIXTURE/specs"; mkdir -p "$SPECD"
+printf 'src/limits.py\t2\t>=\t>\ttrip the boundary\nsrc/limits.py\t5\t* 2\t* 3\tthe unused multiplier\n' > "$SPECD/two.tsv"
+printf 'src/limits.py\t5\t* 2\t* 3\n' > "$SPECD/one.tsv"
+
+MREPO_ORIG=$(content_id "$MREPO/src/limits.py")
+# Every runner case runs through the worktree layer, which is the only
+# supported way to invoke it.
+rm_run() { # spec, test-cmd
+  RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test "$2" -- "$RM_SH" --spec "$1" --test "$2" 2>"$FIXTURE/rmerr.txt" )
+  RM_RC=$?
+  RM_ERR=$(cat "$FIXTURE/rmerr.txt")
+  return 0
+}
+rm_expect() { # rc, slug, label
+  local want=$1 slug=$2 label=$3
+  if [ "$RM_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $RM_RC)"
+  elif ! printf '%s' "$RM_ERR" | grep -qF "refused: $slug"; then
+    fail "$label (exit $want, but the slug was not '$slug')"
+  else pass "$label"; fi
+}
+
+rm_run "$SPECD/two.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q '^killed .*limits.py:2' \
+   && printf '%s' "$RM_OUT" | grep -q '^SURVIVED .*limits.py:5'; then
+  pass "a covered line is killed and an uncovered one survives"
+else
+  fail "scoring wrong (exit $RM_RC):"; printf '%s\n' "$RM_OUT" | sed 's/^/          /' | head -4
+fi
+[ "$(content_id "$MREPO/src/limits.py")" = "$MREPO_ORIG" ] \
+  && pass "the real repository's file is untouched" || fail "THE REAL FILE WAS MODIFIED"
+
+# The safety property, enforced rather than documented.
+STANDALONE_ERR=$( cd "$MREPO" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); STANDALONE_RC=$?
+if [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'mutation_test_run_mutants: refused: main-worktree'; then
+  pass "the runner REFUSES to run in a main working tree"
+else
+  fail "the runner ran outside a worktree (exit $STANDALONE_RC)"
+fi
+
+rm_run "$SPECD/two.tsv" ./t_trap.sh
+rm_expect 54 all-survived "with no control, every mutant surviving is refused"
+
+# A control settles what that heuristic can only guess. UAT found the heuristic
+# firing on genuinely untested code — four mutants on lines a coverage report
+# independently called uncovered — which is a false alarm on exactly the code
+# this tool is pointed at. A control proves the wiring instead.
+#
+# Line 2 of the fixture is covered by t.sh and line 5 is not, so a mutant on 2
+# dies and a mutant on 5 lives. Every case below is built from that pair.
+printf 'src/limits.py\t2\t>=\t>\tcovered, so this must die\tcontrol\nsrc/limits.py\t5\t* 2\t* 3\tuncovered\n' > "$SPECD/ctrl.tsv"
+rm_run "$SPECD/ctrl.tsv" ./t.sh
+# Deliberately labelled for what it proves and no more. It does NOT prove the
+# refusal was suppressed: a killed control implies killed>=1, and the fallback
+# heuristic only fires when killed==0, so there was never a refusal here to
+# suppress. Claiming otherwise is what the previous label did, and deleting the
+# whole control branch left it green.
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
+  pass "a six-field record parses, runs, and reports its survivor"
+else
+  fail "a killed control plus a survivor did not report cleanly (exit $RM_RC)"
+fi
+printf '%s' "$RM_OUT" | grep -q 'killed\*' \
+  && pass "the control is marked in the output" || fail "the control was not marked"
+
+# THE RULE, and the assertion that can actually fail: anything killed proves the
+# tests see this checkout, so a surviving control is a wrong guess about
+# coverage, not a broken environment — report it, do not refuse. The previous
+# code refused here on ctrl_killed==0 without consulting killed, so this case
+# exited 54 and threw away a report the same run had just proven sound.
+printf 'src/limits.py\t5\t* 2\t* 3\tI believed this was covered\tcontrol\nsrc/limits.py\t2\t>=\t>\treal mutant\n' > "$SPECD/ctrlsurv.tsv"
+rm_run "$SPECD/ctrlsurv.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ]; then
+  pass "a surviving control beside a killed mutant is reported, not refused"
+else
+  fail "a surviving control refused despite a kill in the same run (exit $RM_RC)"
+fi
+printf '%s' "$RM_ERR" | grep -q "NOTE: you marked these lines 'control'" \
+  && pass "the surviving control is named rather than passed off as a coverage gap" \
+  || fail "no NOTE naming the surviving control"
+
+# Two controls, one each way. Nothing constrained the count, and the docs said
+# flatly that a surviving control refuses — false for this spec under the old
+# code, which asked only whether EVERY control survived.
+printf 'src/limits.py\t2\t>=\t>\tcovered\tcontrol\nsrc/limits.py\t5\t* 2\t* 3\tbelieved covered\tcontrol\n' > "$SPECD/twoctrl.tsv"
+rm_run "$SPECD/twoctrl.tsv" ./t.sh
+if [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_ERR" | grep -q "NOTE: you marked these lines 'control'"; then
+  pass "with two controls, one killed and one surviving, the run reports and says so"
+else
+  fail "one-killed-one-surviving controls did not report with a NOTE (exit $RM_RC)"
+fi
+
+# ...and a control that survives with NOTHING killed is the strong signal.
+printf 'src/limits.py\t5\t* 2\t* 3\tI wrongly believed this was covered\tcontrol\n' > "$SPECD/badctrl.tsv"
+rm_run "$SPECD/badctrl.tsv" ./t.sh
+rm_expect 54 control-survived "a control that survives with nothing killed is refused"
+
+printf 'src/limits.py\t2\t>=\t>\tdesc\tcontrl\n' > "$SPECD/typoctrl.tsv"
+rm_run "$SPECD/typoctrl.tsv" ./t.sh
+rm_expect 52 spec-bad-control "a misspelled sixth field is refused, not ignored"
+
+# `control` is the SIXTH field. Writing it fifth is how you believe you marked a
+# control and did not: it parsed as the description, the run lost its only
+# wiring evidence, and it reported a confident coverage gap with exit 0.
+printf 'src/limits.py\t5\t* 2\t* 3\tcontrol\n' > "$SPECD/fifthctrl.tsv"
+rm_run "$SPECD/fifthctrl.tsv" ./t.sh
+rm_expect 52 spec-control-needs-desc "'control' in the fifth field is refused, not read as a description"
+# The sixth-field check refuses every near-miss, so the fifth-field guard has to
+# be at least as loose or the strictness is backwards: capitalising, or padding
+# while aligning columns, silently produced the outcome it exists to prevent.
+for variant in 'Control' 'CONTROL' 'control ' '   control   '; do
+  printf 'src/limits.py\t5\t* 2\t* 3\t%s\n' "$variant" > "$SPECD/fifthvar.tsv"
+  rm_run "$SPECD/fifthvar.tsv" ./t.sh
+  rm_expect 52 spec-control-needs-desc "'$variant' in the fifth field is refused too"
+done
+# A TRAILING TAB makes six separators with an empty sixth field, which used to
+# skip the check above entirely -- it lived in the five-field branch only.
+printf 'src/limits.py\t5\t* 2\t* 3\tcontrol\t\n' > "$SPECD/trailtab.tsv"
+rm_run "$SPECD/trailtab.tsv" ./t.sh
+rm_expect 52 spec-control-needs-desc "'control' fifth with a trailing tab is refused too"
+# ...and the trimmed exact compare must not refuse a real description that
+# happens to end in the word. The glob form did.
+printf 'src/limits.py\t5\t* 2\t* 3\ttightens the retry control\n' > "$SPECD/descctrl.tsv"
+rm_run "$SPECD/descctrl.tsv" ./t.sh
+[ "$RM_RC" -ne 52 ] \
+  && pass "a description ending in the word 'control' is not mistaken for the marker" \
+  || fail "a legitimate description was refused as a misplaced control"
+
+# A spec written on Windows put a CR on the last field, so the refusal read
+# "must be the word 'control', not 'control'" — two strings that render alike.
+printf 'src/limits.py\t2\t>=\t>\tdesc\tcontrol\r\n' > "$SPECD/crlf.tsv"
+rm_run "$SPECD/crlf.tsv" ./t.sh
+[ "$RM_RC" -ne 52 ] \
+  && pass "a CRLF spec is not refused for an invisible carriage return" \
+  || fail "a CRLF spec was refused (exit $RM_RC): $RM_ERR"
+rm_run "$SPECD/one.tsv" ./t.sh
+[ "$RM_RC" -eq 0 ] && pass "a single surviving line is reported, not refused" || fail "one survivor exited $RM_RC"
+# The worktree layer refuses a red or unrunnable --test before the runner ever
+# starts, which is correct but leaves the runner's OWN checks unexercised. They
+# still matter: someone can make a worktree themselves. So these cases go
+# through a worktree the suite builds directly.
+rm_direct() { # spec, test-cmd
+  local wt; wt=$(mktemp -d "$FIXTURE/directwt.XXXXXX"); rmdir "$wt"
+  git -C "$MREPO" worktree add --detach "$wt" HEAD >/dev/null 2>&1
+  RM_OUT=$( cd "$wt" && "$RM_SH" --spec "$1" --test "$2" 2>"$FIXTURE/rmerr.txt" )
+  RM_RC=$?
+  RM_ERR=$(cat "$FIXTURE/rmerr.txt")
+  git -C "$MREPO" worktree remove --force "$wt" >/dev/null 2>&1; rm -rf "$wt"
+  return 0
+}
+rm_direct "$SPECD/two.tsv" ./t_red.sh
+rm_expect 53 baseline-red "the runner's own red-baseline check refuses"
+printf '%s' "$RM_ERR" | grep -qF -- '--- test output ---' \
+  && pass "a red baseline shows the test output" || fail "baseline-red printed no diagnostic"
+rm_direct "$SPECD/two.tsv" ./t_gone.sh
+rm_expect 55 test-not-runnable "a --test that cannot run is breakage, not a kill"
+
+# One line per mutant: the old blank-line-separated format could silently merge
+# two records into one, which also dropped the run below the all-survived floor.
+printf 'src/limits.py 2 >= >\n' > "$SPECD/spaces.tsv"
+rm_run "$SPECD/spaces.tsv" ./t.sh; rm_expect 52 spec-fields "a line without tabs is refused"
+printf 'src/limits.py\t2\t>=\n' > "$SPECD/short.tsv"
+rm_run "$SPECD/short.tsv" ./t.sh; rm_expect 52 spec-fields "too few fields is refused"
+printf 'src/limits.py\t2\t>=\t>=\n' > "$SPECD/noop.tsv"
+rm_run "$SPECD/noop.tsv" ./t.sh; rm_expect 52 no-op-mutant "find identical to replace is refused"
+printf 'src/limits.py\ttwo\t>=\t>\n' > "$SPECD/badline.tsv"
+rm_run "$SPECD/badline.tsv" ./t.sh; rm_expect 52 spec-bad-line "a non-numeric line is refused"
+printf 'src/limits.py\t999\t>=\t>\n' > "$SPECD/range.tsv"
+rm_run "$SPECD/range.tsv" ./t.sh; rm_expect 52 line-out-of-range "a line past the end is refused"
+printf 'src/limits.py\t2\tNOT-THERE\tx\n' > "$SPECD/absent.tsv"
+rm_run "$SPECD/absent.tsv" ./t.sh; rm_expect 52 find-not-on-line "a find absent from that line is refused"
+printf '../escape.py\t1\tx\ty\n' > "$SPECD/dotdot.tsv"
+rm_run "$SPECD/dotdot.tsv" ./t.sh; rm_expect 52 spec-dotdot-path "a path containing .. is refused"
+printf '/etc/hosts\t1\tx\ty\n' > "$SPECD/abs.tsv"
+rm_run "$SPECD/abs.tsv" ./t.sh; rm_expect 52 spec-absolute-path "an absolute path is refused"
+printf 'nope.py\t1\tx\ty\n' > "$SPECD/missing.tsv"
+rm_run "$SPECD/missing.tsv" ./t.sh; rm_expect 52 no-such-target "a spec naming a missing file is refused"
+printf '\n# only a comment\n' > "$SPECD/empty.tsv"
+rm_run "$SPECD/empty.tsv" ./t.sh; rm_expect 52 spec-empty "a spec with no mutants is refused"
+rm_run "$SPECD/definitely-not-there" ./t.sh; rm_expect 52 no-such-spec "a missing spec file is refused"
+
+# A symlinked target would carry the write outside the worktree — the one
+# boundary this design rests on.
+printf 'x = 1\n' > "$FIXTURE/outside-target.py"
+( cd "$MREPO" && ln -sf "$FIXTURE/outside-target.py" symlink.py && git add -A && git commit -qm symlink >/dev/null )
+printf 'symlink.py\t1\tx\ty\n' > "$SPECD/link.tsv"
+rm_run "$SPECD/link.tsv" ./t.sh; rm_expect 52 symlink-target "a symlinked target is refused"
+[ "$(cat "$FIXTURE/outside-target.py")" = "x = 1" ] \
+  && pass "the file the symlink pointed at is untouched" || fail "A FILE OUTSIDE THE WORKTREE WAS MUTATED"
+
+# An empty replace deletes the token, which is a legitimate mutation and must
+# not be confused with a missing field.
+printf 'src/limits.py\t2\t>= 10\t\tdelete the comparison\n' > "$SPECD/del.tsv"
+rm_run "$SPECD/del.tsv" ./t.sh
+[ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q '^killed' \
+  && pass "an empty replace deletes the token and is scored" || fail "an empty replace was not handled (exit $RM_RC)"
+
+# A file with no trailing newline must not gain one: that would make the mutant
+# differ from the original by more than the edit.
+printf 'def g():\n    return 5' > "$MREPO/src/nonl.py"
+( cd "$MREPO" && git add -A && git commit -qm nonl >/dev/null )
+NONL_ORIG=$(content_id "$MREPO/src/nonl.py")
+printf 'src/nonl.py\t2\t5\t6\n' > "$SPECD/nonl.tsv"
+rm_run "$SPECD/nonl.tsv" ./t.sh
+[ "$(content_id "$MREPO/src/nonl.py")" = "$NONL_ORIG" ] \
+  && pass "a file with no trailing newline is left exactly as it was" \
+  || fail "the no-trailing-newline file was altered"
+
+rm_run "$SPECD/two.tsv" ./t.sh --dry-run 2>/dev/null
+RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>"$FIXTURE/rmerr.txt" )
+[ "$?" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'limits.py:2' \
+  && pass "--dry-run lists every mutant" || fail "--dry-run did not list the mutants"
+# Whether a control registered is the one thing a dry run has to show, and it
+# showed nothing: the spec that mis-slotted `control` into the description
+# listed a mutant described as "control", reading as confirmation of the very
+# thing that had failed to happen.
+printf '%s' "$(cat "$FIXTURE/rmerr.txt")" | grep -q 'No control in this spec' \
+  && pass "--dry-run says when a spec has no control, and what that will cost" \
+  || fail "--dry-run did not warn about the missing control"
+RM_OUT=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/ctrl.tsv" --test ./t.sh --dry-run 2>"$FIXTURE/rmerr.txt" )
+printf '%s' "$RM_OUT" | grep -q '^\* src/limits.py:2' \
+  && pass "--dry-run marks which mutants are controls" || fail "--dry-run did not mark the control"
+printf '%s' "$(cat "$FIXTURE/rmerr.txt")" | grep -q '1 marked control' \
+  && pass "--dry-run counts the controls it found" || fail "--dry-run did not count the controls"
+
+# THE RESTORE IS A BYTE-EXACT COPY, NOT `git checkout --`. These cases are all
+# files git cannot restore -- untracked, glob-shadowed, index-bit-hidden -- and
+# a dirty one whose uncommitted content git checkout would have discarded. Each
+# used to be REFUSED by a guard; each is now simply restored. If the restore
+# ever regresses to a git operation, every one of these goes red.
+restore_fidelity() { # label, setup-cmd, path, spec-line
+  local label=$1 setup=$2 path=$3 line=$4
+  local wt; wt=$(mktemp -d "$FIXTURE/rfwt.XXXXXX"); rmdir "$wt"
+  git -C "$MREPO" worktree add --detach "$wt" HEAD >/dev/null 2>&1
+  ( cd "$wt" && eval "$setup" ) >/dev/null 2>&1
+  local before; before=$(restored_id "$wt/$path")
+  printf '%s\n' "$line" > "$SPECD/rf.tsv"
+  # A --test that records what the target looked like WHILE it ran. Comparing
+  # the file before and after is NOT enough on its own: an earlier version of
+  # this helper did only that, and all five of these cases stayed green with the
+  # runner replaced by `exit 0`. A run that never mutates anything also leaves
+  # the file unchanged. The witness is what separates the two.
+  local witness="$FIXTURE/rf_witness.txt"; rm -f "$witness"
+  # `cat >` rather than `cp`: cp creates the witness with the SOURCE's mode, so
+  # against a 0444 target the first copy made the witness read-only and every
+  # later one silently failed -- leaving the baseline's content there and making
+  # a correct run look like it had never mutated anything. A redirect controls
+  # the destination's mode itself.
+  printf '#!/bin/sh\ncat -- '"'"'%s'"'"' > '"'"'%s'"'"' 2>/dev/null\nexit 0\n' "$path" "$witness" > "$wt/t_w.sh"
+  chmod +x "$wt/t_w.sh"
+  ( cd "$wt" && "$RM_SH" --spec "$SPECD/rf.tsv" --test ./t_w.sh >"$FIXTURE/rf_out.txt" 2>&1 )
+  local rc=$?
+  local after; after=$(restored_id "$wt/$path")
+  if [ "$rc" -ne 0 ]; then
+    fail "$label: the runner did not complete (exit $rc)"
+  elif [ ! -s "$witness" ]; then
+    fail "$label: the --test command never saw the target, so nothing was mutated"
+  elif cmp -s "$witness" "$wt/$path"; then
+    fail "$label: the target was identical during the test — the mutant was never applied"
+  elif [ "$after" != "$before" ]; then
+    fail "$label was left mutated"
+  else
+    pass "$label is mutated during the test and restored byte-for-byte"
+  fi
+  git -C "$MREPO" worktree remove --force "$wt" >/dev/null 2>&1; rm -rf "$wt"
+}
+restore_fidelity "an untracked target" \
+  "printf 'x = 1\ny = 2 >= 3\n' > src/new_feature.py" \
+  "src/new_feature.py" "$(printf 'src/new_feature.py\t2\t>=\t>\tuntracked')"
+restore_fidelity "a target carrying uncommitted work" \
+  "printf '\n# uncommitted work nobody wants to lose\n' >> src/limits.py" \
+  "src/limits.py" "$(printf 'src/limits.py\t2\t>=\t>\tdirty')"
+restore_fidelity "a --skip-worktree target" \
+  "git update-index --skip-worktree src/limits.py" \
+  "src/limits.py" "$(printf 'src/limits.py\t2\t>=\t>\tskip-worktree')"
+restore_fidelity "an --assume-unchanged target" \
+  "git update-index --assume-unchanged src/limits.py" \
+  "src/limits.py" "$(printf 'src/limits.py\t2\t>=\t>\tassume-unchanged')"
+# A git PATHSPEC globs, so a file literally named `[ab].py` matched the tracked
+# a.py/b.py: every guard passed, the write landed through the absolute path, and
+# `git checkout --` restored the wrong files and exited 0. The routing
+# convention in Next.js, SvelteKit and Remix is exactly this shape.
+restore_fidelity "a glob-named target shadowed by tracked siblings" \
+  "printf 'q = 1 >= 2\n' > 'src/[ab].py'" \
+  "src/[ab].py" "$(printf 'src/[ab].py\t1\t>=\t>\tglob-named')"
+
+# The -L check catches a symlinked FILE. It cannot catch a path leading through
+# a symlinked DIRECTORY, which is how a mutant reached a file outside the
+# worktree -- verified doing exactly that before this guard existed.
+TRWT=$(mktemp -d "$FIXTURE/trwt.XXXXXX"); rmdir "$TRWT"
+git -C "$MREPO" worktree add --detach "$TRWT" HEAD >/dev/null 2>&1
+TR_OUTSIDE=$(mktemp -d "$FIXTURE/outside.XXXXXX")
+printf 'REAL = "operator content"\n' > "$TR_OUTSIDE/prod.py"
+TR_BEFORE=$(content_id "$TR_OUTSIDE/prod.py")
+ln -s "$TR_OUTSIDE" "$TRWT/vendor"
+printf 'vendor/prod.py\t1\tREAL\tPWNED\ttraversal\n' > "$SPECD/traverse.tsv"
+RM_ERR=$( cd "$TRWT" && "$RM_SH" --spec "$SPECD/traverse.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+rm_expect 52 target-outside-worktree "a path through a symlinked DIRECTORY is refused"
+[ "$(content_id "$TR_OUTSIDE/prod.py")" = "$TR_BEFORE" ] \
+  && pass "and the file outside the worktree is untouched" \
+  || fail "a mutant was written outside the worktree"
+git -C "$MREPO" worktree remove --force "$TRWT" >/dev/null 2>&1; rm -rf "$TRWT" "$TR_OUTSIDE"
+
+# A deleted file gives `+++ /dev/null`. Skipping its lines without spending the
+# hunk budget stranded the counter, and the parser then ate the header of the
+# next file and dropped every file after it.
+printf 'diff --git a/gone.py b/gone.py\n--- a/gone.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-one\n-two\ndiff --git a/kept.py b/kept.py\n--- a/kept.py\n+++ b/kept.py\n@@ -1,1 +1,2 @@\n ctx\n+added\n' > "$FIXTURE/deleted.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/deleted.diff" 2>/dev/null)
+printf '%s' "$CL_OUT" | grep -q 'kept.py	2' \
+  && pass "a file after a deleted one is still reported" \
+  || fail "a deleted file stranded the hunk budget and swallowed the next file"
+
+printf 'diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1,5 +1,9 @@\n ctx\n+one\n' > "$FIXTURE/trunc.diff"
+CL_ERR=$("$CL_SH" --file "$FIXTURE/trunc.diff" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 malformed-diff "a hunk claiming more lines than it contains is refused, not guessed at"
+
+# THE REGRESSION TEST FOR THE WORST DEFECT THIS TOOL HAS HAD. `git checkout --`
+# restores from the INDEX, so any --test that stages -- pre-commit, lint-staged,
+# a codegen step, `git add -A` -- made every restore a silent no-op. Mutants
+# accumulated, later ones were judged against earlier ones, and a three-mutant
+# run reported "3 killed, 0 survived" with all three still applied: a confident
+# clean bill of health, which is the one outcome this skill exists to prevent.
+ACCWT=$(mktemp -d "$FIXTURE/accwt.XXXXXX"); rmdir "$ACCWT"
+git -C "$MREPO" worktree add --detach "$ACCWT" HEAD >/dev/null 2>&1
+printf '#!/bin/sh\ngit add -A >/dev/null 2>&1\ngrep -q "return n >= 10" src/limits.py\n' > "$ACCWT/t_stage.sh"
+chmod +x "$ACCWT/t_stage.sh"
+ACC_BEFORE=$(restored_id "$ACCWT/src/limits.py")
+printf 'src/limits.py\t2\t>=\t>\tkills\nsrc/limits.py\t5\t* 2\t* 3\tsurvives\n' > "$SPECD/accum.tsv"
+RM_OUT=$( cd "$ACCWT" && "$RM_SH" --spec "$SPECD/accum.tsv" --test ./t_stage.sh 2>/dev/null ); RM_RC=$?
+if printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
+  pass "a --test that stages does not turn the restore into a no-op"
+else
+  fail "mutants accumulated under a staging --test: every one scored killed"
+fi
+[ "$(restored_id "$ACCWT/src/limits.py")" = "$ACC_BEFORE" ] \
+  && pass "and the file is byte-identical after a staging --test" \
+  || fail "a staging --test left mutations in the file"
+git -C "$MREPO" worktree remove --force "$ACCWT" >/dev/null 2>&1; rm -rf "$ACCWT"
+
+# Both reached with a chmod -- the way the review proved the old exemptions
+# ("requires git checkout to fail", "requires a gitattributes filter") were
+# false. A backup that cannot be taken must stop the run BEFORE the write, and a
+# restore that fails must stop it rather than score later mutants against a file
+# that no longer matches the source.
+CHWT=$(mktemp -d "$FIXTURE/chwt.XXXXXX"); rmdir "$CHWT"
+git -C "$MREPO" worktree add --detach "$CHWT" HEAD >/dev/null 2>&1
+CH_BEFORE=$(content_id "$CHWT/src/limits.py")
+chmod a-r "$CHWT/src/limits.py"
+RM_ERR=$( cd "$CHWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh 2>&1 >/dev/null ); RM_RC=$?
+chmod u+r "$CHWT/src/limits.py"
+rm_expect 52 unreadable-target "an unreadable target is refused, not run into a shell error"
+[ "$(content_id "$CHWT/src/limits.py")" = "$CH_BEFORE" ] \
+  && pass "and the unreadable target is untouched" \
+  || fail "the runner wrote a file it could not read"
+# Now make the RESTORE fail. A read-only FILE no longer does it: the mutant is
+# put in place by renaming a new file over the old one, which needs the
+# directory rather than the file -- so a 0444 target now works, which is the
+# point. Locking the DIRECTORY is what stops the rename. The baseline must still
+# pass, so the test only locks on its second invocation.
+printf '#!/bin/sh\nn=$(cat .n 2>/dev/null || echo 0); n=$((n+1)); echo $n > .n\n[ "$n" -ge 2 ] && chmod a-w src\nexit 0\n' > "$CHWT/t_lock.sh"; chmod +x "$CHWT/t_lock.sh"
+RM_ERR=$( cd "$CHWT" && "$RM_SH" --spec "$SPECD/one.tsv" --test ./t_lock.sh 2>&1 >/dev/null ); RM_RC=$?
+chmod u+w "$CHWT/src" 2>/dev/null || true
+rm_expect 52 restore-failed "a restore that fails stops the run rather than scoring on a corrupted file"
+printf '%s' "$RM_ERR" | grep -q 'backup was kept' \
+  && pass "and it says where the backup copy was left" \
+  || fail "restore-failed did not name the surviving backup"
+git -C "$MREPO" worktree remove --force "$CHWT" >/dev/null 2>&1; rm -rf "$CHWT"
+
+# A 0444 target is ordinary -- golden files, vendored fixtures, anything an
+# `install -m 444` produced. Renaming over it works where writing into it did
+# not, and the mode has to survive the round trip, since the replacement is a
+# different inode.
+restore_fidelity "a read-only (0444) target" \
+  "chmod 0444 src/limits.py" \
+  "src/limits.py" "$(printf 'src/limits.py\t2\t>=\t>\tread-only')"
+
+# A dry run writes nothing, so it needs no guard and must not be refused.
+DRYWT=$(mktemp -d "$FIXTURE/drywt.XXXXXX"); rmdir "$DRYWT"
+git -C "$MREPO" worktree add --detach "$DRYWT" HEAD >/dev/null 2>&1
+printf '\n# uncommitted\n' >> "$DRYWT/src/limits.py"
+RM_OUT=$( cd "$DRYWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-run 2>/dev/null ); RM_RC=$?
+{ [ "$RM_RC" -eq 0 ] && printf '%s' "$RM_OUT" | grep -q 'limits.py:2'; } \
+  && pass "a dry run against a dirty target is allowed, and lists the mutants" \
+  || fail "a dry run against a dirty target was refused (exit $RM_RC)"
+# Run from a SUBDIRECTORY: the mutation is written through an absolute path, so
+# a cwd-sensitive restore would miss it and leave the file mutated.
+mkdir -p "$DRYWT/sub"
+SUB_BEFORE=$(restored_id "$DRYWT/src/limits.py")
+( cd "$DRYWT/sub" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh >/dev/null 2>&1 )
+[ "$(restored_id "$DRYWT/src/limits.py")" = "$SUB_BEFORE" ] \
+  && pass "a run from a subdirectory still restores the file it mutated" \
+  || fail "a subdirectory invocation left the file mutated"
+git -C "$MREPO" worktree remove --force "$DRYWT" >/dev/null 2>&1; rm -rf "$DRYWT"
+
+# The two halves of the worktree requirement, each by its own slug.
+STANDALONE_ERR=$( cd "$FIXTURE" && "$RM_SH" --spec "$SPECD/two.tsv" --test true 2>&1 >/dev/null ); STANDALONE_RC=$?
+{ [ "$STANDALONE_RC" -eq 52 ] && printf '%s' "$STANDALONE_ERR" | grep -qF 'mutation_test_run_mutants: refused: not-a-worktree'; } \
+  && pass "outside a git tree entirely, the runner refuses" || fail "non-repo invocation exited $STANDALONE_RC"
+
+printf 'src/limits.py\t2\t>=\t>\n' > "$SPECD/nofile.tsv"
+printf '\t2\t>=\t>\n' > "$SPECD/emptyfile.tsv"
+rm_direct "$SPECD/emptyfile.tsv" ./t.sh; rm_expect 52 spec-no-file "an empty file field is refused"
+printf 'src/limits.py\t2\t\t>\n' > "$SPECD/emptyfind.tsv"
+rm_direct "$SPECD/emptyfind.tsv" ./t.sh; rm_expect 52 spec-no-find "an empty find field is refused"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: spec-needs-value'; } \
+  && pass "--spec with no value is refused" || fail "--spec with no value exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: test-needs-value'; } \
+  && pass "--test with no value is refused" || fail "--test with no value exited $RAW_RC"
+
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --test ./t.sh 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: no-spec'; } \
+  && pass "a missing --spec is refused" || fail "missing --spec exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: no-test'; } \
+  && pass "a missing --test is refused" || fail "missing --test exited $RAW_RC"
+RAW_ERR=$( cd "$MREPO" && "$WT_SH" run --test ./t.sh -- "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --bogus 2>&1 >/dev/null ); RAW_RC=$?
+{ [ "$RAW_RC" -eq 50 ] && printf '%s' "$RAW_ERR" | grep -qF 'mutation_test_run_mutants: refused: unknown-argument'; } \
+  && pass "an unknown argument is refused" || fail "unknown argument exited $RAW_RC"
 
 echo
 if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi
