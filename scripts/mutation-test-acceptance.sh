@@ -165,6 +165,22 @@ import hashlib,os,sys
 p=sys.argv[1]; st=os.lstat(p)
 print(f'{st.st_ino}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
 
+# Content and mode, deliberately WITHOUT the inode. Both the apply and the
+# restore put the file in place by renaming, which is what makes them atomic --
+# and a rename necessarily gives the path a new inode. What the runner promises
+# is that the BYTES and the MODE come back, not that the identity survives.
+#
+# content_id, which does include the inode, passed on Linux anyway: the original
+# inode is freed by the first rename and the kernel handed the same number back
+# for the second temp file. On APFS it does not, so the macOS runner failed
+# every restore assertion while Linux reported them green -- an assertion that
+# was measuring the wrong thing and only accidentally agreeing with the right
+# one. Keep content_id for the cases that assert a file was never written.
+restored_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_mode:o}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
 stat_line() { python3 -c "
 import os,sys
 st=os.lstat(sys.argv[1])
@@ -813,7 +829,7 @@ restore_fidelity() { # label, setup-cmd, path, spec-line
   local wt; wt=$(mktemp -d "$FIXTURE/rfwt.XXXXXX"); rmdir "$wt"
   git -C "$MREPO" worktree add --detach "$wt" HEAD >/dev/null 2>&1
   ( cd "$wt" && eval "$setup" ) >/dev/null 2>&1
-  local before; before=$(content_id "$wt/$path")
+  local before; before=$(restored_id "$wt/$path")
   printf '%s\n' "$line" > "$SPECD/rf.tsv"
   # A --test that records what the target looked like WHILE it ran. Comparing
   # the file before and after is NOT enough on its own: an earlier version of
@@ -830,7 +846,7 @@ restore_fidelity() { # label, setup-cmd, path, spec-line
   chmod +x "$wt/t_w.sh"
   ( cd "$wt" && "$RM_SH" --spec "$SPECD/rf.tsv" --test ./t_w.sh >"$FIXTURE/rf_out.txt" 2>&1 )
   local rc=$?
-  local after; after=$(content_id "$wt/$path")
+  local after; after=$(restored_id "$wt/$path")
   if [ "$rc" -ne 0 ]; then
     fail "$label: the runner did not complete (exit $rc)"
   elif [ ! -s "$witness" ]; then
@@ -904,7 +920,7 @@ ACCWT=$(mktemp -d "$FIXTURE/accwt.XXXXXX"); rmdir "$ACCWT"
 git -C "$MREPO" worktree add --detach "$ACCWT" HEAD >/dev/null 2>&1
 printf '#!/bin/sh\ngit add -A >/dev/null 2>&1\ngrep -q "return n >= 10" src/limits.py\n' > "$ACCWT/t_stage.sh"
 chmod +x "$ACCWT/t_stage.sh"
-ACC_BEFORE=$(content_id "$ACCWT/src/limits.py")
+ACC_BEFORE=$(restored_id "$ACCWT/src/limits.py")
 printf 'src/limits.py\t2\t>=\t>\tkills\nsrc/limits.py\t5\t* 2\t* 3\tsurvives\n' > "$SPECD/accum.tsv"
 RM_OUT=$( cd "$ACCWT" && "$RM_SH" --spec "$SPECD/accum.tsv" --test ./t_stage.sh 2>/dev/null ); RM_RC=$?
 if printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
@@ -912,7 +928,7 @@ if printf '%s' "$RM_OUT" | grep -q 'SURVIVED'; then
 else
   fail "mutants accumulated under a staging --test: every one scored killed"
 fi
-[ "$(content_id "$ACCWT/src/limits.py")" = "$ACC_BEFORE" ] \
+[ "$(restored_id "$ACCWT/src/limits.py")" = "$ACC_BEFORE" ] \
   && pass "and the file is byte-identical after a staging --test" \
   || fail "a staging --test left mutations in the file"
 git -C "$MREPO" worktree remove --force "$ACCWT" >/dev/null 2>&1; rm -rf "$ACCWT"
@@ -965,9 +981,9 @@ RM_OUT=$( cd "$DRYWT" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh --dry-ru
 # Run from a SUBDIRECTORY: the mutation is written through an absolute path, so
 # a cwd-sensitive restore would miss it and leave the file mutated.
 mkdir -p "$DRYWT/sub"
-SUB_BEFORE=$(content_id "$DRYWT/src/limits.py")
+SUB_BEFORE=$(restored_id "$DRYWT/src/limits.py")
 ( cd "$DRYWT/sub" && "$RM_SH" --spec "$SPECD/two.tsv" --test ./t.sh >/dev/null 2>&1 )
-[ "$(content_id "$DRYWT/src/limits.py")" = "$SUB_BEFORE" ] \
+[ "$(restored_id "$DRYWT/src/limits.py")" = "$SUB_BEFORE" ] \
   && pass "a run from a subdirectory still restores the file it mutated" \
   || fail "a subdirectory invocation left the file mutated"
 git -C "$MREPO" worktree remove --force "$DRYWT" >/dev/null 2>&1; rm -rf "$DRYWT"
