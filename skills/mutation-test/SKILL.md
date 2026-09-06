@@ -73,8 +73,8 @@ coverage map, so a scoped run executes the full suite once per mutant.
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from
   it, verify with `cmp`, delete it, and start again. Copying over it destroys the
-  original permanently — the same way a colliding backup key destroyed one in the
-  batch runner this version withholds.
+  original permanently — the same way a colliding backup key destroyed one in an
+  earlier batch runner — part of why none ships.
 - **Verify the restore by content, not by `git status`.** On an already-dirty file
   `git status` says "modified" before and after the mutation and `git diff` shows a
   diff either way, so neither can tell a restored file from a still-mutated one.
@@ -235,14 +235,13 @@ exact command that will execute.
 
 ## The isolation layer: `mutation_test_worktree.sh`
 
-This skill ships three scripts, and this is the one `mutation_test_run_mutants.sh`
-rests on. `mutation_test_changed_lines.sh` is a standalone diff parser that opens
-no repository and is run on its own, in Path B step 1.
-**The manual procedure above uses none of them** — Path A mutates in place,
-which is the whole point of the in-place rule. This script is for the case
-where you genuinely need an isolated tree, and [Path B](#path-b-a-scoped-run)
-below is built on it: it hands the worktree to
-`mutation_test_run_mutants.sh`, which refuses to run anywhere else.
+This skill ships two scripts. This one gives you a disposable checkout that is
+known-good before you touch it; `mutation_test_changed_lines.sh` is a standalone
+diff parser that opens no repository and is run on its own, in Path B step 1.
+**The manual procedure above uses neither** — Path A mutates in place, which is
+the whole point of the in-place rule. This script is for the case where you
+genuinely need an isolated tree, and [Path B](#path-b-scoping-a-run-to-a-pr-or-a-diff)
+is built on it.
 
 ```
 mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
@@ -278,13 +277,17 @@ It refuses rather than guessing, and every refusal prints a machine-readable
 permission on every run, deliberately — see [Why this skill prompts for
 permission](#why-this-skill-prompts-for-permission).
 
-## Path B: a scoped run
+## Path B: scoping a run to a PR or a diff
 
-For a PR or a diff, rather than one claim at a time. It needs **committed**
-work, because a worktree holds nothing else — so the manual path above remains
-the answer for code you have just written.
+For a PR or a diff, rather than picking lines by eye. It needs **committed**
+work, because a worktree holds nothing else — so Path A above remains the answer
+for code you have just written.
 
-Three steps, and you make the judgement in the middle one.
+**There is no batch runner.** Choosing the mutation and judging the result stay
+manual, exactly as in Path A; what this path gives you is a shortlist of
+candidate lines and a disposable checkout that is known-good before you start.
+A runner that applied a batch of mutants and scored them was built and then
+withdrawn — see *What is still not here*.
 
 **1. Get the candidate lines.**
 
@@ -293,143 +296,58 @@ gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
 ```
 
 Every added or modified line in the diff, as `path<TAB>line`. Deleted lines are
-absent — there is nothing left to mutate.
+absent — there is nothing left to mutate. A hunk whose declared length does not
+match its content is refused rather than guessed at.
 
-**Fetch the PR's head and note its SHA now**, because step 3 needs both:
+**Fetch the PR head if you plan to check it out**, because `gh pr diff` and
+`gh pr view` are API calls that write nothing to your object database, and a
+fork's head is never fetched by the default refspec:
 
 ```
 git fetch origin pull/277/head
 gh pr view 277 --json headRefOid --jq .headRefOid
 ```
 
-`gh pr diff` and `gh pr view` are API calls that write nothing to your object
-database, and a fork's head is never fetched by the default refspec — so without
-the `git fetch` the SHA is real but absent locally, and step 3 stops with
-`refused: bad-ref`. These line numbers address the PR's
-head, and the worktree defaults to your own `HEAD`. Reviewing someone else's PR
-from your own main is the ordinary case, so without `--ref` the numbers and the
-files come from different revisions: most mutants fail to resolve, and the ones
-that do can apply a short literal like `>=` cleanly to an entirely different
-statement and report a verdict against it.
+**2. Pick the lines that carry real risk.**
 
-**2. Choose the mutations, and write them down.**
+This is the judgement no tool makes for you. A changed line is not a claim; the
+question is which of these lines, if silently broken, would leave the suite
+green. Read them and choose a handful.
 
-This is the part no tool does for you. Pick the lines that carry real risk,
-decide what edit would be a genuine behaviour change, and write a spec. One
-mutant per line, tab-separated, `find` and `replace` matched **literally**
-against the single line given:
-
-```
-file<TAB>line<TAB>find<TAB>replace[<TAB>desc[<TAB>control]]
-
-src/pkg/limits.py	42	>=	>	trip the boundary
-src/pkg/limits.py	51	return True	return False
-src/pkg/parse.py	12	==	!=	a line you KNOW is covered	control
-```
-
-**Include one `control`** — a mutant on a line you are confident the tests
-cover. It is the difference between a result and a guess: if it dies, the tests
-demonstrably see your edits, so every other survivor is a real coverage gap.
-
-`control` is the **sixth** field, so leave the description empty to reach it
-without writing one: `file⇥line⇥find⇥replace⇥⇥control`. Writing `control` in the
-fifth field is refused rather than read as a description — that is the way to
-believe you marked a control and not have.
-
-**The rule is that a run in which nothing died is refused — when there is
-enough to conclude from.** That means a control was given, or the survivors
-span two or more distinct lines. A lone survivor is reported rather than
-refused, because one mutant on one line cannot tell a broken environment from an
-uncovered one. Anything
-killed, control or not, proves the tests see this checkout. So a control that
-survives *beside a kill* is not a refusal: it means the line you picked is not
-covered after all, and the run says so and carries on. Without a control, a run
-where *everything* survives is refused as probable mis-wiring — which is wrong
-precisely where this tool is most often pointed, since freshly changed code is
-where coverage is thinnest.
-
-**Write it outside the repository** — `/tmp/mutants.tsv` — and pass an absolute
-path. A spec written inside the repo is an untracked file, so the worktree will
-not contain it and the run cannot find it. Blank lines and `#` comments are
-skipped. An empty `replace` deletes the token, which is a legitimate mutation.
-
-Ten chosen mutants beat a hundred generated ones. A generated edit that breaks
-the syntax goes red for the wrong reason, which tells you nothing about
-coverage.
-
-**3. Run them in a throwaway checkout.**
+**3. Work in a throwaway checkout.**
 
 ```
 mutation_test_worktree.sh run --ref <pr-head-sha> --test 'make test' -- \
-    mutation_test_run_mutants.sh --spec /tmp/mutants.tsv --test 'make test'
+    <your command>
 ```
 
-`--ref` is the head SHA from step 1. It is not optional for a PR: it defaults to
-your `HEAD`, and the spec's line numbers do not address that.
+It cuts a worktree at the ref you name, runs `--setup` in it, confirms the
+baseline is green, runs your command inside it, and removes it. Your own files
+are never touched. `--ref` is the head SHA from step 1; without it the worktree
+is cut from your `HEAD`, which the diff's line numbers do not address.
 
-**A non-HEAD `--ref` also turns the working-tree checks off.** They exist to
-catch work that would be missing from the worktree, and that reasoning only
-holds when the worktree is being cut from the commit your tree is sitting on. So
-on this path the clean-tree and untracked-file guards below do not run, and the
-run says `the working tree is not consulted` when it skips them. The runner's
-own per-target guards still apply.
+The command you pass is yours — an editor invocation, a small script, anything.
+Then apply one mutation, run the suite, read the failure, exactly as in Path A.
+Because the checkout is disposable there is nothing to restore: when the command
+returns, the worktree goes.
 
-The worktree layer checks the baseline is green — and, when `--ref` is HEAD or
-absent, that the tree is clean; the
-runner applies each mutant, runs the suite, restores the file from a byte-exact
-copy it took first, and reports. Both the apply and the restore land by renaming
-a file into place, so the target is never in a half-written state. Your files are never touched — and the runner **refuses to run
-outside a linked worktree**, so it can never touch your main checkout. It cannot
-tell a throwaway worktree from a long-lived one, which is why the restore has to
-be exact rather than merely likely. `--dry-run` resolves every mutant against the source and runs no mutants — but
-in this composed form it still pays the worktree layer's baseline, so it costs
-**one full suite run**, not nothing. That is still worth it before ten of them.
-To check a spec for typos without paying even that, run the runner with
-`--dry-run` directly inside a worktree you already have. A dry run writes
-nothing, so it is allowed even when your targets carry uncommitted work.
-
-**Without `--dry-run` it will mutate that worktree.** Each mutant is undone from
-a byte-exact copy taken immediately before the write, and the restore is verified
-rather than assumed, so uncommitted work, untracked files and files git has been
-told to ignore all come back exactly as they were. The composed form above is
-still the one to reach for by default, because a fresh throwaway worktree has
-nothing to lose in the first place — and a crash between the write and the
-restore would still leave one mutant applied.
-
-If an unrelated untracked file blocks the run, name it — `--untracked-ok
-scratch.md`. That acknowledges one path; it does not excuse the others, so a
-test you had forgotten still stops the run. **This applies to the HEAD path
-only** — with the non-HEAD `--ref` of the PR recipe above, the scan does not run
-and `--untracked-ok` has nothing to do.
-
-### Reading the result
-
-A **killed** mutant means that line is covered. A **survivor** is a coverage
-gap, not a bug — the same reading as the manual path.
-
-**If nothing was killed, the run refuses** — provided a control was given or the
-survivors span two or more distinct lines. With a control it can say why: you named a line as covered and its mutant lived too, which points at
-the environment rather than the coverage, since a suite resolving to a different
-copy of your source produces exactly this.
-
-**A control that survives beside a kill is reported, not refused.** Something
-died, so the tests demonstrably see this checkout; the honest reading is that
-the line you picked is not covered. The run names it in a NOTE and carries on,
-rather than discarding a report it has just proven sound over one wrong guess —
-and since there is no coverage map, guessing is the normal case.
-
-**With no control, a run where everything survives across two or more distinct
-lines is refused**, because nothing present can tell mis-wiring from genuinely
-untested code. A lone survivor, or survivors all on one line, stays a reported
-finding — one mutant cannot make that distinction. That is not a
-hypothetical: pointing this at a freshly changed module refused four mutants
-whose lines a coverage report independently called untested. Add a control and
-the same run reports them as the gaps they are.
 
 ### What is still not here
 
-No coverage map, so every mutant runs the full suite. That map is where "0
-covering tests for all nine mutants" came from, and running everything is slower
-but cannot be subtly wrong. No timeout, because `timeout` is GNU coreutils and
-absent on a stock macOS. Mutants run serially: two in one working tree cannot be
-told apart.
+**No batch runner.** A script that took a spec of mutants, applied each one,
+ran the suite and scored it was built for this release and withdrawn before it
+shipped. Five rounds of adversarial review found 4, 3, 3, 7 and 4 blockers in
+it, and every round's fixes introduced the next round's defects — the last set
+including a restore that could publish a truncated file and report success, and
+a `mv` that hangs on a terminal. They were all in one place: applying a mutation
+to a file and putting it back is a small idea with a large number of ways to
+lose someone's work, and this design had not converged on a safe one.
+
+What that means for you: choosing the mutation and judging the result are
+manual, as they always were. What this release adds is the scaffolding around
+that — a shortlist of candidate lines, and a checkout you cannot damage.
+
+No coverage map, so a run over several lines means running the suite several
+times. That map is where "0 covering tests for all nine mutants" came from, and
+running everything is slower but cannot be subtly wrong. No timeout, because
+`timeout` is GNU coreutils and absent on a stock macOS.

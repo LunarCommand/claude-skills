@@ -182,21 +182,16 @@ on evidence — delete it, run the tests, see what breaks.
 
 **Two paths.** The default runs one claim at a time in your tree, which is the
 right answer for code you just wrote — a worktree cannot hold uncommitted work.
-For a PR or a diff there is a scoped path: it resolves the changed lines, cuts a
-throwaway checkout at the revision you name, and runs a batch of mutants there,
-so your files are never touched. Inside that checkout each mutant is undone from
-a byte-exact copy taken just before it is applied, and the restore is verified —
-not delegated to git, which restores from the index and so quietly did nothing
-whenever a test command staged anything.
+For a PR or a diff there is a scoped path: it resolves which lines actually
+changed, and gives you a throwaway checkout at the revision you name, with the
+baseline confirmed green before you touch it. Your own files are never involved.
 
-**It is still not a sweep.** You pick the lines that carry real risk; no coverage
-map picks them for you, and the suite runs once per mutant. Mark one mutant as
-the `control`, on a line you are confident is covered — if it dies, the tests
-demonstrably see the edits, so every other survivor is a real gap. A run in
-which nothing died is refused rather than reported — when there is enough to
-conclude from, meaning a control, or survivors on two or more distinct lines —
-because that is equally what a suite reading a different copy of your source
-looks like.
+**It is not automated, and it is not a sweep.** Choosing the mutation and reading
+the result stay yours, exactly as on the manual path. A batch runner that applied
+mutants and scored them was built for this release and withdrawn: five rounds of
+adversarial review kept finding ways it could damage a file and report success,
+so what ships is the half that never writes to your source. There is no coverage
+map either — you pick the lines that carry real risk.
 
 #### `/pr-review` — work through review comments
 

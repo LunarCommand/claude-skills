@@ -513,8 +513,6 @@ deliberately_unruled = {
     # run unprompted approves the wrapper rather than the payload. It runs once
     # per mutation session, so the prompt is cheap and shows the exact command.
     'mutation_test_worktree.sh',
-    # --test reaches `bash -c` here too, so the same reasoning applies.
-    'mutation_test_run_mutants.sh',
 }
 # A basename shipped by two skills is unreachable for one of them: bare-name
 # invocation resolves through PATH, which can only ever pick one. The set
@@ -584,44 +582,6 @@ scripts = {
         'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
         'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
     },
-    'skills/mutation-test/bin/mutation_test_run_mutants.sh': {
-        # Keep this list SHORT and true. Its predecessor exempted the whole
-        # restore path with reasons that were simply wrong -- every one of them
-        # was reachable with a chmod -- and that exemption is why no assertion
-        # covered two data-loss defects. It happened AGAIN in this PR:
-        # `restore-failed` was excused as needing git checkout to fail and
-        # `mutant-had-no-effect` as needing a gitattributes filter, when a chmod
-        # reached the first and an ordinary untracked file the second. Both are
-        # asserted now. If you are about to add an entry here, try a chmod --
-        # and try killing the test command, which is all `test-killed` needed:
-        # `--test 'kill -TERM $$'` reaches it in one line, and this suite was
-        # already using that technique on the worktree script while this list
-        # called the runner's copy of the guard unreachable.
-        'missing-dependency':  'requires git, awk, cmp or mktemp to be absent from PATH',
-        'tmpfile-out':         'requires mktemp to fail',
-        'tmpfile-apply':       'requires mktemp to fail',
-        'tmpfile-backup':      'requires mktemp to fail',
-        'backup-failed':       'requires the target to stop being readable between '
-                               'the resolve-phase check and the backup copy',
-        'apply-build-failed':  'requires awk to fail writing a file it just read',
-        'apply-seed-failed':   'requires the target to stop being readable between the '
-                               'resolve-phase check and the staging copy',
-        'apply-chmod-failed':  'requires chmod to fail on a file we just created',
-        'target-dir-unresolvable': 'requires the target\'s directory to stop being '
-                               'enterable between the -f check and the resolve',
-        'apply-write-failed':  'requires a write to fail inside a worktree we just created',
-        'not-a-regular-file':  'requires a tracked path that is neither a file nor a symlink',
-        # True now the check is a byte comparison against the backup copy rather
-        # than a question to git: `find` is verified present on the line and
-        # differs from `replace`, so awk cannot emit identical bytes.
-        'mutant-had-no-effect': 'requires awk to emit bytes identical to its input '
-                               'after replacing a string verified present with a '
-                               'different one',
-        'root-unreachable':    'requires the worktree root to stop being enterable '
-                               'between rev-parse --show-toplevel and the cd',
-        'no-toplevel':         'requires rev-parse --show-toplevel to fail inside a '
-                               'worktree whose git dir already resolved',
-    },
     'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
         'unreadable-diff':    'requires a file that exists but cannot be read',
@@ -633,7 +593,6 @@ scripts = {
 # claimed 'per script' while only its left-hand side was.
 HELPERS = {
     'expect':    'mutation_test_worktree.sh',
-    'rm_expect': 'mutation_test_run_mutants.sh',
     'cl_expect': 'mutation_test_changed_lines.sh',
 }
 bad, total, cov = [], 0, 0
