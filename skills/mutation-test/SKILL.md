@@ -284,10 +284,8 @@ work, because a worktree holds nothing else — so Path A above remains the answ
 for code you have just written.
 
 **There is no batch runner.** Choosing the mutation and judging the result stay
-manual, exactly as in Path A; what this path gives you is a shortlist of
+manual, exactly as in Path A. What this path gives you is a shortlist of
 candidate lines and a disposable checkout that is known-good before you start.
-A runner that applied a batch of mutants and scored them was built and then
-withdrawn — see *What is still not here*.
 
 **1. Get the candidate lines.**
 
@@ -334,18 +332,12 @@ returns, the worktree goes.
 
 ### What is still not here
 
-**No batch runner.** A script that took a spec of mutants, applied each one,
-ran the suite and scored it was built for this release and withdrawn before it
-shipped. Five rounds of adversarial review found 4, 3, 3, 7 and 4 blockers in
-it, and every round's fixes introduced the next round's defects — the last set
-including a restore that could publish a truncated file and report success, and
-a `mv` that hangs on a terminal. They were all in one place: applying a mutation
-to a file and putting it back is a small idea with a large number of ways to
-lose someone's work, and this design had not converged on a safe one.
-
-What that means for you: choosing the mutation and judging the result are
-manual, as they always were. What this release adds is the scaffolding around
-that — a shortlist of candidate lines, and a checkout you cannot damage.
+**No batch runner.** Nothing here applies a mutation, runs the suite and scores
+it for you. Applying an edit to someone's file and reliably putting it back is a
+small idea with a large number of ways to lose their work, and nothing shipped
+here does it. Choosing the mutation and judging the result are yours; what this
+skill provides around that is a shortlist of candidate lines and a checkout you
+cannot damage.
 
 No coverage map, so a run over several lines means running the suite several
 times. That map is where "0 covering tests for all nine mutants" came from, and

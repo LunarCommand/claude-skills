@@ -36,13 +36,12 @@ judging the result stay manual, as they were.
   Deleted lines are absent — there is nothing left to mutate. Shell only, no
   `jq` and no `python3`, so it adds no dependency to a Go or Rust project.
 - It treats the diff as **untrusted input**, because the author of the PR under
-  review wrote it. An added line reading `++ path` renders as `+++ path`, and a
-  deleted one reading `-- x` renders as `--- x`; both were usable to re-attribute
-  someone's changed lines to another file, or to drop them from the inventory
-  while the summary still read as complete. Header lines are now recognised only
-  between hunks, decided by both hunk budgets from the `@@` header — and only the
+  review wrote it. An added line reading `++ path` renders as `+++ path` and a
+  deleted one reading `-- x` renders as `--- x`, so file headers are recognised
+  only between hunks, bounded by both lengths in the `@@` header — and only the
   header portion of that line is read, since the function-context text after it
-  is also author-controlled.
+  is author-controlled too. Without that, a line could be attributed to the
+  wrong file, or dropped while the summary still read as a complete inventory.
 - A hunk still open at the end of the input is **refused as a malformed diff**
   rather than reported with guessed line numbers.
 - **`mutation_test_worktree.sh`** (from 0.10.0) is what step 3 uses: a throwaway
@@ -50,17 +49,6 @@ judging the result stay manual, as they were.
   before your command runs, removed afterwards. `--ref` now documents the
   `git fetch` a PR head needs, and says plainly that a non-HEAD ref means the
   working-tree checks are skipped.
-
-**The batch runner was withdrawn.** A script that took a spec of mutants,
-applied each one, ran the suite and scored it was built for this release and is
-not in it. Five rounds of adversarial review found 4, 3, 3, 7 and
-4 blockers in it, and each round's fixes introduced the next round's defects. The
-last set included a restore that could publish a truncated file and report a
-byte-exact success, and a `mv` that hangs forever on a terminal. Every one of
-them was in the same place — applying a mutation to a file and putting it back —
-and that design had not converged on something safe enough to point at a real
-project. What survives is the half that never writes to your files.
-
 
 ### mutation-test — 0.10.0
 

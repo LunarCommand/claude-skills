@@ -186,12 +186,11 @@ For a PR or a diff there is a scoped path: it resolves which lines actually
 changed, and gives you a throwaway checkout at the revision you name, with the
 baseline confirmed green before you touch it. Your own files are never involved.
 
-**It is not automated, and it is not a sweep.** Choosing the mutation and reading
-the result stay yours, exactly as on the manual path. A batch runner that applied
-mutants and scored them was built for this release and withdrawn: five rounds of
-adversarial review kept finding ways it could damage a file and report success,
-so what ships is the half that never writes to your source. There is no coverage
-map either — you pick the lines that carry real risk.
+**It is not automated, and it is not a sweep.** Nothing applies a mutation or
+scores it for you — choosing the edit and reading the result stay yours, exactly
+as on the manual path. What the scoped path adds is the shortlist and the safe
+place to work. There is no coverage map either: you pick the lines that carry
+real risk.
 
 #### `/pr-review` — work through review comments
 
