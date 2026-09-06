@@ -592,7 +592,11 @@ scripts = {
         # `restore-failed` was excused as needing git checkout to fail and
         # `mutant-had-no-effect` as needing a gitattributes filter, when a chmod
         # reached the first and an ordinary untracked file the second. Both are
-        # asserted now. If you are about to add an entry here, try a chmod.
+        # asserted now. If you are about to add an entry here, try a chmod --
+        # and try killing the test command, which is all `test-killed` needed:
+        # `--test 'kill -TERM $$'` reaches it in one line, and this suite was
+        # already using that technique on the worktree script while this list
+        # called the runner's copy of the guard unreachable.
         'missing-dependency':  'requires git, awk, cmp or mktemp to be absent from PATH',
         'tmpfile-out':         'requires mktemp to fail',
         'tmpfile-apply':       'requires mktemp to fail',
@@ -615,7 +619,6 @@ scripts = {
                                'different one',
         'root-unreachable':    'requires the worktree root to stop being enterable '
                                'between rev-parse --show-toplevel and the cd',
-        'test-killed':         'requires the test command to die by signal mid-run',
         'no-toplevel':         'requires rev-parse --show-toplevel to fail inside a '
                                'worktree whose git dir already resolved',
     },

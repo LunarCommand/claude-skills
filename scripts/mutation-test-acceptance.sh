@@ -750,6 +750,12 @@ printf '%s' "$RM_ERR" | grep -qF -- '--- test output ---' \
   && pass "a red baseline shows the test output" || fail "baseline-red printed no diagnostic"
 rm_direct "$SPECD/two.tsv" ./t_gone.sh
 rm_expect 55 test-not-runnable "a --test that cannot run is breakage, not a kill"
+# Deterministic, and the same technique this suite already used on the worktree
+# script -- while validate.sh called the runner's copy of the guard unreachable.
+# It goes through rm_direct so the worktree layer's own command-killed guard
+# does not refuse first.
+rm_direct "$SPECD/two.tsv" 'kill -TERM $$'
+rm_expect 55 test-killed "a --test killed by a signal is refused, not scored"
 
 # One line per mutant: the old blank-line-separated format could silently merge
 # two records into one, which also dropped the run below the all-survived floor.
