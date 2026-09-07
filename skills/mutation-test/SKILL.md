@@ -4,9 +4,9 @@ description: >-
   Proves a test actually checks something, by breaking the behaviour it claims to
   cover and confirming it goes red. Use when a test, fixture, assertion or guard
   has been reported as working and you want evidence rather than a green run, or
-  to check a claim that some code is dead, unused or unreachable. Also use it for
-  a SCOPED run over a PR or a diff — resolving the changed lines and mutating a
-  chosen few in a throwaway worktree, to find which of them no test covers.
+  to check a claim that some code is dead, unused or unreachable. Also use it to
+  SCOPE that work to a PR or a diff — shortlisting the changed lines and giving
+  you a throwaway checkout to break them in. It does not mutate anything for you.
   Triggers on "mutation test", "mutation testing", "prove it fails", "are these
   tests real", "does this test actually assert anything", "is that assertion
   live", "did you verify it's not vacuous", "which changed lines are tested",
