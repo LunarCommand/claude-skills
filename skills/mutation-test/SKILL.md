@@ -4,12 +4,16 @@ description: >-
   Proves a test actually checks something, by breaking the behaviour it claims to
   cover and confirming it goes red. Use when a test, fixture, assertion or guard
   has been reported as working and you want evidence rather than a green run, or
-  to check a claim that some code is dead, unused or unreachable. Triggers on
-  "mutation test", "mutation testing", "prove it fails", "are these tests real",
-  "does this test actually assert anything", "is that assertion live", "did you
-  verify it's not vacuous", "how do you know it's checking anything", or any claim
-  that a test passes being offered as evidence the behaviour is correct. Also use
-  it proactively before reporting harness or fixture work as done.
+  to check a claim that some code is dead, unused or unreachable. Also use it to
+  SCOPE that work to a PR or a diff — shortlisting the changed lines and giving
+  you a throwaway checkout to break them in. It does not mutate anything for you.
+  Triggers on "mutation test", "mutation testing", "prove it fails", "are these
+  tests real", "does this test actually assert anything", "is that assertion
+  live", "did you verify it's not vacuous", "which changed lines are tested",
+  "is this PR actually covered", "are the changes in PR 123 tested", "check the
+  coverage on this diff", "mutation test this PR", or any claim that a test
+  passes being offered as evidence the behaviour is correct. Also use it proactively before reporting harness or
+  fixture work as done.
 ---
 
 # Mutation testing
@@ -23,11 +27,13 @@ been seen to fail for the right reason.
 
 ## Scope, and what this version does not do
 
-This version runs **one claim at a time, by hand**. There is no batch runner, no
-coverage map, and no scripted scope resolution — see
-[Not in this version](#not-in-this-version). If you were handed a PR or a diff and
-asked whether it is pinned by its suite, say so plainly and pick the claims worth
-checking individually rather than implying a sweep happened.
+Two paths. **Path A** runs one claim at a time, by hand, mutating the file in
+place — the right answer for code you have just written, because a worktree
+cannot hold uncommitted work. **Path B** takes a PR or a diff and gives you the
+changed lines plus a throwaway checkout to work in; it needs committed work.
+Neither path applies a mutation for you — choosing the edit and judging the
+result are manual in both. There is no coverage map, so checking several lines
+means running the suite several times.
 
 ## Rules
 
@@ -69,8 +75,8 @@ checking individually rather than implying a sweep happened.
   you go to make one, a previous run was interrupted: that file is the only
   pristine copy left and the working file is probably still mutated. Recover from
   it, verify with `cmp`, delete it, and start again. Copying over it destroys the
-  original permanently — the same way a colliding backup key destroyed one in the
-  batch runner this version withholds.
+  original permanently — the same way a colliding backup key destroyed one in an
+  earlier batch runner — part of why none ships.
 - **Verify the restore by content, not by `git status`.** On an already-dirty file
   `git status` says "modified" before and after the mutation and `git diff` shows a
   diff either way, so neither can tell a restored file from a still-mutated one.
@@ -231,10 +237,13 @@ exact command that will execute.
 
 ## The isolation layer: `mutation_test_worktree.sh`
 
-This skill ships one script. **The manual procedure above does not use it** —
-that mutates in place, which is the whole point of the in-place rule. The script
-is for the case where you genuinely need an isolated tree, and it is the
-foundation the scoped runs below will be built on.
+This skill ships two scripts. This one gives you a disposable checkout that is
+known-good before you touch it; `mutation_test_changed_lines.sh` is a standalone
+diff parser that opens no repository and is run on its own, in Path B step 1.
+**The manual procedure above uses neither** — Path A mutates in place, which is
+the whole point of the in-place rule. This script is for the case where you
+genuinely need an isolated tree, and [Path B](#path-b-scoping-a-run-to-a-pr-or-a-diff)
+is built on it.
 
 ```
 mutation_test_worktree.sh run --test <cmd> [--setup <cmd>] [--repo <path>]
@@ -250,57 +259,89 @@ Before your command runs it establishes three things, all of them directly
 observed:
 
 1. the repository has no uncommitted or untracked changes, so the checkout
-   matches what you are looking at — a worktree holds committed work only
+   matches what you are looking at — a worktree holds committed work only.
+   **This one is skipped when `--ref` names something other than `HEAD`**, since
+   the reasoning only holds while the worktree is cut from the commit your tree
+   is sitting on. Path B's PR recipe always passes such a ref, so it always
+   skips this; the run says so when it does
 2. a `--setup` command you named ran successfully in it
 3. `--test` exits 0 in it, so the baseline is green
 
 **What it deliberately does NOT establish** is that `--test` can see a mutation
 at all. Nothing exit-code-shaped can: three designs tried and each was defeated
-by a step that reads a file without executing it. Judge that from your results —
-if every mutant survives, suspect the environment. It says so on success rather
-than implying more.
+by a step that reads a file without executing it. Judge it from your own
+results: mutate a line you are confident IS covered and confirm that one goes
+red before trusting a survivor anywhere else. This script says so on success
+rather than implying more.
 
 It refuses rather than guessing, and every refusal prints a machine-readable
 `mutation_test_worktree: refused: <slug>` line before exiting. It asks for
 permission on every run, deliberately — see [Why this skill prompts for
 permission](#why-this-skill-prompts-for-permission).
 
-## Not in this version
+## Path B: scoping a run to a PR or a diff
 
-Scoped runs — point it at a PR or a diff, resolve changed lines, build a
-line-to-test coverage map, and run a batch of mutants — are **not shipped here**.
-The isolation layer they need is (above); the runner on top of it is not.
+For a PR or a diff, rather than picking lines by eye. It needs **committed**
+work, because a worktree holds nothing else — so Path A above remains the answer
+for code you have just written.
 
-Until it lands: for a diff, pick the two or three claims that actually carry risk
-and run them by hand. That is slower per line and better per finding — ten chosen
-mutants beat a hundred generated ones anyway.
+**There is no batch runner.** Choosing the mutation and judging the result stay
+manual, exactly as in Path A. What this path gives you is a shortlist of
+candidate lines and a disposable checkout that is known-good before you start.
 
-Tracked as issue #13. The approach changed while that issue was open, and the
-reason is worth carrying: the first runner mutated your files and restored them,
-and every blocker an adversarial review found in it lived in that backup-and-
-restore path — including a key that was not injective, so one file's contents
-were written over another's while the run printed success. A runner that never
-writes to your tree cannot have them.
+**1. Get the candidate lines.**
 
-**What a batch runner has to prove before it ships.** These criteria changed
-once the design did, and it is worth saying how. The withheld runner mutated
-your files and restored them, so its whole product was the restore path: it had
-to survive a fixture tree built to break it — two paths colliding under whatever
-key the backup used (`a/b.py` alongside `a_b.py` defeated `tr '/' '_'`), a path
-with a space, a symlink, a file named after the runner's own scratch file, two
-runs at once.
+```
+gh pr diff 277 | mutation_test_changed_lines.sh --suffix .py
+```
 
-A runner built on `mutation_test_worktree.sh` has no restore path, because it
-never writes to your tree at all. Those cases stop being the bar and become
-true by construction — which is exactly the kind of claim this project has been
-wrong about before, so the suite still asserts the source tree is byte-identical
-afterwards rather than assuming it. Any scratch file the runner writes itself is
-back in scope, in the worktree, and the hostile-name cases apply there.
+Every added or modified line in the diff, as `path<TAB>line`. Deleted lines are
+absent — there is nothing left to mutate. A hunk whose declared length does not
+match its content is refused rather than guessed at.
 
-The bar that replaces round-trip integrity is **detecting a mis-wired
-environment**. The worktree layer deliberately does not establish that the test
-command can see a mutation — nothing exit-code-shaped can. The runner is the
-only component that can, because it holds the whole result set: if it mutates
-several independent lines and *every* mutant survives, it must say so loudly
-rather than reporting a coverage gap. Getting that wrong reproduces the exact
-symptom this skill exists to prevent — a confident, entirely false clean run.
+**Fetch the PR head if you plan to check it out**, because `gh pr diff` and
+`gh pr view` are API calls that write nothing to your object database, and a
+fork's head is never fetched by the default refspec:
+
+```
+git fetch origin pull/277/head
+gh pr view 277 --json headRefOid --jq .headRefOid
+```
+
+**2. Pick the lines that carry real risk.**
+
+This is the judgement no tool makes for you. A changed line is not a claim; the
+question is which of these lines, if silently broken, would leave the suite
+green. Read them and choose a handful.
+
+**3. Work in a throwaway checkout.**
+
+```
+mutation_test_worktree.sh run --ref <pr-head-sha> --test 'make test' -- \
+    <your command>
+```
+
+It cuts a worktree at the ref you name, runs `--setup` in it, confirms the
+baseline is green, runs your command inside it, and removes it. Your own files
+are never touched. `--ref` is the head SHA from step 1; without it the worktree
+is cut from your `HEAD`, which the diff's line numbers do not address.
+
+The command you pass is yours — an editor invocation, a small script, anything.
+Then apply one mutation, run the suite, read the failure, exactly as in Path A.
+Because the checkout is disposable there is nothing to restore: when the command
+returns, the worktree goes.
+
+
+### What is still not here
+
+**No batch runner.** Nothing here applies a mutation, runs the suite and scores
+it for you. Applying an edit to someone's file and reliably putting it back is a
+small idea with a large number of ways to lose their work, and nothing shipped
+here does it. Choosing the mutation and judging the result are yours; what this
+skill provides around that is a shortlist of candidate lines and a checkout you
+cannot damage.
+
+No coverage map, so a run over several lines means running the suite several
+times. That map is where "0 covering tests for all nine mutants" came from, and
+running everything is slower but cannot be subtly wrong. No timeout, because
+`timeout` is GNU coreutils and absent on a stock macOS.
