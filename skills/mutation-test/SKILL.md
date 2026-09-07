@@ -29,9 +29,11 @@ been seen to fail for the right reason.
 
 Two paths. **Path A** runs one claim at a time, by hand, mutating the file in
 place — the right answer for code you have just written, because a worktree
-cannot hold uncommitted work. **Path B** takes a PR or a diff and runs a batch
-of mutants in a throwaway checkout; it needs committed work. There is still no
-coverage map, so a scoped run executes the full suite once per mutant.
+cannot hold uncommitted work. **Path B** takes a PR or a diff and gives you the
+changed lines plus a throwaway checkout to work in; it needs committed work.
+Neither path applies a mutation for you — choosing the edit and judging the
+result are manual in both. There is no coverage map, so checking several lines
+means running the suite several times.
 
 ## Rules
 
@@ -267,10 +269,10 @@ observed:
 
 **What it deliberately does NOT establish** is that `--test` can see a mutation
 at all. Nothing exit-code-shaped can: three designs tried and each was defeated
-by a step that reads a file without executing it. That is what a `control`
-mutant is for — the runner establishes by experiment, mid-run, what this layer
-cannot establish in advance. This script says so on success rather than implying
-more.
+by a step that reads a file without executing it. Judge it from your own
+results: mutate a line you are confident IS covered and confirm that one goes
+red before trusting a survivor anywhere else. This script says so on success
+rather than implying more.
 
 It refuses rather than guessing, and every refusal prints a machine-readable
 `mutation_test_worktree: refused: <slug>` line before exiting. It asks for
