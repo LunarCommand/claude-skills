@@ -25,6 +25,31 @@ plugins that actually changed:
 
 ## Unreleased
 
+### mutation-test — 0.11.0
+
+Scoping, not automation. Point it at a PR or a diff and it tells you which lines
+changed and gives you a checkout you cannot damage. Choosing the mutation and
+judging the result stay manual, as they were.
+
+- **`mutation_test_changed_lines.sh`** turns a PR or a diff into a shortlist:
+  every added or modified line, as `path<TAB>line`, filterable by suffix.
+  Deleted lines are absent — there is nothing left to mutate. Shell only, no
+  `jq` and no `python3`, so it adds no dependency to a Go or Rust project.
+- It treats the diff as **untrusted input**, because the author of the PR under
+  review wrote it. An added line reading `++ path` renders as `+++ path` and a
+  deleted one reading `-- x` renders as `--- x`, so file headers are recognised
+  only between hunks, bounded by both lengths in the `@@` header — and only the
+  header portion of that line is read, since the function-context text after it
+  is author-controlled too. Without that, a line could be attributed to the
+  wrong file, or dropped while the summary still read as a complete inventory.
+- A hunk still open at the end of the input is **refused as a malformed diff**
+  rather than reported with guessed line numbers.
+- **`mutation_test_worktree.sh`** (from 0.10.0) is what step 3 uses: a throwaway
+  checkout at the ref you name, bootstrapped, with the baseline confirmed green
+  before your command runs, removed afterwards. `--ref` now documents the
+  `git fetch` a PR head needs, and says plainly that a non-HEAD ref means the
+  working-tree checks are skipped.
+
 ### mutation-test — 0.10.0
 
 - Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
@@ -83,6 +108,12 @@ plugins that actually changed:
 
 ### Repository
 
+- The three hygiene scans ask git what can be committed rather than walking the
+  filesystem. They reported a personal path from a directory excluded via
+  `.git/info/exclude`, which can never reach anyone; any local scratch directory
+  did the same, and only locally, since CI clones fresh. They are also stricter
+  in one direction now — a file someone gitignored and then force-added is
+  tracked, so it is scanned.
 - `scripts/validate.sh` checks that every refusal the mutation-test worktree
   script can print is asserted in its acceptance suite, and that no two guards
   share a refusal identity. Three review rounds each found a guard that could

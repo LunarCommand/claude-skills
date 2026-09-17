@@ -27,13 +27,28 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Ensure shellcheck (Linux)
-        if: runner.os == 'Linux'
-        run: command -v shellcheck || (sudo apt-get update && sudo apt-get install -y shellcheck)
-
-      - name: Ensure shellcheck (macOS)
-        if: runner.os == 'macOS'
-        run: command -v shellcheck || brew install shellcheck
+      # PINNED, and the same version on both runners. This used to be apt on
+      # Linux and brew on macOS, which meant 0.9.0 there and 0.10.x here: a
+      # redirection bug that wrote an error message into the file being restored
+      # was flagged by the macOS job and by nothing else, after the commit had
+      # already landed. Two of the three lint runs in the project were blind to
+      # a whole class of check, and no output said so. Bump this deliberately.
+      - name: Install shellcheck (pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=v0.10.0
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64)   ASSET="$V.linux.x86_64"  ;;
+            Linux-ARM64) ASSET="$V.linux.aarch64" ;;
+            macOS-X64)   ASSET="$V.darwin.x86_64" ;;
+            macOS-ARM64) ASSET="$V.darwin.aarch64" ;;
+            *) echo "no pinned shellcheck for ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/$V/shellcheck-$ASSET.tar.xz" \
+            | tar xJ -C "$RUNNER_TEMP"
+          sudo install -m 0755 "$RUNNER_TEMP/shellcheck-$V/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
 
       - name: Validate
         if: runner.os == 'Linux'

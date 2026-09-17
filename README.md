@@ -168,6 +168,7 @@ rather than a green run you have to take on trust.
 ```
 /mutation-test is that new fixture actually asserting anything
 /mutation-test prove the retry guard fails when I break it
+/mutation-test the changed lines in PR 123
 ```
 
 A green test run is the null result: a dead assertion and a live one produce
@@ -179,9 +180,17 @@ It reports and does not fix, deliberately: a test written to kill a mutant tends
 to test the mutant rather than the behaviour. It also answers "is this code dead?"
 on evidence — delete it, run the tests, see what breaks.
 
-**This version runs one claim at a time, by hand.** Scoped runs over a whole PR or
-diff are not shipped yet; the SKILL.md says so rather than implying a sweep
-happened.
+**Two paths.** The default runs one claim at a time in your tree, which is the
+right answer for code you just wrote — a worktree cannot hold uncommitted work.
+For a PR or a diff there is a scoped path: it resolves which lines actually
+changed, and gives you a throwaway checkout at the revision you name, with the
+baseline confirmed green before you touch it. Your own files are never involved.
+
+**It is not automated, and it is not a sweep.** Nothing applies a mutation or
+scores it for you — choosing the edit and reading the result stay yours, exactly
+as on the manual path. What the scoped path adds is the shortlist and the safe
+place to work. There is no coverage map either: you pick the lines that carry
+real risk.
 
 #### `/pr-review` — work through review comments
 

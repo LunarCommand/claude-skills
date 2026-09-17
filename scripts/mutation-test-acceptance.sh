@@ -21,6 +21,7 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 WT_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_worktree.sh"
+CL_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_changed_lines.sh"
 
 for c in git python3 sed; do
   command -v "$c" >/dev/null 2>&1 || { echo "  FAIL  missing required command: $c" >&2; exit 127; }
@@ -139,10 +140,50 @@ printf 'import sys\nsys.exit(0)\n' > "$REPO/tests/test_brand_new.py"
 UNTRACKED_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); UNTRACKED_RC=$?
 rm -f "$REPO/tests/test_brand_new.py"
 
+# --untracked-ok is an acknowledgement list, not a bypass: naming one path must
+# not excuse another. The unnamed one is the case that matters -- a test you
+# forgot about, whose absence from the worktree makes every mutant survive.
+printf 'notes\n' > "$REPO/scratch-note.md"
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true >/dev/null 2>&1; UOK_BARE_RC=$?
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true >/dev/null 2>&1; UOK_ACK_RC=$?
+printf 'import sys\n' > "$REPO/tests/test_forgotten.py"
+UOK_PARTIAL_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh --untracked-ok scratch-note.md -- true 2>&1 >/dev/null); UOK_PARTIAL_RC=$?
+UOK_STALE_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh \
+  --untracked-ok scratch-note.md --untracked-ok tests/test_forgotten.py --untracked-ok never-existed.md -- true 2>&1 >/dev/null); UOK_STALE_RC=$?
+rm -f "$REPO/scratch-note.md" "$REPO/tests/test_forgotten.py"
+
 # An index bit that hides a file from git status defeats both checks above.
 git -C "$REPO" update-index --assume-unchanged tests/check.py
 HIDDEN_ERR=$("$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- true 2>&1 >/dev/null); HIDDEN_RC=$?
 git -C "$REPO" update-index --no-assume-unchanged tests/check.py
+
+# Content alone cannot see a file written and then restored, which is the
+# predecessor's whole failure mode, so identity and mtime come too.
+content_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_ino}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
+# Content and mode, deliberately WITHOUT the inode. Both the apply and the
+# restore put the file in place by renaming, which is what makes them atomic --
+# and a rename necessarily gives the path a new inode. What the runner promises
+# is that the BYTES and the MODE come back, not that the identity survives.
+#
+# content_id, which does include the inode, passed on Linux anyway: the original
+# inode is freed by the first rename and the kernel handed the same number back
+# for the second temp file. On APFS it does not, so the macOS runner failed
+# every restore assertion while Linux reported them green -- an assertion that
+# was measuring the wrong thing and only accidentally agreeing with the right
+# one. Keep content_id for the cases that assert a file was never written.
+restored_id() { python3 -c "
+import hashlib,os,sys
+p=sys.argv[1]; st=os.lstat(p)
+print(f'{st.st_mode:o}:{st.st_size}:{hashlib.sha256(open(p,\"rb\").read()).hexdigest()}')" "$1"; }
+
+stat_line() { python3 -c "
+import os,sys
+st=os.lstat(sys.argv[1])
+print(f'{st.st_ino}:{st.st_mtime_ns}:{st.st_size}')" "$1"; }
 
 BEFORE="$FIXTURE/before.manifest"; manifest "$REPO" > "$BEFORE"
 BEFORE_LS="$FIXTURE/before.listing"; listing "$REPO" > "$BEFORE_LS"
@@ -179,7 +220,7 @@ expect() { # rc, slug, label — matches the machine-readable refusal line
 echo "Removed surfaces"
 for sub in create destroy; do
   err=$("$WT_SH" "$sub" "$REPO" 2>&1); rc=$?
-  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'refused: removed-subcommand'; } \
+  { [ "$rc" -eq 40 ] && printf '%s' "$err" | grep -qF 'mutation_test_worktree: refused: removed-subcommand'; } \
     && pass "'$sub' refused by its own guard" || fail "'$sub' exited $rc: $(printf '%s' "$err" | head -1)"
 done
 [ -d "$REPO/.git" ] && pass "fixture repository intact" || fail "THE FIXTURE REPOSITORY WAS DESTROYED"
@@ -238,7 +279,7 @@ expect 42 setup-failed "a --setup that runs and FAILS is refused as setup-failed
 
 echo
 echo "Repository state"
-if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'refused: dirty-tree'; then
+if [ "$DIRTY_RC" -eq 44 ] && printf '%s' "$DIRTY_ERR" | grep -qF 'mutation_test_worktree: refused: dirty-tree'; then
   pass "a dirty TEST file is refused (not just the mutated file)"
 else
   fail "dirty test file not refused (exit $DIRTY_RC)"
@@ -260,12 +301,33 @@ if [ "$DIRTY_REFOLD_RC" -eq 0 ]; then
 else
   fail "--ref HEAD~1 was refused (exit $DIRTY_REFOLD_RC)"
 fi
-if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'refused: untracked-files'; then
+if [ "$UNTRACKED_RC" -eq 44 ] && printf '%s' "$UNTRACKED_ERR" | grep -qF 'mutation_test_worktree: refused: untracked-files'; then
   pass "a brand-new UNTRACKED test file is refused by its own slug"
 else
   fail "untracked test file not refused (exit $UNTRACKED_RC) — the worktree would not contain it"
 fi
-if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'refused: hidden-index-bits'; then
+if [ "$UOK_BARE_RC" -eq 44 ] && [ "$UOK_ACK_RC" -eq 0 ]; then
+  pass "--untracked-ok acknowledges the path it names"
+else
+  fail "--untracked-ok did not work (bare $UOK_BARE_RC, acknowledged $UOK_ACK_RC)"
+fi
+if [ "$UOK_PARTIAL_RC" -eq 44 ] && printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'test_forgotten.py' \
+   && ! printf '%s' "$UOK_PARTIAL_ERR" | grep -qF 'scratch-note.md'; then
+  pass "an UNNAMED untracked path still refuses, and only it is named"
+else
+  fail "--untracked-ok excused a path it was not given (exit $UOK_PARTIAL_RC)"
+fi
+if [ "$UOK_STALE_RC" -eq 0 ] && printf '%s' "$UOK_STALE_ERR" | grep -qF 'acknowledgement did nothing'; then
+  pass "a stale acknowledgement is reported, not refused"
+else
+  fail "a stale --untracked-ok was not reported (exit $UOK_STALE_RC)"
+fi
+# Direct call: run_wt appends "-- true", which --untracked-ok would eat as its
+# value, so the missing-value branch would never be reached.
+run_raw run --repo "$REPO" --test ./run_correct.sh --untracked-ok
+expect 40 untracked-ok-needs-value "--untracked-ok with no value is refused"
+
+if [ "$HIDDEN_RC" -eq 44 ] && printf '%s' "$HIDDEN_ERR" | grep -qF 'mutation_test_worktree: refused: hidden-index-bits'; then
   pass "a file hidden by assume-unchanged is refused"
 else
   fail "assume-unchanged file not refused (exit $HIDDEN_RC) — it is invisible to git status"
@@ -381,6 +443,134 @@ strays=0
 for d in "$TMPRES"/mutation-test-wt.*; do [ -d "$d" ] && mine "$d" && strays=$((strays+1)); done
 [ "$strays" -eq 0 ] && pass "no worktree directories leaked (this run's only)" || fail "$strays worktree(s) leaked"
 
+echo
+echo "Scope resolution"
+
+# A diff with known answers: two added lines in a kept file, a DELETED file
+# whose lines cannot be mutated, and a file the suffix filter must exclude.
+cat > "$FIXTURE/t.diff" <<'DIFF'
+diff --git a/keep.py b/keep.py
+--- a/keep.py
++++ b/keep.py
+@@ -10,3 +10,5 @@ def f():
+ context1
++added11
++added12
+ context2
+diff --git a/gone.py b/gone.py
+--- a/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-deleted1
+-deleted2
+diff --git a/other.txt b/other.txt
+--- a/other.txt
++++ b/other.txt
+@@ -5,1 +5,2 @@
++addedtxt
+diff --git a/notes.py.txt b/notes.py.txt
+--- a/notes.py.txt
++++ b/notes.py.txt
+@@ -1,0 +1,1 @@
++contains-dot-py-but-does-not-end-in-it
+DIFF
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py)
+want="keep.py	11
+keep.py	12"
+[ "$got" = "$want" ] && pass "added lines resolved, deleted file skipped, suffix applied" \
+  || { fail "changed-lines output wrong:"; printf '%s\n' "$got" | sed 's/^/          /'; }
+
+got=$("$CL_SH" --file "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 4 ] && pass "without a suffix, every added line is reported" || fail "expected 4 lines, got $got"
+
+# notes.py.txt CONTAINS '.py' but does not end in it. A filter that matched
+# anywhere in the path rather than at the end would include it.
+got=$("$CL_SH" --file "$FIXTURE/t.diff" --suffix .py | grep -c 'notes.py.txt' || true)
+[ "$got" -eq 0 ] && pass "a suffix must match the END, not appear anywhere" \
+  || fail "'.py' matched notes.py.txt, which merely contains it"
+
+# A suffix is a literal ending, not a pattern: '.py' once matched a file named
+# 'apy' because it was escaped into a regex.
+printf 'diff --git a/apy b/apy\n--- a/apy\n+++ b/apy\n@@ -1,0 +1,1 @@\n+x\n' > "$FIXTURE/p.diff"
+got=$("$CL_SH" --file "$FIXTURE/p.diff" --suffix .py | grep -c . || true)
+[ "$got" -eq 0 ] && pass "a suffix matches an ending, not a pattern" || fail "'.py' matched a file named 'apy'"
+
+# stdin is the documented primary input, not just --file
+got=$("$CL_SH" --suffix .py < "$FIXTURE/t.diff" | grep -c .)
+[ "$got" -eq 2 ] && pass "reads a diff on stdin" || fail "stdin path produced $got lines"
+
+cl_expect() { # rc, slug, label
+  local want=$1 slug=$2 label=$3
+  if [ "$CL_RC" -ne "$want" ]; then fail "$label (expected exit $want, got $CL_RC)"
+  elif ! printf '%s' "$CL_ERR" | grep -qF "refused: $slug"; then
+    fail "$label (exit $want, but the slug was not '$slug')"
+  else pass "$label"; fi
+}
+CL_ERR=$("$CL_SH" --file "$FIXTURE/definitely-not-there" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 no-such-diff "a --file that does not exist is refused"
+CL_ERR=$("$CL_SH" --file 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 file-needs-value "--file with no value is refused"
+CL_ERR=$("$CL_SH" --suffix 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 suffix-needs-value "--suffix with no value is refused"
+CL_ERR=$("$CL_SH" --bogus </dev/null 2>&1 >/dev/null); CL_RC=$?
+cl_expect 40 unknown-argument "an unknown argument is refused"
+
+# It must not open a file for writing at all: a permission rule pre-approving
+# this script would otherwise pre-approve truncating any path a caller named.
+CL_ERR=$("$CL_SH" --file "$FIXTURE/t.diff" --out "$FIXTURE/should-not-exist.tsv" 2>&1 >/dev/null); CL_RC=$?
+if [ "$CL_RC" -eq 40 ] && [ ! -e "$FIXTURE/should-not-exist.tsv" ]; then
+  pass "--out is gone: the script cannot be told to write a file"
+else
+  fail "--out still exists or created a file (exit $CL_RC)"
+fi
+
+# The diff is written by the author of the PR under review. An added line
+# reading `++ foo` renders as `+++ foo`, so matching `^+++ ` anywhere let that
+# author reassign their own later lines to a path of their choosing: the line
+# went unmutated and unreported while the count still read as a full inventory.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,1 +10,4 @@\n context\n+# note:\n+++ b/README.md\n+    tok = "letmein"\n' > "$FIXTURE/inject.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/inject.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "an added line beginning '++ ' was read as a header and re-attributed the lines after it"
+else
+  pass "added content cannot re-attribute later lines to another path"
+fi
+printf '%s' "$CL_OUT" | grep -q 'src/auth.py	13' \
+  && pass "the line that injection hid is still reported, under its real path" \
+  || fail "the injected hunk lost a line entirely"
+
+# The first fix for the above used a "saw --- last" flag, which the same author
+# could re-arm: DELETE a line whose text begins `-- ` (an SQL or Lua comment, a
+# signature delimiter) and it renders as `--- `, so the next `+++ ` was read as
+# a header again. That was worse than the original -- the hunk's added lines
+# were dropped from the inventory rather than misfiled.
+printf 'diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -10,2 +10,4 @@\n context\n--- legacy sql comment\n+++ b/README.md\n+    tok = "letmein"\n+    passwd = "hunter2"\n@@ -40,1 +41,2 @@\n other\n+    another_secret = 1\n' > "$FIXTURE/rearm.diff"
+CL_OUT=$("$CL_SH" --file "$FIXTURE/rearm.diff" 2>/dev/null)
+if printf '%s' "$CL_OUT" | grep -q 'README.md'; then
+  fail "a deleted line beginning '-- ' re-armed the header branch"
+else
+  pass "a deleted line beginning '-- ' cannot re-arm the header branch"
+fi
+# 11, 12 and 13 are the three added lines of hunk one (the spoofed header IS an
+# added line); 42 is the added line of hunk two.
+for want in 11 12 13 42; do
+  printf '%s' "$CL_OUT" | grep -q "src/auth.py	$want" \
+    || fail "the re-arm spoof lost src/auth.py:$want"
+done
+[ "$(printf '%s' "$CL_OUT" | grep -c 'src/auth.py')" -eq 4 ] \
+  && pass "every added line of the spoofed diff is reported under its real path" \
+  || fail "wrong line count for the re-arm spoof"
+
+echo
+echo "Running mutants"
+
+# A hunk left open at EOF means the declared lengths did not match the content:
+# a truncated or hand-edited patch, whose line numbers past that point are a
+# guess. This caught two fixtures in this very suite when it was added.
+printf 'diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1,5 +1,9 @@\n ctx\n+one\n' > "$FIXTURE/trunc.diff"
+CL_ERR=$("$CL_SH" --file "$FIXTURE/trunc.diff" 2>&1 >/dev/null); CL_RC=$?
+cl_expect 42 malformed-diff "a hunk claiming more lines than it contains is refused, not guessed at"
 echo
 if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi
 echo "FAIL — $fail_n failure(s), $pass_n passed"
