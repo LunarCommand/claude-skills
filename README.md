@@ -20,9 +20,8 @@ that's all you want.
 - [How the skills fit together](#how-the-skills-fit-together)
 - [What's inside](#whats-inside)
 - [Prerequisites](#prerequisites)
-- [Install](#install) — [marketplace](#plugin-marketplace-per-skill-versioned),
-  [clone](#clone-and-install-all-skills-at-once),
-  [by hand](#copy-a-skill-by-hand)
+- [Install](#install) — [from GitHub](#from-github),
+  [from a local clone](#from-a-local-clone)
 - [Per-project setup](#per-project-setup)
 - [Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
 - [What an adversarial review costs](#what-an-adversarial-review-costs)
@@ -39,15 +38,15 @@ it yourself, then answer the humans.
 ```mermaid
 flowchart TD
     idea(["an idea, a PRD, or a bug you traced"])
-    fp1["<b>/feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then asks you questions in the file</i>"]
+    fp1["<b>/lunar:feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then asks you questions in the file</i>"]
     g1{{"GATE 1 &nbsp; reply <b>answered</b>"}}
-    fp2["<b>/feature-planning</b> continues<br/>writes _plans/&lt;slug&gt;-plan.md<br/><i>phases, tests, invariants, coverage</i>"]
+    fp2["<b>/lunar:feature-planning</b> continues<br/>writes _plans/&lt;slug&gt;-plan.md<br/><i>phases, tests, invariants, coverage</i>"]
     g2{{"GATE 2 &nbsp; reply <b>approved</b> to build now<br/>or <b>accepted</b> to stop here"}}
     impl["<b>implementation</b><br/><i>phase by phase, each phase's tests run before the next</i>"]
-    dbg["<b>/hyperdx</b> &middot; <b>/langfuse</b><br/><i>when it misbehaves, query real traces<br/>instead of adding print statements</i>"]
-    adv["<b>/adversarial-review</b><br/><i>try to break it before a human sees it</i>"]
+    dbg["<b>/lunar:hyperdx</b> &middot; <b>/lunar:langfuse</b><br/><i>when it misbehaves, query real traces<br/>instead of adding print statements</i>"]
+    adv["<b>/lunar:adversarial-review</b><br/><i>try to break it before a human sees it</i>"]
     pr(["open the PR"])
-    prr["<b>/pr-review</b><br/><i>triage review comments one at a time</i>"]
+    prr["<b>/lunar:pr-review</b><br/><i>triage review comments one at a time</i>"]
     g3{{"GATE 3 &nbsp; approve each reply before it posts"}}
     merge(["merge"])
 
@@ -80,13 +79,13 @@ routes, `/<name>:<name>` via the marketplace.
 **Observability** — the prod-local half: real traces and logs from a stack you
 run yourself.
 
-#### `/hyperdx` — logs and traces, Lucene syntax
+#### `/lunar:hyperdx` — logs and traces, Lucene syntax
 
 **Use it for:** an agent misbehaving where you would otherwise start adding
 print statements.
 
 ```
-/hyperdx errors from the checkout worker in the last hour
+/lunar:hyperdx errors from the checkout worker in the last hour
 ```
 
 Runs the bundled CLI against HyperDX cloud or a local instance in Docker, and
@@ -97,13 +96,13 @@ hdx_query.sh --query "level:err"
 hdx_query.sh --local --table traces --query "SpanName:call_model"
 ```
 
-#### `/langfuse` — LLM traces, observations, sessions, scores, prompts
+#### `/lunar:langfuse` — LLM traces, observations, sessions, scores, prompts
 
 **Use it for:** inspecting what a model actually received and returned, on a
 self-hosted or cloud Langfuse.
 
 ```
-/langfuse show me the traces for session abc123
+/lunar:langfuse show me the traces for session abc123
 ```
 
 ```bash
@@ -117,14 +116,14 @@ one returns nothing on the other.
 
 **Planning** — decide before you build.
 
-#### `/feature-planning` — think before building
+#### `/lunar:feature-planning` — think before building
 
 **Use it for:** anything non-trivial. A feature, a bug you have traced, a
 refactor with consequences.
 
 ```
-/feature-planning _reqs/csv-export.md
-/feature-planning I want to add CSV export to the reports page
+/lunar:feature-planning _reqs/csv-export.md
+/lunar:feature-planning I want to add CSV export to the reports page
 ```
 
 A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
@@ -143,16 +142,16 @@ you say "good plan, not yet" without interrupting a run already writing code.
 
 **Review** — catch what a diff-scoped bot structurally can't.
 
-#### `/adversarial-review` — try to break it before a human does
+#### `/lunar:adversarial-review` — try to break it before a human does
 
 **Use it for:** before you open the PR, or before you merge. Not a style check —
 independent lenses hunt for what *breaks*, and each finding must survive an
 attempt to refute it before you ever see it.
 
 ```
-/adversarial-review
-/adversarial-review PR #123
-/adversarial-review app/services/payments.py — focus on rollback semantics
+/lunar:adversarial-review
+/lunar:adversarial-review PR #123
+/lunar:adversarial-review app/services/payments.py — focus on rollback semantics
 ```
 
 Given nothing it reviews the uncommitted work, or the branch against its merge
@@ -160,15 +159,15 @@ base if the tree is clean. It reports blocker / should / nit, and says so when
 it found nothing. Read [what it costs](#what-an-adversarial-review-costs) before
 the first PR-sized run.
 
-#### `/mutation-test` — are these tests real?
+#### `/lunar:mutation-test` — are these tests real?
 
 **Use it for:** a test, fixture or guard you just wrote and want evidence for,
 rather than a green run you have to take on trust.
 
 ```
-/mutation-test is that new fixture actually asserting anything
-/mutation-test prove the retry guard fails when I break it
-/mutation-test the changed lines in PR 123
+/lunar:mutation-test is that new fixture actually asserting anything
+/lunar:mutation-test prove the retry guard fails when I break it
+/lunar:mutation-test the changed lines in PR 123
 ```
 
 A green test run is the null result: a dead assertion and a live one produce
@@ -192,12 +191,12 @@ as on the manual path. What the scoped path adds is the shortlist and the safe
 place to work. There is no coverage map either: you pick the lines that carry
 real risk.
 
-#### `/pr-review` — work through review comments
+#### `/lunar:pr-review` — work through review comments
 
 **Use it for:** any PR with unresolved threads, from a human or a bot.
 
 ```
-/pr-review 123
+/lunar:pr-review 123
 ```
 
 It walks the threads one at a time, showing the comment, its verdict, the
@@ -210,32 +209,35 @@ allowed to disagree with a reviewer, and should.
 **Use it for:** making Claude stop and wait at the points you would want to be
 asked, instead of discovering afterwards that it committed.
 
-`user-claude-md/CLAUDE.md` is the plan → implement → test → hand-off loop the
+`install/user/CLAUDE.md` is the plan → implement → test → hand-off loop the
 skills assume, with gates where you review before anything is committed or
 pushed. It carries the house style they are tuned to as well: how replies are
 written, commit messages, branch naming, PR summaries, releases, and code
 comments.
 
-Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you want. No
-install route writes it for you — see [Install](#install).
+Adopt it as your global `~/.claude/CLAUDE.md`, or lift the parts you want.
+Installing the plugin does not write it for you, and cannot — see
+[Install](#install).
 
-### 3. Per-project settings
+### 3. The config templates
 
-**Use them for:** pointing the observability skills at your stack, and stopping
-every script call from asking permission.
+**Use them for:** stopping every script call from asking permission, and pointing
+the observability skills at your stack.
 
-`project-files/` holds two templates:
-
-- **`.agent.env`** — the per-project config `hdx_query.sh` and
-  `langfuse_query.sh` read: endpoints and API keys, one file per project, loaded
-  from the project root.
-- **`.claude/settings.json`** — the permission rules. Scoped to this toolkit and
-  nothing else, which is what makes it safe to merge at either project or user
-  scope.
+- **`install/user/settings.json`** — the permission rules, merged into
+  `~/.claude/settings.json` once per machine. The plugin installs at user scope,
+  so its permissions belong there too; a per-project copy would mean re-approving
+  the same toolkit in every repository. It is scoped to this toolkit and nothing
+  else, which is what makes that safe.
+- **`install/project/.agent.env`** — the one genuinely per-project file: the
+  endpoints and API keys `hdx_query.sh` and `langfuse_query.sh` read, loaded from
+  the project root.
 
 ## Prerequisites
 
-Claude Code, plus whatever the skills you actually install shell out to:
+Claude Code, plus whatever the skills you actually use shell out to. You get all
+six either way — nothing here is installed piecemeal — so a missing dependency
+only matters when you reach for that skill:
 
 | Skill | Needs |
 | --- | --- |
@@ -251,73 +253,64 @@ than failing partway through a query.
 
 ## Install
 
-Three routes ship the same skills. **Pick one — they are alternatives, not
-complements.** Each puts a skill directory carrying the same plugin name where
-Claude Code looks for plugins, so using two gives you two copies competing for
-one name: one silently does not load, and which one wins is not something you
-control.
+Everything here is one plugin, `lunar`. Installing it gets all six skills, and
+each is invoked as `/lunar:<name>`.
 
-### Plugin marketplace (per-skill, versioned)
+There are two ways to point Claude Code at it. **Pick one.** Both offer a plugin
+called `lunar`, so registering both gives you two copies competing for one name:
+one silently does not load, and which one wins is not something you control.
+
+### From GitHub
 
 ```
 /plugin marketplace add LunarCommand/claude-skills
-/plugin install hyperdx@lunar-skills
+/plugin install lunar@lunar-skills
 ```
 
-Each skill is its own plugin, so you install only what you want:
-`hyperdx`, `langfuse`, `feature-planning`, `adversarial-review`, `pr-review`,
-`mutation-test`.
-Updates arrive through `/plugin marketplace update lunar-skills`. Plugin skills
-are namespaced, so the explicit invocation is `/hyperdx:hyperdx`.
+Claude Code copies the plugin into a versioned cache. Updates arrive through
+`/plugin marketplace update lunar-skills`, and only when the version changes —
+third-party marketplaces do not auto-update.
 
-Like the clone route, this one installs skills and nothing else — see
-[Per-project setup](#per-project-setup) below, and copy
-[`user-claude-md/CLAUDE.md`](user-claude-md/CLAUDE.md) by hand if you want it.
+### From a local clone
 
-### Clone and install (all skills at once)
+Use this if you want to change the skills, or track `main` rather than releases.
 
 ```bash
 git clone https://github.com/LunarCommand/claude-skills.git
-cd claude-skills
-./install.sh
 ```
 
-`install.sh` copies the skills into `~/.claude/skills/<name>/` (backing up any
-existing copy first). Skills are the only thing it installs: the recommended
-user CLAUDE.md is written alongside as `~/.claude/CLAUDE.md.recommended` for you
-to review and merge, never as your live `CLAUDE.md`, and the per-project setup
-steps are printed rather than applied. Skills installed this way are not
-namespaced — the explicit invocation is `/hyperdx`.
+Then, in a Claude Code session:
 
-### Copy a skill by hand
-
-To take one skill without cloning the marketplace or running the installer, copy
-its directory into `~/.claude/skills/<name>/` yourself:
-
-```bash
-cp -R claude-skills/skills/hyperdx/. ~/.claude/skills/hyperdx/
-chmod +x ~/.claude/skills/hyperdx/bin/*.sh
+```
+/plugin marketplace add /absolute/path/to/claude-skills
+/plugin install lunar@lunar-skills
 ```
 
-**The trailing `.` is load-bearing.** `.claude-plugin/` is a hidden directory, so
-a `cp -R .../hyperdx/* ...` glob skips it without saying so. Missing that
-manifest, Claude Code treats the directory as an inert folder rather than a
-skills-directory plugin: `bin/` never joins the Bash tool's `PATH`, every
-bare-name call fails with `command not found`, and the permission rules below
-cannot match anything you would actually type. `install.sh` uses the same
-trailing-dot form for exactly this reason.
+Nothing is copied. Claude Code loads the checkout in place, so editing a
+`SKILL.md` or a script and running `/reload-plugins` makes the change live in the
+session — no reinstall, no restart, and no second copy to drift from.
 
-Restart Claude Code after copying, then confirm the manifest arrived:
+### What neither route installs
 
-```bash
-ls -A ~/.claude/skills/hyperdx/     # want: .claude-plugin  SKILL.md  bin
-```
+The permission rules and the recommended user CLAUDE.md, because a plugin cannot
+install either one. `plugin.json` has no permissions field, there is no
+plugin-shipped settings layer, and nothing auto-loads a CLAUDE.md — so merging
+them by hand is the only route there is. See
+[Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
+and [`install/user/CLAUDE.md`](install/user/CLAUDE.md).
 
-`which hdx_query.sh` is not a useful test. Claude Code puts `bin/` on its own
-Bash tool's `PATH`, not on your login shell's, so `which` finds nothing on every
-route — including the ones that work. And a bare call that fails with
-`Permission denied` rather than `command not found` means the manifest is fine
-and the executable bit was lost in the copy, which the `chmod` above restores.
+Per-project config is separate again — see [Per-project setup](#per-project-setup).
+
+### Checking it worked
+
+Type `/lunar:` in a session; the six skills should complete. If they do not, the
+plugin is not loaded, and no amount of permission tinkering will help.
+
+`which hdx_query.sh` is **not** a useful test. Claude Code puts `bin/` on its own
+Bash tool's `PATH`, not on your login shell's, so `which` finds nothing even when
+everything is working. Ask Claude to run `hdx_query.sh --help` instead: `command
+not found` means the plugin is not loaded, and a permission prompt means it is
+loaded but the rules below are not merged.
 
 ### Per-project setup
 
@@ -325,15 +318,15 @@ Each project that uses the **hyperdx** or **langfuse** skills needs an
 `.agent.env` in its root. If you cloned the repo, copy the template:
 
 ```bash
-cp path/to/claude-skills/project-files/.agent.env <your-project>/.agent.env
+cp path/to/claude-skills/install/project/.agent.env <your-project>/.agent.env
 ```
 
-If you installed via the marketplace you have no clone, so fetch it directly —
-or just create the file by hand, since it is only these keys:
+If you installed from GitHub you have no clone, so fetch it directly — or just
+create the file by hand, since it is only these keys:
 
 ```bash
 curl -o <your-project>/.agent.env \
-  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/project-files/.agent.env
+  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/install/project/.agent.env
 ```
 
 ```
@@ -351,24 +344,32 @@ LANGFUSE_SECRET_KEY: sk-lf-...
 
 ### Running the scripts without a prompt each time
 
-The skill scripts are on the Bash tool's `PATH`, so the permission rules approve
-them by bare name. Without a rule, every script call prompts — which reads as the
-skill being broken when it is only unapproved.
+The bundled scripts are on the Bash tool's `PATH`, so the permission rules
+approve them by bare name. Without those rules every script call prompts — which
+reads as the skill being broken when it is only unapproved.
 
-That `PATH` entry comes from the skill's `.claude-plugin/plugin.json`. If bare
-names fail with `command not found`, the manifest is missing rather than the
-rules being wrong — see [Copy a skill by hand](#copy-a-skill-by-hand).
+**Nothing can install them for you.** `plugin.json` has no permissions field and
+plugins cannot ship a settings layer, so merging by hand is the only route there
+is. A plugin that could pre-approve its own scripts would be granting itself the
+consent the prompt exists to collect.
 
-[`project-files/.claude/settings.json`](project-files/.claude/settings.json) is
-the whole set, and nothing beyond it. Copy it to `<project>/.claude/settings.json`,
-or merge it into `~/.claude/settings.json` if you would rather approve the
-toolkit once for every repository — it is narrow enough for either scope, which
-is the point of keeping it minimal:
+[`install/user/settings.json`](install/user/settings.json) is the whole set, and
+nothing beyond it. Merge it into `~/.claude/settings.json`. User scope, not a
+per-project copy: the plugin installs once per machine, so its permissions belong
+at the same scope, and copying it per project means re-approving the same toolkit
+in every repository. That is only safe because the file is narrow, which is the
+point of keeping it minimal:
 
-- **the six bundled scripts**, by bare name
+- **the bundled scripts**, by bare name. Seven of the eight;
+  `mutation_test_worktree.sh` is left out on purpose, because it takes a command
+  string that reaches `bash -c` verbatim, so any rule approving it would approve
+  the wrapper rather than what it runs. It runs once per session, so the prompt
+  is cheap and shows you the exact command.
 - **`gh repo view` / `gh pr view`** — pr-review reads the repo and PR in Step 1
-- **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`,
-  `submodule status`: what adversarial-review reads to scope a review
+- **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`,
+  `merge-base`, `branch -a --contains`, `submodule status`: what
+  adversarial-review reads to scope a review and to check a finding against the
+  reviewed ref
 - **`mkdir`, `tar czf`, `diff`** — the safety snapshot adversarial-review takes
   before reviewing a dirty tree, and the compare that proves the tree survived.
   `tar czf` rather than `tar`, so the rule covers writing an archive and not
@@ -450,11 +451,11 @@ If you are unsure whether a change warrants the full loop, it probably does not.
 
 ## Things that surprise people
 
-**"The bare command isn't found."** The skill's `bin/` reaches the Bash tool's
-`PATH` through its `.claude-plugin/plugin.json`. Missing manifest, no `PATH`
-entry — see [Copy a skill by hand](#copy-a-skill-by-hand). And `which` never
-finds these on any route, because that `PATH` belongs to the Bash tool rather
-than your login shell.
+**"The bare command isn't found."** `bin/` reaches the Bash tool's `PATH` through
+the plugin, so `command not found` means the plugin is not loaded — check
+`/plugin` — rather than that anything is wrong with the script. And `which` never
+finds these, because that `PATH` belongs to the Bash tool rather than your login
+shell.
 
 **"It asked me a question in a file, not in chat."** That is
 `feature-planning`'s first gate, and it is deliberate. Answers in a file are
@@ -482,26 +483,28 @@ instructions forbid. A review skill with unrestricted shell access can revert
 uncommitted work. That is not hypothetical; it is why the snapshot-and-compare
 step in `adversarial-review` exists.
 
-**Do not install by two routes at once.** Marketplace and `~/.claude/skills/`
-copies carry the same plugin names. One silently loses, and which one wins is
-not yours to control.
+**Do not register the same plugin twice.** A GitHub marketplace and a local
+clone both offer a plugin named `lunar`. Install from both and one silently
+loses, and which one wins is not yours to control. Pick the route you want and
+remove the other with `/plugin marketplace remove`.
 
 ## How a skill works
 
-A skill is a directory containing a `SKILL.md` (YAML frontmatter +
-instructions), a `.claude-plugin/plugin.json` manifest, and any bundled
-executables under `bin/`. Claude auto-invokes a skill based on its
-`description`, or you can call it explicitly by name.
+This repository is one plugin. `.claude-plugin/plugin.json` at the root is its
+manifest, each skill is a `SKILL.md` under `skills/`, and every bundled
+executable lives in one `bin/` at the root, which Claude Code puts on the Bash
+tool's `PATH`. Claude auto-invokes a skill based on its `description`, or you
+can call it explicitly as `/lunar:<name>`.
 
 All external access — HyperDX, Langfuse, GitHub — goes through the bundled
 scripts, never raw `curl` or `gh api`. That is deliberate: the scripts read
 `.agent.env` and route to the right API.
 
-Those scripts live in `bin/`, which Claude Code puts on the Bash tool's `PATH`
-while the skill is active. So they are invoked by bare name — `hdx_query.sh
---query ...`, not a path — which is why the allowlist can approve them as
-`Bash(hdx_query.sh:*)`. That rule is stable: it holds for both install routes
-and does not break when a plugin updates to a new version directory.
+They are invoked by bare name — `hdx_query.sh --query ...`, not a path — which is
+why the allowlist can approve them as `Bash(hdx_query.sh:*)`. That rule is
+stable: it does not break when the plugin updates to a new version directory, and
+it is the only spelling that works, since a path-qualified call prompts even
+though the script is pre-approved.
 
 ## License
 

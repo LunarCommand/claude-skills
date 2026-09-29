@@ -25,16 +25,16 @@ description: >
 | What you see | What it means |
 | --- | --- |
 | `Missing required command: <x>` (exit 127) | A dependency is absent. Tell the user to install it. The script is fine. |
-| `command not found: hdx_query.sh` | The skill's `bin/` is not on `PATH` — the plugin is disabled, or the session started before it was installed. Ask the user to enable it and run `/reload-plugins`, or restart. Do not substitute an absolute path. |
+| `command not found: hdx_query.sh` | The plugin's `bin/` is not on `PATH` — the plugin is disabled, or the session started before it was installed. Ask the user to enable it and run `/reload-plugins`, or restart. Do not substitute an absolute path. |
 | A permission prompt on every call | The allowlist is not installed. That is setup, not failure — see Permissions below. |
 
 Anything else that fails is a real defect: fix the script rather than working
 around it.
 
-`hdx_query.sh` ships in this skill's `bin/` directory, which is on the Bash
-tool's `PATH` whenever the skill is installed. **Invoke it by bare name** — never
-by an absolute path. The bare form is the only spelling that works on both
-install routes, and it is what the permission rule matches.
+`hdx_query.sh` ships in the plugin's `bin/` directory, which is on the Bash
+tool's `PATH` whenever the plugin is installed. **Invoke it by bare name** —
+never by an absolute path. A path-qualified call prompts even though the script
+is pre-approved, because the permission rule matches the bare form.
 
 The script supports two modes: **cloud** (HyperDX REST API) and **local**
 (ClickHouse via docker exec into a local HyperDX container).
@@ -96,9 +96,9 @@ This script is meant to be pre-approved, via this rule:
 Bash(hdx_query.sh:*)
 ```
 
-**That rule is not installed by either install route** — it lives in the
-toolkit's `project-files/.claude/settings.json` template and the user merges it
-into a project's `.claude/settings.json` (or their user settings) themselves. So:
+**Nothing installs that rule** — a plugin cannot ship a permissions layer. It
+lives in the toolkit's `install/user/settings.json` template and the user merges
+it into `~/.claude/settings.json` themselves. So:
 
 - If the rule is present, run the script directly and do not ask for approval.
 - If every call prompts, the rule is simply absent. Say so once and continue —

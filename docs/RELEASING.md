@@ -14,8 +14,8 @@ whether they ever see the change:
 
 Merge a fix without bumping that field and every existing user keeps running the
 old copy indefinitely. Nothing warns them and nothing warns you — which is why
-`scripts/validate.sh` fails when a skill's files changed since the last tag but
-its version did not.
+`scripts/validate.sh` fails when anything under `skills/` or `bin/` changed since
+the last tag but the version did not.
 
 **A tag is a bookmark, not a shipment.** It records what shipped and lets users
 pin (`/plugin marketplace add https://github.com/LunarCommand/claude-skills.git#v1.2.0`),
@@ -23,9 +23,10 @@ but tagging is not what delivers anything.
 
 ## Versioning
 
-Each skill is its own plugin with its own version, so they move independently — a
-langfuse fix does not drag hyperdx along. Semantic versioning, judged from the
-consumer's side:
+The repository is one plugin, `lunar`, with one version. A fix to any skill moves
+it, and every user gets every skill — there is nothing to install piecemeal and
+nothing that can lag behind. Semantic versioning, judged from the consumer's
+side:
 
 | Bump | When |
 | --- | --- |
@@ -37,27 +38,28 @@ Prose-only edits to a `SKILL.md` still need a bump. The Markdown *is* the
 artifact — a skill is its instructions — so a user running the old text is
 running the old skill.
 
-The repository tag is separate: `vX.Y.Z` marks the release event across all
-plugins. It does not have to match any plugin's version, and usually will not.
+The tag matches the plugin version: `vX.Y.Z` for `lunar` `X.Y.Z`. They were
+separate while six plugins shared one repository tag; with one plugin, two
+numbers for one thing is a drift waiting to happen.
 
 ## Cutting a release
 
-1. **Confirm every changed plugin is bumped.** `scripts/validate.sh` compares
-   each skill against the highest `v<number>` tag and requires a *higher* version
-   — a repeat, a decrement, a missing field, or a non-`X.Y.Z` string all fail.
-   It compares against the git index, so it sees what a commit will contain and
-   ignores unrelated work in progress.
+1. **Confirm the version is bumped.** `scripts/validate.sh` compares the
+   manifest against the highest `v<number>` tag and requires a *higher* version —
+   a repeat, a decrement, a missing field, or a non-`X.Y.Z` string all fail. It
+   only asks when `skills/` or `bin/` changed, since those are what the plugin
+   delivers as running code. It compares against the git index, so it sees what a
+   commit will contain and ignores unrelated work in progress.
 
    `SKIP_VERSION_CHECK=1` bypasses the check entirely. It exists for a clone with
-   no tags available; using it to get past a genuine un-bumped plugin ships a
+   no tags available; using it to get past a genuine un-bumped version ships a
    change nobody will be offered.
 
 2. **Bring `CHANGELOG.md` up to date.** Move `Unreleased` into a new
-   `## vX.Y.Z — <date>` section, keeping one subsection per plugin that changed
-   with the version it ships as, plus a `### Repository` subsection for anything
-   that belongs to no plugin. Write it from the user's point of view: what
-   changed for them, not which files moved. Refresh it as work lands rather than
-   composing it at tag time.
+   `## vX.Y.Z — <date>` section, with one subsection per skill that changed and a
+   `### Repository` subsection for anything that belongs to no skill. Write it
+   from the user's point of view: what changed for them, not which files moved.
+   Refresh it as work lands rather than composing it at tag time.
 
    This section becomes the Release notes verbatim in step 7, so the changelog
    and the published notes stay identical by construction rather than by
@@ -65,7 +67,7 @@ plugins. It does not have to match any plugin's version, and usually will not.
 
 3. **Sweep the docs for stale wording.** For each behaviour change, grep for the
    old spelling — command names, flags, file paths, prerequisites — across
-   `README.md`, `CLAUDE.md`, `docs/`, `install.sh` output, and every `SKILL.md`.
+   `README.md`, `CLAUDE.md`, `docs/`, `install/`, and every `SKILL.md`.
    `validate.sh` catches a `*.sh` name that no longer ships and a `SKILL.md` that
    names a script by path; it cannot catch a stale sentence.
 
@@ -104,15 +106,16 @@ commands, typed in a session — not shell:
 
 ```
 /plugin marketplace update lunar-skills
-/plugin install hyperdx@lunar-skills
+/plugin install lunar@lunar-skills
 ```
 
 Third-party marketplaces have auto-update **off** by default, so an existing user
 sees a new version after `/plugin marketplace update`, not automatically.
 
-## The clone route
+## Developing against a local clone
 
-`install.sh` users get changes by pulling and re-running it — version fields do
-not gate that path. It is worth remembering that the two routes drift for a
-different reason: a clone tracks whatever `main` currently is, while a plugin
-install tracks the last version bump.
+A marketplace whose source is a local directory loads the working tree in place,
+so a release is irrelevant there: `/reload-plugins` picks up whatever is on disk.
+That is the right setup for working *on* this repo and the wrong one for judging
+what a user receives — the version field gates them and not you. Verify a release
+the way the section above says, from the published marketplace.

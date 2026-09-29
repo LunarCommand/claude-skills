@@ -59,7 +59,7 @@ jobs:
       # runner also has a Homebrew bash 5 earlier on PATH, so `#!/usr/bin/env
       # bash` would pick that up and the job would pass without testing 3.2 at
       # all. The shim puts /bin/bash first so every nested `env bash` — this
-      # script, then install.sh under it — resolves to the stock one.
+      # script, then the acceptance suite under it — resolves to the stock one.
       - name: Validate (stock bash 3.2)
         if: runner.os == 'macOS'
         run: |

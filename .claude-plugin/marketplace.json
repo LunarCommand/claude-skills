@@ -1,40 +1,15 @@
 {
   "name": "lunar-skills",
-  "description": "Claude Code skills for observability, feature planning, and code review.",
+  "description": "Claude Code skills used by LunarCommand: planning, adversarial and pull-request review, mutation testing, and observability.",
   "owner": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"
   },
   "plugins": [
     {
-      "name": "hyperdx",
-      "source": "./skills/hyperdx",
-      "category": "observability"
-    },
-    {
-      "name": "langfuse",
-      "source": "./skills/langfuse",
-      "category": "observability"
-    },
-    {
-      "name": "feature-planning",
-      "source": "./skills/feature-planning",
-      "category": "planning"
-    },
-    {
-      "name": "adversarial-review",
-      "source": "./skills/adversarial-review",
-      "category": "review"
-    },
-    {
-      "name": "pr-review",
-      "source": "./skills/pr-review",
-      "category": "review"
-    },
-    {
-      "name": "mutation-test",
-      "source": "./skills/mutation-test",
-      "description": "Proves a test actually checks something by breaking the behaviour it covers and confirming it goes red \u2014 one claim at a time, by hand; for a PR or diff it shortlists the changed lines and gives you a throwaway checkout to work in. Also answers whether code is dead by deleting it and seeing what breaks."
+      "name": "lunar",
+      "source": ".",
+      "category": "workflow"
     }
   ]
 }

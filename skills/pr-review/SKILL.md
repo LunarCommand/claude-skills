@@ -17,22 +17,23 @@ All GitHub API interactions go through these scripts — never call `gh api` dir
 - `pr_review_post_reply.sh <owner/repo> <pr_number> <comment_id> "<reply text>"` — posts a reply to a comment thread
 - `pr_review_resolve_thread.sh <thread_node_id>` — resolves a review thread by its GraphQL node ID
 
-They ship in this skill's `bin/` directory, which is on the Bash tool's `PATH`
-whenever the skill is installed. **Invoke each by bare name** — never by an
-absolute path. The bare form is the only spelling that works on both install
-routes, and it is what the permission rules match. The `pr_review_` prefix is
+They ship in the plugin's `bin/` directory, which is on the Bash tool's `PATH`
+whenever the plugin is installed. **Invoke each by bare name** — never by an
+absolute path. A path-qualified call prompts even though the script is
+pre-approved, because the permission rules match the bare form. The `pr_review_` prefix is
 deliberate: these rules approve a command *name*, so a generic one like
 `post_reply` could be satisfied by an unrelated executable earlier on `PATH`.
 
-The matching rules live in the toolkit's `project-files/.claude/settings.json`
-template and are **not installed by either install route** — the user merges them
-in. If every call prompts, that is unfinished setup, not a broken skill. Say so
-once and continue; it is never a reason to fall back to `gh api` directly.
+The matching rules live in the toolkit's `install/user/settings.json` template
+and **nothing installs them** — a plugin cannot ship a permissions layer, so the
+user merges them in. If every call prompts, that is unfinished setup, not a
+broken skill. Say so once and continue; it is never a reason to fall back to
+`gh api` directly.
 
 Two failures are environment rather than defects: `Missing required command: gh`
 (exit 127) means the GitHub CLI is absent or unauthenticated — tell the user to
 install it and run `gh auth login`; and `command not found` on one of these
-scripts means the skill's `bin/` is not on `PATH`, so the plugin is disabled or
+scripts means the plugin's `bin/` is not on `PATH`, so the plugin is disabled or
 the session predates the install. Neither is a reason to edit a script.
 
 Each script is invoked independently — never chain them.

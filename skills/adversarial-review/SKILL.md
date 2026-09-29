@@ -206,13 +206,35 @@ adversarial_review_path.sh adversarial-review.workflow.js
 ```
 
 That prints the absolute path of the engine inside the copy of the skill that is
-actually loaded. Pass the result verbatim as `scriptPath`.
+actually loaded.
 
-Then call the Workflow tool with that path and the assembled context as args:
+**Then copy it into the session scratchpad and pass the copy.** The Workflow tool
+accepts a `scriptPath` only inside the working directory or a directory you have
+added, and the engine lives with the plugin — outside every project it reviews.
+Passing the resolved path directly works only when you happen to be working in
+the toolkit's own repository, and fails everywhere else with *"scriptPath must be
+a script path this tool returned, or a file you can already read"*.
+
+Your own scratchpad directory is named in your environment — use that, not a
+guess, and not a bare `/tmp`:
+
+```bash
+src=$(adversarial_review_path.sh adversarial-review.workflow.js)
+cp "$src" "<your scratchpad dir>/adversarial-review.workflow.js"
+```
+
+Copy it fresh each session, from the path the resolver just printed. That is what
+keeps this safe: the copy is made from the resolved engine at the moment of use,
+so there is no second copy living on disk to drift. **Never glob for the engine
+and never reuse an older copy** — the resolver exists because a machine can hold
+more than one copy of this skill and nothing else can tell them apart.
+
+Then call the Workflow tool with the **copy's** path and the assembled context as
+args:
 
 ```
 Workflow({
-  scriptPath: "<the absolute path printed by adversarial_review_path.sh>",
+  scriptPath: "<the scratchpad copy made above>",
   args: {
     scope: "<human description, e.g. 'PR #123' or 'app/api/orders.py'>",
     context: "<the assembled whole-system context from Step 1: changed files, callers, diff>",
@@ -248,7 +270,8 @@ severity. Relay its result via Step 5.
 ### The spec/RFC engine
 
 For a spec or RFC change about to be committed, tagged, or published, use
-`spec-accept-review.workflow.js` instead. It carries lenses tuned to normative
+`spec-accept-review.workflow.js` instead. It needs the same scratchpad copy as
+the code engine — resolve it, copy it, pass the copy. It carries lenses tuned to normative
 prose and conformance fixtures — a fixture that can pass wrongly, a stale
 cross-reference, a coverage gap against precedent, a CHANGELOG date that does not
 match the tag day.
@@ -264,7 +287,7 @@ It takes the same isolation args as the code engine:
 
 ```
 Workflow({
-  scriptPath: "<path from: adversarial_review_path.sh spec-accept-review.workflow.js>",
+  scriptPath: "<a scratchpad copy of: adversarial_review_path.sh spec-accept-review.workflow.js>",
   args: {
     scope: "<short human label for the change>",
     context: "<the assembled diff, new/changed fixtures and examples, the unchanged

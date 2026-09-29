@@ -11,99 +11,112 @@ no package manifest. The "artifacts" are Markdown definitions, bundled bash
 scripts, and plain-JS workflow files.
 
 Today the repo holds skills (each a directory under `skills/`), methodology docs
-(under `docs/`), and config templates. Other
-Claude Code config kept here in future — slash commands (Markdown files under a
-`commands/` dir), agents, hooks — follows the same source→deployed model below:
-authored here, copied into `~/.claude/` (or a project's `.claude/`) to take
-effect.
+(under `docs/`), and config templates. Other Claude Code config kept here in
+future — slash commands (Markdown files under a `commands/` dir), agents, hooks —
+goes into the same plugin.
 
 Git remote: `github.com:LunarCommand/claude-skills`.
 
-## The one thing to understand first: source vs. deployed
+## The one thing to understand first: this repo is one plugin
 
-**Editing a file here does not change any running skill.** Skills only take
-effect once installed, by either of two routes:
+The whole repository is a single Claude Code plugin named `lunar`. The root
+`.claude-plugin/plugin.json` is its manifest, every skill under `skills/` loads
+from it, and every script under `bin/` reaches the Bash tool's `PATH` through it.
+Skills are invoked as `/lunar:<name>`.
 
-- **Clone and copy** — `install.sh` copies each skill into
-  `~/.claude/skills/<name>/` (or a project's `.claude/skills/<name>/`). Because
-  each skill dir carries a `.claude-plugin/plugin.json`, Claude Code loads it as
-  a *skills-directory plugin* (`<name>@skills-dir`), discovered in place.
-- **Plugin marketplace** — `/plugin marketplace add LunarCommand/claude-skills`
-  then `/plugin install <name>@lunar-skills`. Claude Code copies the plugin into
-  a versioned cache under `~/.claude/plugins/cache/`.
+There is exactly one install route: the marketplace. Two ways to point at it —
 
-No `SKILL.md` may reference its scripts by path — not a repo path, not
-`~/.claude/skills/...`, and **not `${CLAUDE_PLUGIN_ROOT}`**, which resolves on
-the marketplace route but passes through literally on the skills-dir route (the
-Bash call is then rejected with `Error: Contains expansion`). Scripts live in
-`bin/`, which Claude Code puts on the Bash tool's `PATH`, and are referenced by
-bare name. That is the only spelling that works on both routes.
+- **From GitHub** — `/plugin marketplace add LunarCommand/claude-skills`, then
+  `/plugin install lunar@lunar-skills`. Claude Code copies the plugin into a
+  versioned cache under `~/.claude/plugins/cache/`, so an update means a new tag.
+- **From a local clone** (how this repo is developed) — add a marketplace with a
+  `directory` source pointing at the checkout:
 
-So the workflow is: edit here → re-copy to the skills dir → the change is live.
+  ```json
+  { "source": "directory", "path": "/path/to/claude-skills" }
+  ```
 
-When asked to "update the X skill," clarify whether that means editing the source
-here, the deployed copy under `~/.claude/skills/`, or both. They drift
-independently.
+  Nothing is copied. The working tree *is* the loaded plugin, so an edit here is
+  live in any session after `/reload-plugins`. This is the reason the
+  source-vs-deployed distinction no longer exists, and why there is no drift
+  check: there is no second copy to drift from.
+
+No `SKILL.md` may reference its scripts by path — not a repo path, not a
+`~/.claude/...` path, and **not `${CLAUDE_PLUGIN_ROOT}`**, which is rejected with
+`Error: Contains expansion` rather than expanded. Scripts are referenced by bare
+name, which is also the form the permission rules approve.
 
 ## Repository layout
 
 Each top-level directory has one role:
 
-- `.claude-plugin/marketplace.json` — **the marketplace catalog** (`lunar-skills`),
-  listing each skill as its own plugin with `"source": "./skills/<name>"`. Adding
-  a skill means adding an entry here too; `scripts/validate.sh` fails if one is
-  missing.
-- `skills/` — **the installable skills**, one directory per skill
-  (`adversarial-review/`, `feature-planning/`, `hyperdx/`, `langfuse/`,
-  `pr-review/`). Each is a `SKILL.md` + `.claude-plugin/plugin.json` + (usually)
-  a `bin/` dir or a `*.workflow.js` engine. Each directory *is* the plugin root,
-  which is why the manifest sits inside it rather than under a separate
-  `plugins/` tree. `install.sh` copies each into `~/.claude/skills/`.
-- `docs/` — **methodology and process docs**, not installed. `docs/ai-review/`
-  covers how to get high-value review out of AI (the reasoning behind the
-  `adversarial-review` skill). `docs/RELEASING.md` is authoritative on how a
-  change actually reaches users — read it before proposing a tag.
-- `CHANGELOG.md` — grouped **by plugin**, not by repo, since each ships its own
-  version. Keep the `Unreleased` section current as work lands.
-- `project-files/` — **templates to copy into a consuming project**: `.agent.env`
-  (secrets/config the scripts read) and `.claude/settings.json` (a permissions
-  allowlist that pre-approves the skill scripts).
-- `user-claude-md/CLAUDE.md` — the recommended global user-level CLAUDE.md (the
-  plan→implement→test→handoff workflow) the skills and settings are tuned to.
-  Shipped as the example `install.sh` installs; reference, not active in-repo.
+- `.claude-plugin/plugin.json` — **the plugin manifest** (`lunar`). One for the
+  whole repo. Its `version` gates updates for anyone installed from GitHub, so
+  bump it in the same change that touches `skills/` or `bin/`; `validate.sh`
+  fails otherwise. See `docs/RELEASING.md`.
+- `.claude-plugin/marketplace.json` — **the marketplace catalog**
+  (`lunar-skills`), one entry pointing at `"source": "."`.
+- `skills/` — **the skills**, one directory per skill (`adversarial-review/`,
+  `feature-planning/`, `hyperdx/`, `langfuse/`, `mutation-test/`, `pr-review/`).
+  Each is a `SKILL.md` plus, for `adversarial-review`, its `*.workflow.js`
+  engines. Skills carry no manifest and no `bin/` of their own — both live at
+  the plugin root. `validate.sh` rejects either reappearing under a skill.
+- `bin/` — **every bundled script**, for all skills together. Claude Code adds
+  this one directory to the Bash tool's `PATH`. Basenames must therefore be
+  unique across the whole toolkit, which the `pr_review_` and `mutation_test_`
+  prefixes exist to guarantee.
+- `docs/` — **methodology and process docs**. `docs/ai-review/` covers how to get
+  high-value review out of AI (the reasoning behind the `adversarial-review`
+  skill). `docs/RELEASING.md` is authoritative on how a change actually reaches
+  users — read it before proposing a tag.
+- `CHANGELOG.md` — one section per release of the `lunar` plugin. Keep the
+  `Unreleased` section current as work lands.
+- `install/user/` — **templates the user merges into `~/.claude/`**, once, for
+  every project: `settings.json` (the permissions allowlist that pre-approves the
+  bundled scripts) and `CLAUDE.md` (the recommended global user-level CLAUDE.md —
+  the plan→implement→test→handoff workflow the skills and settings are tuned to).
+  User scope, not project scope: the plugin installs once per machine, so its
+  permissions belong at the same scope, and a per-project copy would mean
+  re-approving the same toolkit in every repository.
+- `install/project/.agent.env` — the one genuinely per-project template.
+  Endpoints and API keys differ per repo.
 - `scripts/validate.sh` — **the checks** (see Testing / validation below). One
   script, called by both CI and the optional pre-commit hook so they can't drift.
 - `.github/workflows/validate.yml` — runs `scripts/validate.sh` on push and PR.
 - `.githooks/pre-commit` — opt-in local hook (`git config core.hooksPath
   .githooks`) running the fast subset.
-- `install.sh`, `LICENSE`, `README.md` — the installer, MIT license, and the
-  public-facing overview of the toolkit.
+- `LICENSE`, `README.md` — MIT license and the public-facing overview.
+
+Nothing under `install/` is installed by anything. Plugins cannot ship a
+permissions layer or an auto-loading CLAUDE.md, so merging by hand is the only
+route there is — see the bundled-script invariant below.
 
 ## Skill anatomy
 
-A skill is a directory containing:
+A skill is a directory under `skills/` containing:
 
 - `SKILL.md` — YAML frontmatter (`name`, `description`) followed by instructions.
-  **The `description` is load-bearing**: it is the trigger text that decides when
-  the skill auto-activates, so it enumerates trigger phrases exhaustively and is
-  written in an imperative "Always use this skill when..." style. Match that style
-  when editing.
-- `.claude-plugin/plugin.json` — the plugin manifest. `name` must match the
-  directory name (and the SKILL.md frontmatter `name`). `version` gates updates:
-  users are only offered a new version when this string changes, so **bump it in
-  the same change that touches the skill**, including prose-only SKILL.md edits —
-  the Markdown is the artifact. `scripts/validate.sh` fails when a skill changed
-  since the last `v*` tag without a bump. See `docs/RELEASING.md`.
-- `bin/` — bash CLIs that do the actual external work. Claude Code adds this to
-  the Bash tool's `PATH`, so the files must stay executable and are invoked by
-  bare name. Do not reintroduce a `scripts/` dir; it is not on `PATH`.
+  `name` must match the directory name. **The `description` is load-bearing**:
+  it is the trigger text that decides when the skill auto-activates, so it
+  enumerates trigger phrases exhaustively and is written in an imperative
+  "Always use this skill when..." style. Match that style when editing.
 - optionally `*.workflow.js` — a multi-agent engine the skill escalates to.
   These are handed to the Workflow tool as a `scriptPath` — a file to read, not
-  a command to run — so they do **not** belong in `bin/` and are not on `PATH`.
-  Resolving them is still a `bin/` job, though: `adversarial_review_path.sh`
-  prints the absolute path of a bundled file within whichever copy of the skill
-  is loaded. Prose ("this skill's base directory") was tried and does not work —
-  with two copies of a skill on disk, the model globs and can pick the stale one.
+  a command to run — so they belong beside the `SKILL.md`, not in `bin/`.
+  Resolving them is still a `bin/` job: `adversarial_review_path.sh` prints the
+  absolute path of a bundled file within whichever copy of the plugin is loaded,
+  from its own `BASH_SOURCE[0]`. Prose ("this skill's base directory") was tried
+  and does not work — with two copies on disk, the model globs and can pick the
+  stale one.
+
+A skill carries no `.claude-plugin/` and no `bin/` of its own. Both live at the
+plugin root, and `validate.sh` rejects either reappearing here: a nested manifest
+would make the skill a second plugin claiming its own name, and a nested `bin/`
+would never reach `PATH`.
+
+Adding a skill is one step — create `skills/<name>/SKILL.md`. There is nothing to
+register; the plugin ships whatever is under `skills/`, and `validate.sh` fails
+on a `SKILL.md` anywhere else, since only that path loads.
 
 ### The bundled-script invariant
 
@@ -126,29 +139,35 @@ Two consequences, both load-bearing when adding a script:
   plugin does not. So shipped basenames must be distinctive enough that nothing
   else plausibly owns them — this is why the pr-review scripts carry a
   `pr_review_` prefix rather than bare names like `post_reply` or
-  `resolve_thread`. The skill directories are appended to the *end* of `PATH`,
-  after `/usr/bin` and everything else, so a collision is not a coin toss: a
-  same-named executable anywhere earlier wins outright and the skill's copy is
-  never reached, while the permission rule keeps approving the call. A generic
-  basename therefore fails silently and looks like the skill misbehaving.
-  `scripts/validate.sh` fails on a basename shipped by two skills, since
-  bare-name invocation can only ever reach one of them — and on any `*.sh` named
-  in the docs that no longer ships, which is how a rename turns into a failing
-  check rather than stale prose.
+  `resolve_thread`. `bin/` is appended to the *end* of `PATH`, after `/usr/bin`
+  and everything else, so a collision is not a coin toss: a same-named executable
+  anywhere earlier wins outright and the plugin's copy is never reached, while
+  the permission rule keeps approving the call. A generic basename therefore
+  fails silently and looks like the skill misbehaving. `scripts/validate.sh`
+  fails on any `*.sh` named in the docs that no longer ships, which is how a
+  rename turns into a failing check rather than stale prose.
 - **The settings template covers this repo's skills and nothing else**, which is
-  what makes it safe to suggest at either project or user scope. It was once a
-  personal project config carrying `defaultMode: auto`, `Write`, `Edit`, `Agent`,
-  `Bash(make:*)` and tooling unrelated to these skills — at user scope that
-  applied to every repo the user opened, including untrusted ones the review
-  skills exist to inspect. Keep it minimal: every entry should trace to a command
-  a shipped skill actually runs, and anything broader belongs in the user's own
-  settings, not in a template they copy.
+  what makes it safe at user scope — where it ships, since that is where the
+  plugin installs. It was once a personal project config carrying
+  `defaultMode: auto`, `Write`, `Edit`, `Agent`, `Bash(make:*)` and tooling
+  unrelated to these skills, which at user scope applied to every repo the user
+  opened, including untrusted ones the review skills exist to inspect. That is
+  the failure the minimality prevents, and user scope is what makes the
+  minimality load-bearing rather than tidy. Every entry should trace to a command
+  a shipped skill actually runs; anything broader belongs in the user's own
+  settings, not in a template they merge.
+- **Nothing can install those rules for the user, and the docs must not imply
+  otherwise.** `plugin.json` has no `permissions` field, plugins cannot ship a
+  settings layer or an auto-loading CLAUDE.md, and a plugin-shipped `PreToolUse`
+  hook that pre-approved its own scripts would be the plugin granting itself the
+  consent the permission prompt exists to collect. Merging by hand is the only
+  route there is, so every place that mentions the rules says so.
 
 ### `.agent.env` config convention
 
 `hdx_query.sh` and `langfuse_query.sh` auto-load `.agent.env` from the **current
 project root** (`$(pwd)/.agent.env`). It holds per-project config/secrets and
-accepts both `KEY: VALUE` and `KEY=VALUE` lines. `project-files/.agent.env` is
+accepts both `KEY: VALUE` and `KEY=VALUE` lines. `install/project/.agent.env` is
 the template. Scripts validate required keys and tell the user what's missing
 rather than guessing.
 
@@ -157,9 +176,12 @@ dependencies with `require_cmd` and exits 127 naming what to install. This is
 load-bearing, not politeness — every SKILL.md tells the agent that a failing
 script must be *fixed, not worked around*, so a bare `jq: command not found`
 sends it editing working code instead of reporting a missing package. Keep the
-preflight when adding a script, and keep it duplicated per plugin: plugins
-cannot reference files outside their own directory, so there is no shared helper
-to factor it into.
+preflight when adding a script.
+
+`require_cmd` is currently defined once per script. That duplication was forced
+while each skill was its own plugin and could not reference a file outside its
+own directory; with one `bin/` it is no longer forced, and a shared helper
+sourced from `bin/` is the open follow-up.
 
 ## The scripts
 
@@ -185,7 +207,8 @@ pr_review_resolve_thread.sh <thread_node_id>
 ```
 
 To run one *in this repo* while developing it, use its real path
-(`skills/hyperdx/bin/hdx_query.sh`) — the source tree is not on `PATH`.
+(`bin/hdx_query.sh`) — the source tree is not on `PATH` unless a `directory`
+marketplace source has this checkout loaded as the plugin.
 
 `hdx_query.sh` and `langfuse_query.sh` are large (400 / 700 lines) and carry real
 routing logic — the Langfuse script in particular abstracts over two API
@@ -229,19 +252,20 @@ There is no unit-test suite — the artifacts are Markdown contracts and bash
 scripts. What exists instead is `scripts/validate.sh`, which enforces the
 mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
 SKILL.md frontmatter (`name` matching its directory, `description` present),
-plugin and marketplace manifests (valid JSON, names agreeing with directories,
-every skill listed, plus `claude plugin validate` when the CLI is on hand),
+the plugin and marketplace manifests (valid JSON, the marketplace entry's name
+agreeing with the manifest it points at, every `SKILL.md` inside the plugin root
+where it can actually load, plus `claude plugin validate` when the CLI is on
+hand),
 config-template JSON validity, that the settings allowlist and the shipped
 `bin/` scripts name each other exactly, non-portable shell idioms in every shell
 artifact — GNU-only tool flags and bash 4 syntax alike, since macOS is stuck on
 bash 3.2 (this workstation is Linux, so a `find -printf` or a `mapfile` passes
 locally; CI runs the suite on macOS too, under the stock bash forced onto `PATH`,
-which is what catches these for real), **plugin version
-bumps** (a skill changed since the last `v<number>` tag must carry a higher
-`version`, or everyone who installed it is stranded — see `docs/RELEASING.md`),
-repo hygiene (no macOS cruft, personal paths, or credential-shaped strings —
-this repo is public), and an end-to-end `install.sh` run into a temp
-`CLAUDE_HOME`.
+which is what catches these for real), the **plugin version bump** (a change
+under `skills/` or `bin/` since the last `v<number>` tag must carry a higher
+`version`, or everyone who installed from GitHub is stranded — see
+`docs/RELEASING.md`), and repo hygiene (no macOS cruft, personal paths, or
+credential-shaped strings — this repo is public).
 
 **Every check here is syntactic.** shellcheck, the portability scan, the manifest
 and allowlist agreement, `bash -n` — they test spelling, not meaning, and none of
@@ -261,9 +285,8 @@ scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # syntactic checks only — see below
 ```
 
-`--quick` skips both slow sections — the install integration test **and** the
-mutation-test acceptance suite, which is ~22s of the ~29s full run. That matters
-more than it sounds: the acceptance suite is the *only* check here that runs an
+`--quick` skips the mutation-test acceptance suite, ~22s of the ~29s full run.
+That matters more than it sounds: the suite is the *only* check here that runs an
 artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
 pre-commit hook uses it, so a clean commit hook is not evidence the scripts
 work. CI runs the full suite.

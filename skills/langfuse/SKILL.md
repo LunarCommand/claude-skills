@@ -9,7 +9,7 @@ This skill helps you use Langfuse effectively: debugging traces, inspecting LLM 
 
 ## Core Principles
 
-1. **Use the query script for data access**: Run `langfuse_query.sh` for all Langfuse queries. It detects the server's API generation and picks the right endpoints. The script ships in this skill's `bin/` directory, which is on the Bash tool's `PATH` whenever the skill is installed — invoke it by bare name, never by an absolute path.
+1. **Use the query script for data access**: Run `langfuse_query.sh` for all Langfuse queries. It detects the server's API generation and picks the right endpoints. The script ships in the plugin's `bin/` directory, which is on the Bash tool's `PATH` whenever the plugin is installed — invoke it by bare name, never by an absolute path.
 2. **Documentation First**: When implementing SDK integrations, always fetch current docs before writing code (Langfuse updates frequently).
 
 ## Per-Project Configuration (.agent.env)
@@ -36,11 +36,11 @@ The query script is meant to be pre-approved, via this rule:
 Bash(langfuse_query.sh:*)
 ```
 
-**Neither install route installs that rule** — it ships in the toolkit's
-`project-files/.claude/settings.json` template, which the user merges into a
-project's `.claude/settings.json` (or their user settings) themselves. If every
-call prompts, the rule is absent: that is unfinished setup, not a broken skill,
-and not a reason to reach for curl. Say so once and carry on.
+**Nothing installs that rule** — a plugin cannot ship a permissions layer. It
+ships in the toolkit's `install/user/settings.json` template, which the user
+merges into `~/.claude/settings.json` themselves. If every call prompts, the rule
+is absent: that is unfinished setup, not a broken skill, and not a reason to
+reach for curl. Say so once and carry on.
 
 Run the script directly — **never** export env vars manually or run curl directly
 for data access. Both trigger permission prompts. The script reads `.agent.env`
@@ -53,7 +53,7 @@ prompt — expected, and rare enough not to warrant a broader rule.
 
 Two failures are environment rather than defects: `Missing required command: <x>`
 (exit 127) means a dependency is absent — tell the user to install it; and
-`command not found: langfuse_query.sh` means the skill's `bin/` is not on `PATH`,
+`command not found: langfuse_query.sh` means the plugin's `bin/` is not on `PATH`,
 so the plugin is disabled or the session predates the install. Neither is a
 reason to edit the script.
 

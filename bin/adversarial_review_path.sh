@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints the absolute path of a file bundled with this skill.
+# Prints the absolute path of a file bundled with this plugin.
 # Usage: adversarial_review_path.sh <bundled-filename>
 #
 # The workflow engines are handed to the Workflow tool as a scriptPath — a file
@@ -7,17 +7,16 @@
 # not on PATH and cannot be named directly. This resolves them instead.
 #
 # Do not replace this with a glob for the filename: more than one copy of the
-# skill can exist on a machine (a marketplace install under
-# ~/.claude/plugins/cache/ and a copied install under ~/.claude/skills/), they
-# drift independently, and a glob picks whichever it finds first.
+# plugin can exist on a machine (a cached install under ~/.claude/plugins/cache/
+# and a directory-source install pointing at a clone), they drift independently,
+# and a glob picks whichever it finds first.
 #
-# Scope of the guarantee: this answers for the copy of the skill that CONTAINS
-# THIS SCRIPT, which is not automatically the copy whose SKILL.md you are
-# reading. Invoked by bare name, which copy runs is decided by PATH order across
-# enabled plugin bins. That is still strictly better than globbing — the answer
-# is always a real, self-consistent skill directory rather than an arbitrary
-# match — but if two copies are installed, prefer removing one. install.sh and
-# /plugin install are alternatives, not complements.
+# Scope of the guarantee: this answers for the copy that CONTAINS THIS SCRIPT,
+# which is not automatically the copy whose SKILL.md you are reading. Invoked by
+# bare name, which copy runs is decided by PATH order across enabled plugin bins.
+# That is still strictly better than globbing — the answer is always a real,
+# self-consistent plugin directory rather than an arbitrary match — but if two
+# copies are installed, prefer removing one.
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -38,7 +37,13 @@ case "$1" in
 esac
 
 # BASH_SOURCE[0] is the absolute path even when invoked by bare name from PATH.
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolved from THIS script's own location, never a glob: bin/ sits at the
+# plugin root, so one level up is the root and the engines live beside the skill
+# they belong to. Resolving this way means the answer is always the copy that
+# contains this script -- which is the point, since more than one copy of the
+# plugin can exist on a machine and a glob cannot tell them apart.
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKILL_DIR="$PLUGIN_ROOT/skills/adversarial-review"
 TARGET="$SKILL_DIR/$1"
 
 if [[ ! -f "$TARGET" ]]; then

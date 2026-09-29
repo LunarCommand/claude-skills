@@ -1,31 +1,69 @@
 # Changelog
 
-Each skill is published as its own plugin with its own version, so entries are
-grouped by plugin rather than by repository. A plugin appears in a release
-section only if it changed.
+The repository ships as a single plugin, `lunar`, with one version. Each release
+section is one version of it, with entries grouped by the skill they affect.
 
-Changes that belong to no plugin — the installer, the checks, the release
-process, repo-wide docs — go under a `### Repository` heading in the same section.
-They carry no version of their own; they ship whenever they land on `main`.
+Sections at `v0.12.0` and below predate the consolidation, when every skill was
+its own plugin with its own version. Those headings name the plugin and the
+version it actually shipped as, and are left as they were — the record of what
+users received.
 
-**The version bump is what ships.** Marketplace users receive an update only when
-a plugin's `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
+**The version bump is what ships.** Anyone installed from GitHub receives an
+update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
 
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
-[Semantic Versioning](https://semver.org/) per plugin.
-
-<!--
-Shape for an entry — list the version each plugin will ship as, and only the
-plugins that actually changed:
-
-### hyperdx — 0.9.1
-
-- Fixed local multi-term queries returning zero rows on macOS.
--->
+[Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-### mutation-test — 0.11.0
+### lunar — 1.0.0
+
+The six plugins become one. Installing `lunar` gets every skill, every bundled
+script is on one `PATH` entry, and the skills-directory install route is gone.
+Skills are now invoked as `/lunar:<name>`.
+
+**If you installed an individual skill from the marketplace, this breaks it.**
+`hyperdx@lunar-skills` and its five siblings no longer exist as plugins, and no
+version bump can offer you a plugin under a different name — you will simply stop
+being offered updates. Move across with:
+
+```
+/plugin marketplace update lunar-skills
+/plugin install lunar@lunar-skills
+```
+
+Then uninstall the old ones. Every invocation gains a `/lunar:` prefix, which is
+the other half of why this is a major version.
+
+- **One plugin, one manifest.** `.claude-plugin/plugin.json` at the repo root
+  replaces the six per-skill manifests, and `marketplace.json` carries a single
+  entry with `"source": "."`. Adding a skill is creating
+  `skills/<name>/SKILL.md`; there is nothing to register.
+- **One `bin/`.** Every bundled script moved from `skills/<name>/bin/` to a
+  single `bin/` at the root. No basename collided. The scripts are invoked
+  exactly as before — bare name, no path — and the permission rules are
+  unchanged.
+- **`install.sh` is gone.** It existed to copy skills into
+  `~/.claude/skills/<name>/`, which was the second of two install routes and the
+  source of every "which copy is loaded" problem. The remaining route is the
+  marketplace, pointed either at GitHub or at a local clone via a `directory`
+  source — the latter loads the working tree in place, so an edit is live after
+  `/reload-plugins` with nothing copied.
+- **Templates moved to `install/`.** `install/user/settings.json` and
+  `install/user/CLAUDE.md` are merged into `~/.claude/` once per machine;
+  `install/project/.agent.env` stays per-project. Nothing installs them — a
+  plugin cannot ship a permissions layer or an auto-loading CLAUDE.md.
+- **`adversarial_review_path.sh` resolves against the plugin root**, one level up
+  from its own `BASH_SOURCE[0]`, and still answers for the copy that contains
+  it rather than globbing.
+- The adversarial-review `SKILL.md` documents the step that was previously
+  folklore: **copy the resolved engine into the session scratchpad and pass the
+  copy** to the Workflow tool, which accepts a `scriptPath` only inside the
+  working directory. The engine lives with the plugin, outside every project it
+  reviews, so the copy is the mechanism rather than a workaround. Copy it fresh
+  each session; never glob for it and never reuse an older copy.
+
+### mutation-test
 
 Scoping, not automation. Point it at a PR or a diff and it tells you which lines
 changed and gives you a checkout you cannot damage. Choosing the mutation and
@@ -44,19 +82,25 @@ judging the result stay manual, as they were.
   wrong file, or dropped while the summary still read as a complete inventory.
 - A hunk still open at the end of the input is **refused as a malformed diff**
   rather than reported with guessed line numbers.
-- **`mutation_test_worktree.sh`** (from 0.10.0) is what step 3 uses: a throwaway
-  checkout at the ref you name, bootstrapped, with the baseline confirmed green
-  before your command runs, removed afterwards. `--ref` now documents the
-  `git fetch` a PR head needs, and says plainly that a non-HEAD ref means the
-  working-tree checks are skipped.
-
-### mutation-test — 0.10.0
-
-- Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
-  `git worktree` to mutate in, so the tool never writes to your source tree. The
-  runner that uses it is not here yet. Every blocker that held the first attempt
-  back lived in a back-up-and-restore path, and a tree you never write to cannot
-  have them.
+- **`mutation_test_worktree.sh`** is what step 3 uses: a throwaway checkout at
+  the ref you name, bootstrapped, with the baseline confirmed green before your
+  command runs, removed afterwards. `--ref` documents the `git fetch` a PR head
+  needs, and says plainly that a non-HEAD ref means the working-tree checks are
+  skipped.
+- `mutation_test_worktree.sh` builds a throwaway `git worktree` to mutate in, so
+  the tool never writes to your source tree. Every blocker that held the first
+  attempt back lived in a back-up-and-restore path, and a tree you never write to
+  cannot have them.
+- **There is no batch runner, and one is no longer planned.**
+  `mutation_test_changed_lines.sh` tells you which lines changed and
+  `mutation_test_worktree.sh` gives you somewhere safe to mutate them; choosing
+  the mutation and judging the result stay yours. A runner that did the sweep was
+  written and withdrawn after five review rounds found blockers in it — every one
+  in the mutate-and-restore path, and each fix opened another.
+  [#13](https://github.com/LunarCommand/claude-skills/issues/13), which tracked
+  rebuilding it around a worktree, is closed: its premise was that a worktree
+  removes the need to restore, and that is wrong, because one worktree serves
+  many mutants and each still has to be undone.
 - The manual path gains the rule that makes its backup discipline
   load-bearing: mutate the file in place, never a copy in a worktree or a
   scratch checkout. An editable install records an absolute path to the original
@@ -132,12 +176,22 @@ judging the result stay manual, as they were.
   in a single review, since the tip-recheck runs per finding per verifier. The
   template is meant to cover exactly what the shipped skills run, and for three
   releases it did not.
-- `CLAUDE.md` states where a skill's `bin/` lands on `PATH`: at the end, after
-  `/usr/bin` and everything else. The bare-name rule already required distinctive
-  basenames, but framed a collision as a question of which copy gets reached. The
-  order makes it one-sided — a same-named executable anywhere earlier shadows the
+- `CLAUDE.md` states where `bin/` lands on `PATH`: at the end, after `/usr/bin`
+  and everything else. The bare-name rule already required distinctive basenames,
+  but framed a collision as a question of which copy gets reached. The order
+  makes it one-sided — a same-named executable anywhere earlier shadows the
   shipped script outright, the permission rule keeps approving the call, and the
   failure reads as the skill misbehaving.
+- `scripts/validate.sh` follows the consolidation. It validates one plugin
+  manifest instead of six, runs `claude plugin validate` once, and checks the
+  version bump against the single `version`, scoped to `skills/` and `bin/` —
+  the paths the plugin delivers as running code. Two checks changed shape rather
+  than moving: "every skill is listed in the marketplace" became "every tracked
+  `SKILL.md` sits inside the plugin root, where it can actually load", since
+  there is no longer a list to fall out of; and the duplicate-basename check is
+  gone because one `bin/` makes the collision it guarded impossible. The
+  end-to-end `install.sh` run is gone with the installer, which leaves
+  `--quick` skipping one slow section rather than two.
 
 ## v0.12.0 — 2026-08-23
 
