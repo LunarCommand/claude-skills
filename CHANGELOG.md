@@ -63,6 +63,24 @@ the other half of why this is a major version.
   reviews, so the copy is the mechanism rather than a workaround. Copy it fresh
   each session; never glob for it and never reuse an older copy.
 
+### adversarial-review
+
+- **The Step 0 snapshot no longer lands in a shared `/tmp`.** It used
+  `${CLAUDE_JOB_DIR:-/tmp}/tmp`, and `CLAUDE_JOB_DIR` is not set in a normal
+  session, so every review on a machine wrote its baseline to the same
+  `/tmp/tmp/ar_tree_before.txt`. A second review running anywhere — another
+  project, another session — overwrote it, and the Step 5 compare then judged one
+  tree against another's baseline: a change reported that never happened, or
+  "tree unchanged" against a baseline belonging to a different repository. The
+  snapshot is the only guard for an in-place review of uncommitted work, so it
+  now goes in the session's own scratchpad, which is unique by construction.
+- **A missing baseline is reported as unverified rather than as damage.** `diff`
+  exits non-zero when the before-file is simply absent, which read as "an agent
+  mutated the tree" and sent the reader looking for damage that was never there.
+  Step 5 now distinguishes the two.
+- The engine copy step says to use the session scratchpad named in the
+  environment, instead of an undefined `$SCRATCH`.
+
 ### mutation-test
 
 Scoping, not automation. Point it at a PR or a diff and it tells you which lines

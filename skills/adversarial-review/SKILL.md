@@ -109,9 +109,15 @@ table and keep a git snapshot guard for when it isn't.
      the read-only mandate and the snapshot below.
    Wait for the user's choice.
 4. **Snapshot before the fan-out** (cheap, and the fallback guard when not
-   isolated):
+   isolated). Put it in **your own session scratchpad directory**, named in your
+   environment — Step 5 reads these files back, so it must be a path no other
+   session writes to. A shared location such as `/tmp` is wrong here: a second
+   review running anywhere on the machine overwrites `ar_tree_before.txt`, and
+   Step 5 then compares this tree against someone else's baseline and reports a
+   change that never happened — or, if the two happen to match, reports
+   "tree unchanged" having checked nothing.
    ```bash
-   SNAP="${CLAUDE_JOB_DIR:-/tmp}/tmp"; mkdir -p "$SNAP"
+   SNAP="<your scratchpad dir>/ar-snapshot"; mkdir -p "$SNAP"
    git status --porcelain  > "$SNAP/ar_tree_before.txt"
    git diff HEAD           > "$SNAP/ar_diff_before.txt"
    # UNTRACKED files are invisible to `git diff HEAD`, so copy them too or the
@@ -394,7 +400,7 @@ output in this tier.
 single finding:
 
 ```bash
-SNAP="${CLAUDE_JOB_DIR:-/tmp}/tmp"
+SNAP="<the same scratchpad path Step 0 used>"
 git status --porcelain  > "$SNAP/ar_tree_after.txt"
 git diff HEAD           > "$SNAP/ar_diff_after.txt"
 git submodule foreach --recursive --quiet \
@@ -417,6 +423,13 @@ the only one that reveals a dirty submodule** (as a ` M <path>` line). The
 `git diff HEAD` compare catches a tracked in-place edit, including one that
 leaves the line count unchanged, but it says **nothing** about untracked files or
 about content inside a submodule. The submodule compare covers the rest.
+
+**A missing baseline is not a clean result, and it is not damage either.** `diff`
+also exits non-zero when `ar_tree_before.txt` does not exist, so check that the
+before-files are there before reading the exit code as mutation. If they are
+absent, Step 0 did not run or ran against a different scratchpad path: say that
+the tree could not be verified, rather than reporting damage you have no baseline
+for or a pass you did not earn.
 
 If any differ, an agent mutated the tree despite the read-only mandate: **say so
 at the top of your report, before the findings**, name what changed, and help the
