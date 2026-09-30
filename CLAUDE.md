@@ -212,8 +212,15 @@ sourced from there is the open follow-up.
 ## The scripts
 
 Each script is self-documenting via a header comment and `--help`/usage output.
+That is a checked property, not a convention: `validate.sh` runs every script
+with `--help` and `-h` and requires usage output and exit 0, **and** requires the
+flag to be answered before the dependency preflight. A reader without `gh`
+installed is the one most likely to be asking what a script needs, so exiting 127
+at them answers a different question than the one asked. Add a script and it
+inherits the requirement.
+
 Common invocations, run from a consuming project — bare name, no path, because
-`bin/` is on the Bash tool's `PATH`:
+`plugin/bin/` is on the Bash tool's `PATH`:
 
 ```bash
 # HyperDX logs/traces (cloud REST or local ClickHouse-in-Docker)
@@ -284,8 +291,9 @@ where it can actually load, plus `claude plugin validate` when the CLI is on
 hand),
 config-template JSON validity, that the settings allowlist and the shipped
 `plugin/bin/` scripts name each other exactly, that `plugin/` holds only tracked
-files so a local install cannot copy scratch directories to users, non-portable
-shell idioms in every shell
+files so a local install cannot copy scratch directories to users, that every
+script answers `--help` with usage before preflighting its dependencies,
+non-portable shell idioms in every shell
 artifact — GNU-only tool flags and bash 4 syntax alike, since macOS is stuck on
 bash 3.2 (this workstation is Linux, so a `find -printf` or a `mapfile` passes
 locally; CI runs the suite on macOS too, under the stock bash forced onto `PATH`,

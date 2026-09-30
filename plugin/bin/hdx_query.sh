@@ -20,6 +20,39 @@
 #     hdx_query.sh --local --table traces --query "SpanName:call_model"
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: hdx_query.sh [options]
+
+Queries HyperDX logs and traces with Lucene syntax. Two modes: cloud (the
+HyperDX REST API) and local (ClickHouse inside a local HyperDX container).
+
+  --query, -q <lucene>   search term; repeatable, and multiple terms are OR'd
+  --service, -s <name>   restrict to one service
+  --minutes, -t <n>      look back this many minutes
+  --limit, -l <n>        maximum rows
+  --table <name>         logs (default) or traces
+  --local                query a local container instead of the cloud API
+  --container <name>     local container name
+  --url <base>           override the cloud API base URL
+  --api-key, -k <key>    override the API key
+
+Configuration is read from .agent.env in the project root. Examples:
+
+  hdx_query.sh --query "level:err"
+  hdx_query.sh --service web-api --query "status:500" --query "timeout"
+  hdx_query.sh --local --table traces --query "SpanName:call_model"
+USAGE
+}
+
+# --help is answered before the dependency preflight below: what the script does
+# and what it needs are exactly what a reader without the tool installed is
+# asking for, so exiting 127 at them is the one moment help is least useful.
+# The leading `(` on the pattern is for bash 3.2, which macOS still ships.
+for arg in "$@"; do
+  case "$arg" in (-h|--help) usage; exit 0 ;; esac
+done
+
 # ---------------------------------------------------------------------------
 # Dependency preflight
 # ---------------------------------------------------------------------------
@@ -66,7 +99,8 @@ while [[ $# -gt 0 ]]; do
     --local)       LOCAL=true; shift ;;
     --container)   CONTAINER="$2"; shift 2 ;;
     --table)       TABLE="$2"; shift 2 ;;
-    *)             echo "Unknown option: $1" >&2; exit 1 ;;
+    -h|--help)     usage; exit 0 ;;
+    *)             echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 

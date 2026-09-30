@@ -19,9 +19,33 @@
 # copies are installed, prefer removing one.
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: adversarial_review_path.sh <bundled-filename>
+
+Prints the absolute path of a file bundled with this plugin, within whichever
+copy of the plugin contains this script.
+
+  adversarial_review_path.sh adversarial-review.workflow.js
+  adversarial_review_path.sh spec-accept-review.workflow.js
+
+The argument is a bare filename, never a path. Pass the result to the Workflow
+tool as a scriptPath, copying it into the session scratchpad first — the tool
+accepts a path only inside the working directory, and the plugin lives outside
+every project it reviews.
+USAGE
+}
+
+# --help is answered before the dependency preflight below: what the script does
+# and what it needs are exactly what a reader without the tool installed is
+# asking for, so exiting 127 at them is the one moment help is least useful.
+# The leading `(` on the pattern is for bash 3.2, which macOS still ships.
+for arg in "$@"; do
+  case "$arg" in (-h|--help) usage; exit 0 ;; esac
+done
+
 if [[ $# -ne 1 ]]; then
-  echo "Usage: adversarial_review_path.sh <bundled-filename>" >&2
-  echo "  e.g. adversarial_review_path.sh adversarial-review.workflow.js" >&2
+  usage >&2
   exit 1
 fi
 

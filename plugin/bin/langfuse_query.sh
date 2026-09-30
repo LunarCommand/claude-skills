@@ -1,6 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+_usage() {
+  cat <<'EOF'
+Usage: langfuse_query.sh <command> [options]
+
+Commands:
+  traces   [--limit N] [--name X] [--session-id X]   List recent traces
+  trace    <trace-id>                                 Get a single trace (includes observations)
+  generations <trace-id>                              Show LLM generations + tool calls for a trace
+  observations <trace-id> [--type TYPE]               List observations for a trace
+  observation  <obs-id>                               Get a single observation
+  sessions [--limit N]                                List sessions        (derived on v4)
+  scores   [--trace-id X] [--limit N]                 List scores
+  prompts                                             List prompts
+  apigen                                              Print the detected API generation
+
+Environment variables (required):
+  LANGFUSE_PUBLIC_KEY   Your Langfuse public key
+  LANGFUSE_SECRET_KEY   Your Langfuse secret key
+  LANGFUSE_BASE_URL     e.g. http://localhost:3000
+
+Optional:
+  LANGFUSE_API_GEN      Force "legacy" or "v4" instead of auto-detecting.
+
+API generations:
+  The server major version is read once from /api/public/health. Servers
+  >= 4 run the v2/v3 read APIs; the v1 endpoints (/traces, /observations,
+  /sessions, /scores) return 404 there. Servers <= 3 use the v1 API.
+
+  On v4, `traces` and `sessions` are DERIVED by grouping observations —
+  v4 exposes no trace or session read entity. Both label their output.
+EOF
+  exit "${1:-1}"
+}
+
+# --help is answered before the dependency preflight below: what the script does
+# and what it needs are exactly what a reader without curl or python3 installed
+# is asking for, so exiting 127 at them is the one moment help is least useful.
+# This is why _usage is defined up here rather than beside the commands it
+# documents. The leading `(` on the pattern is for bash 3.2, which macOS ships.
+for arg in "$@"; do
+  case "$arg" in (-h|--help) _usage 0 ;; esac
+done
+
 # Dependency preflight. Without it a missing binary surfaces partway through a
 # pipeline as `python3: command not found`, which reads as a bug in this script.
 # The skill instructs the agent to fix a failing script rather than work around
@@ -194,40 +237,6 @@ def _j(v):
             except Exception: return v
     return v
 '
-
-_usage() {
-  cat <<'EOF'
-Usage: langfuse_query.sh <command> [options]
-
-Commands:
-  traces   [--limit N] [--name X] [--session-id X]   List recent traces
-  trace    <trace-id>                                 Get a single trace (includes observations)
-  generations <trace-id>                              Show LLM generations + tool calls for a trace
-  observations <trace-id> [--type TYPE]               List observations for a trace
-  observation  <obs-id>                               Get a single observation
-  sessions [--limit N]                                List sessions        (derived on v4)
-  scores   [--trace-id X] [--limit N]                 List scores
-  prompts                                             List prompts
-  apigen                                              Print the detected API generation
-
-Environment variables (required):
-  LANGFUSE_PUBLIC_KEY   Your Langfuse public key
-  LANGFUSE_SECRET_KEY   Your Langfuse secret key
-  LANGFUSE_BASE_URL     e.g. http://localhost:3000
-
-Optional:
-  LANGFUSE_API_GEN      Force "legacy" or "v4" instead of auto-detecting.
-
-API generations:
-  The server major version is read once from /api/public/health. Servers
-  >= 4 run the v2/v3 read APIs; the v1 endpoints (/traces, /observations,
-  /sessions, /scores) return 404 there. Servers <= 3 use the v1 API.
-
-  On v4, `traces` and `sessions` are DERIVED by grouping observations —
-  v4 exposes no trace or session read entity. Both label their output.
-EOF
-  exit 1
-}
 
 # ---------------------------------------------------------------------------
 # v4 implementations

@@ -322,6 +322,50 @@ for d in plugin/skills/*/; do
   fi
 done
 
+# CLAUDE.md promises every bundled script is self-documenting via `--help`. That
+# was true of four of the eight: one rejected the flag as an unknown option, one
+# read it as a bundled filename, one ignored it and walked on into environment
+# validation, and pr_review_resolve_thread.sh passed it to `gh` as a thread node
+# ID -- so asking a script for help made a live API call. None of it was
+# catchable by reading the scripts, which is why this runs them.
+#
+# The ordering half matters as much as the output: help is answered before the
+# dependency preflight, because a reader without `gh` installed is precisely the
+# one asking what the script needs, and exiting 127 at them answers a different
+# question. Static, because hiding one binary from PATH without also hiding `cat`
+# is not something a portable test can arrange.
+help_bad=""
+for s in plugin/bin/*.sh; do
+  [[ -e "$s" ]] || continue
+  for flag in --help -h; do
+    if out=$("$s" "$flag" 2>&1); then
+      printf '%s' "$out" | grep -qi usage \
+        || help_bad="$help_bad
+  $s $flag exited 0 but printed no usage"
+    else
+      help_bad="$help_bad
+  $s $flag exited $? instead of 0"
+    fi
+  done
+  # The first CALL, not the function definition, so the `[a-z]` argument matters.
+  pf=$(grep -nE '^[[:space:]]*require_cmd [a-z]' "$s" | head -1 | cut -d: -f1)
+  hp=$(grep -nE '\(-h\|--help\)|-h\|--help\)' "$s" | head -1 | cut -d: -f1)
+  if [[ -n "$pf" ]]; then
+    if [[ -z "$hp" ]]; then
+      help_bad="$help_bad
+  $s answers --help nowhere, but preflights a dependency at line $pf"
+    elif [[ "$hp" -gt "$pf" ]]; then
+      help_bad="$help_bad
+  $s answers --help at line $hp, after the preflight at line $pf"
+    fi
+  fi
+done
+if [[ -z "$help_bad" ]]; then
+  pass "help        every bundled script answers --help and -h with usage, exit 0, before preflight"
+else
+  fail "help        a bundled script mishandles --help:"; printf '%s\n' "$help_bad" | sed '/^$/d'
+fi
+
 # bin/ is what Claude Code prepends to the Bash tool's PATH. A non-executable
 # file there is invisible to every skill, which then falls back to prompting.
 for s in plugin/bin/*.sh; do

@@ -6,6 +6,29 @@
 #   pr_review_parse_comments.sh <owner/repo> <pr_number> --id <id>  # full detail by comment database ID
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage:
+  pr_review_parse_comments.sh <owner/repo> <pr_number>            list all unresolved
+  pr_review_parse_comments.sh <owner/repo> <pr_number> <index>    detail by 1-based index
+  pr_review_parse_comments.sh <owner/repo> <pr_number> --id <id>  detail by comment database ID
+
+Lists the unresolved review threads on a pull request, or prints one in full.
+
+Each listed thread reports both identifiers, because they are used by different
+commands: the numeric comment id for pr_review_post_reply.sh, and the GraphQL
+node id for pr_review_resolve_thread.sh.
+USAGE
+}
+
+# --help is answered before the dependency preflight below: what the script does
+# and what it needs are exactly what a reader without the tool installed is
+# asking for, so exiting 127 at them is the one moment help is least useful.
+# The leading `(` on the pattern is for bash 3.2, which macOS still ships.
+for arg in "$@"; do
+  case "$arg" in (-h|--help) usage; exit 0 ;; esac
+done
+
 # Dependency preflight. Without it a missing binary surfaces mid-pipeline as
 # `gh: command not found`, which reads as a bug in this script. The skill
 # instructs the agent to fix a failing script rather than work around it, so an
@@ -23,7 +46,7 @@ require_cmd() {
 require_cmd gh "Install the GitHub CLI and authenticate: https://cli.github.com then run 'gh auth login'."
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: pr_review_parse_comments.sh <owner/repo> <pr_number> [<index> | --id <id>]" >&2
+  usage >&2
   exit 1
 fi
 

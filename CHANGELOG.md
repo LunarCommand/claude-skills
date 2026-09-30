@@ -101,6 +101,24 @@ the other half of why this is a major version.
 - The engine copy step says to use the session scratchpad named in the
   environment, instead of an undefined `$SCRATCH`.
 
+### All skills
+
+- **`--help` works on every bundled script.** It was documented as working and
+  did on four of eight. `hdx_query.sh` rejected it as an unknown option;
+  `adversarial_review_path.sh` read it as a bundled filename;
+  `langfuse_query.sh` ignored it and walked on into environment validation,
+  emitting a raw bash error about a missing key; and
+  `pr_review_resolve_thread.sh` handed it to `gh` as a thread node ID, so asking
+  that script for help made a live GitHub API call.
+- Help is answered **before** the dependency preflight. Someone without `gh` or
+  `curl` installed is the reader most likely to be asking what a script needs,
+  and exiting 127 at them answers a different question than the one asked.
+- `validate.sh` now runs each script with `--help` and `-h`, requires usage
+  output and exit 0, and requires the flag to be answered before the first
+  `require_cmd`. None of this was reachable by reading the scripts, which is why
+  the check runs them. All three properties were confirmed by breaking each one
+  and watching the check fail.
+
 ### mutation-test
 
 Scoping, not automation. Point it at a PR or a diff and it tells you which lines
