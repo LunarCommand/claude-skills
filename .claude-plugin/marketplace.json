@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "lunar",
-      "source": ".",
+      "source": "./plugin",
       "category": "workflow"
     }
   ]

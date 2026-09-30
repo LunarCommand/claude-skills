@@ -170,7 +170,7 @@ gnuisms=""
 shopt -s nullglob
 # Every shell artifact in the repo, plus SKILL.md, which ships shell the agent
 # runs verbatim.
-for f in bin/*.sh skills/*/SKILL.md scripts/*.sh .githooks/*; do
+for f in plugin/bin/*.sh plugin/skills/*/SKILL.md scripts/*.sh .githooks/*; do
   [[ -f "$f" ]] || continue
   # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
   # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
@@ -194,7 +194,7 @@ shopt -u nullglob
 section "Workflow JS (Workflow-tool constraints)"
 # --------------------------------------------------------------------------
 shopt -s nullglob
-for f in skills/*/*.workflow.js; do
+for f in plugin/skills/*/*.workflow.js; do
   if err=$(node --check "$f" 2>&1); then pass "syntax      $f"
   else fail "syntax      $f"; printf '%s\n' "$err" | sed 's/^/        /'; fi
 
@@ -223,7 +223,7 @@ shopt -u nullglob
 # docs apologising for a rule one had and the other did not. So assert the shared
 # constants are byte-identical, and make the next drift a failing build instead of
 # a paragraph explaining itself.
-if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skills/adversarial-review/spec-accept-review.workflow.js ]]; then
+if [[ ! -f plugin/skills/adversarial-review/adversarial-review.workflow.js || ! -f plugin/skills/adversarial-review/spec-accept-review.workflow.js ]]; then
   # Not "nothing to do": the check vanishing silently is how an invariant stops
   # being enforced while the suite stays green. If an engine was renamed, this
   # check needs updating with it.
@@ -231,8 +231,8 @@ if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skil
 else
   if out=$(python3 - <<'PARITY' 2>&1
 import re, sys, pathlib
-CODE = pathlib.Path('skills/adversarial-review/adversarial-review.workflow.js').read_text()
-SPEC = pathlib.Path('skills/adversarial-review/spec-accept-review.workflow.js').read_text()
+CODE = pathlib.Path('plugin/skills/adversarial-review/adversarial-review.workflow.js').read_text()
+SPEC = pathlib.Path('plugin/skills/adversarial-review/spec-accept-review.workflow.js').read_text()
 SHARED = ['WORKTREE_REF_MANDATE', 'ABSENCE_SEARCH_MANDATE', 'TIP_RECHECK_MANDATE', 'REF_SCOPE_MANDATE']
 
 def body(src, name):
@@ -266,7 +266,7 @@ fi
 # --------------------------------------------------------------------------
 section "Skills"
 # --------------------------------------------------------------------------
-for d in skills/*/; do
+for d in plugin/skills/*/; do
   name=$(basename "$d")
   f="$d/SKILL.md"
   if [[ ! -f "$f" ]]; then fail "$name — no SKILL.md"; continue; fi
@@ -309,22 +309,22 @@ for d in skills/*/; do
     pass "description  $name, $desclen/1024 characters"
   fi
 
-  # One plugin means one bin/ at the root, so a skill directory holding its own
+  # One plugin means one bin/, at plugin/, so a skill directory holding its own
   # is the old per-skill layout left behind — and it would not reach PATH.
   if [[ -d "$d/bin" ]]; then
-    fail "$name — has its own bin/; scripts live in the plugin root's bin/ now"
+    fail "$name — has its own bin/; scripts live in plugin/bin/ now"
   fi
   if [[ -d "$d/scripts" ]]; then
     fail "$name — has scripts/; bundled executables belong in bin/ to reach PATH"
   fi
   if [[ -d "$d/.claude-plugin" ]]; then
-    fail "$name — has .claude-plugin/; there is one manifest, at the repo root"
+    fail "$name — has .claude-plugin/; there is one manifest, at the plugin root"
   fi
 done
 
 # bin/ is what Claude Code prepends to the Bash tool's PATH. A non-executable
 # file there is invisible to every skill, which then falls back to prompting.
-for s in bin/*.sh; do
+for s in plugin/bin/*.sh; do
   [[ -e "$s" ]] || continue
   [[ -x "$s" ]] && pass "executable  $s" || fail "not executable: $s"
 done
@@ -332,7 +332,7 @@ done
 # --------------------------------------------------------------------------
 section "Plugin manifests"
 # --------------------------------------------------------------------------
-for f in .claude-plugin/marketplace.json .claude-plugin/plugin.json; do
+for f in .claude-plugin/marketplace.json plugin/.claude-plugin/plugin.json; do
   if python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
     pass "valid JSON  $f"
   else
@@ -393,15 +393,70 @@ else
   fail "marketplace manifest inconsistency:"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
+# What a user receives is exactly the plugin root, so the plugin root must hold
+# nothing but tracked files. An install from a local `directory` marketplace is a
+# filesystem copy of that directory: it skips `.git` and respects neither
+# `.gitignore` nor `.git/info/exclude`, so an untracked scratch directory sitting
+# inside it is copied into the plugin cache verbatim. That is measured, not
+# theoretical -- a local `_tasks/` and a gitignored `.claude/` both shipped that
+# way while the plugin root was the whole repository.
+#
+# Nesting the payload under plugin/ is what keeps them out; this check is what
+# keeps the nesting honest, and it fails at commit time rather than after an
+# install.
+if out=$(python3 - <<'PAYLOAD_PY' 2>&1
+import os, subprocess, sys
+
+p = subprocess.run(('git', 'ls-files', '-z', '--', 'plugin'),
+                   capture_output=True, text=True)
+if p.returncode != 0:
+    print(f'could not list tracked files under plugin/: {p.stderr.strip()}')
+    sys.exit(1)
+tracked = {f for f in p.stdout.split(chr(0)) if f}
+
+# A comparison of two empty sets passes while asserting nothing, so say the
+# payload cannot be empty rather than letting that read as success.
+if not tracked:
+    print('no tracked files under plugin/ -- the payload cannot be empty')
+    sys.exit(1)
+
+on_disk = set()
+for root, dirs, files in os.walk('plugin'):
+    for f in files:
+        on_disk.add(os.path.join(root, f))
+
+untracked = sorted(on_disk - tracked)
+if untracked:
+    print('these would be copied into every local install:')
+    print(chr(10).join('  ' + f for f in untracked))
+    sys.exit(1)
+PAYLOAD_PY
+); then
+  pass "payload     plugin/ holds only tracked files ($(git ls-files -- plugin | wc -l | tr -d ' ') of them)"
+else
+  fail "payload     plugin/ holds untracked files:"; printf '%s\n' "$out" | sed 's/^/        /'
+  printf '        %s\n' "A local 'directory' marketplace copies the plugin root verbatim," \
+    "ignoring .gitignore and .git/info/exclude. Move these outside plugin/."
+fi
+
+# The plugin is redistributed on its own, so it carries its own licence text.
+# Byte-identical to the root copy, or one of the two misstates the terms.
+if [[ ! -f plugin/LICENSE ]]; then
+  fail "licence     plugin/LICENSE is missing — the shipped artifact carries no terms"
+elif cmp -s LICENSE plugin/LICENSE; then
+  pass "licence     plugin/LICENSE matches the repository LICENSE"
+else
+  fail "licence     plugin/LICENSE differs from the repository LICENSE"
+fi
+
 # A plugin whose files changed since the last release but whose version did not
 # is invisible to everyone who already installed it: marketplace clients offer an
 # update only when `version` changes. Nothing else surfaces that, so it is a
 # check rather than a convention. See docs/RELEASING.md.
 #
-# Scoped to what the plugin delivers as running code — `skills/`, `bin/`, and the
-# manifest itself. The plugin root is the whole repo, so `docs/`, `scripts/` and
-# `install/` ride along in the cache copy, but nothing reads them from there:
-# install/ is merged by hand and the rest is repo-side. Demanding a version bump
+# Scoped to `plugin/`, which is exactly what a user receives. Everything else in
+# the repository — `docs/`, `scripts/`, `install/`, the README — is outside the
+# plugin root and reaches nobody through an update, so requiring a version bump
 # for a typo in a methodology doc would train the bump into a reflex, which is
 # how it stops being a signal.
 # The baseline is the highest v<number> tag in the REPOSITORY, not the nearest
@@ -448,8 +503,8 @@ def parsed(raw, where):
         return None, f'{where}: version {v!r} is not X.Y.Z'
     return str(v), None
 
-MAN = '.claude-plugin/plugin.json'
-PAYLOAD = ('skills', 'bin', MAN)
+MAN = 'plugin/.claude-plugin/plugin.json'
+PAYLOAD = ('plugin',)
 
 bad = []
 # Compare the tag against the INDEX: that is exactly what the commit will
@@ -489,7 +544,7 @@ else:
             elif (tuple(map(int, SEMVER.match(now).groups()))
                   <= tuple(map(int, SEMVER.match(was).groups()))):
                 rel = 'is still' if now == was else f'went BACKWARDS from {was} to'
-                bad.append(f'skills/, bin/ or the manifest changed since {tag} '
+                bad.append(f'plugin/ changed since {tag} '
                            f'but version {rel} {now}')
 
 if bad:
@@ -501,15 +556,15 @@ else
   fail "versions    the plugin changed since $last_tag without a valid bump:"
   printf '%s\n' "$out" | sed 's/^/        /'
   printf '        %s\n' "Users who installed it will never be offered the update." \
-    "Bump the version in .claude-plugin/plugin.json and add a" \
+    "Bump the version in plugin/.claude-plugin/plugin.json and add a" \
     "CHANGELOG.md entry under Unreleased. See docs/RELEASING.md."
 fi
 
 # The authoritative check, when the CLI is on hand. CI has no Claude Code, so
 # the python checks above stand alone there.
 if command -v claude >/dev/null 2>&1; then
-  if out=$(claude plugin validate . 2>&1); then pass "plugin validate ."
-  else fail "plugin validate ."; printf '%s\n' "$out" | sed 's/^/        /'; fi
+  if out=$(claude plugin validate ./plugin 2>&1); then pass "plugin validate ./plugin"
+  else fail "plugin validate ./plugin"; printf '%s\n' "$out" | sed 's/^/        /'; fi
 else
   warn "claude CLI not installed — 'claude plugin validate' skipped"
 fi
@@ -535,7 +590,7 @@ try:
     cfg = json.load(open('install/user/settings.json'))
 except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
-shipped = {os.path.basename(p) for p in glob.glob('bin/*.sh')}
+shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
 # Scripts that ship WITHOUT a rule on purpose. The invariant exists so a script
 # does not prompt because someone forgot a rule; a deliberate absence, named
 # here with its reason, serves that purpose and stays visible in review.
@@ -579,7 +634,7 @@ fi
 # The tilde is bracketed so shellcheck does not read it as a path (SC2088);
 # `[~]` and `~` are the same character class to grep.
 pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-Za-z0-9_.-]+\.sh' \
-  skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
+  plugin/skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
 [[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
   fail "a SKILL.md references a script by path (breaks one install route):"
   printf '%s\n' "$pathrefs" | sed 's/^/        /'
@@ -598,7 +653,7 @@ suite = open('scripts/mutation-test-acceptance.sh').read()
 # 'missing-dependency', but within one script a slug used twice is two guards
 # no assertion can tell apart.
 scripts = {
-    'bin/mutation_test_worktree.sh': {
+    'plugin/bin/mutation_test_worktree.sh': {
         'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
         'tmpdir':             'requires mktemp -d to fail',
         'git-failed':         'requires git status to fail on a valid repository',
@@ -606,7 +661,7 @@ scripts = {
         'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
         'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
     },
-    'bin/mutation_test_changed_lines.sh': {
+    'plugin/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
         'unreadable-diff':    'requires a file that exists but cannot be read',
     },
@@ -679,12 +734,12 @@ fi
 # that was since renamed or withdrawn is the entry doing its job.
 if out=$(python3 - <<'PY' 2>&1
 import glob, os, re, sys
-shipped = {os.path.basename(p) for p in glob.glob('bin/*.sh')}
+shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
 # The repo's own tooling, named in docs but never on a skill's PATH.
 own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
        'check-install-drift.sh'}
 bad = []
-docs = (glob.glob('*.md') + glob.glob('skills/*/SKILL.md')
+docs = (glob.glob('*.md') + glob.glob('plugin/skills/*/SKILL.md')
         + glob.glob('docs/**/*.md', recursive=True))
 for md in sorted(d for d in docs if os.path.basename(d) != 'CHANGELOG.md'):
     for n, line in enumerate(open(md), 1):

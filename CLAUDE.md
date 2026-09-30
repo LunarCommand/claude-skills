@@ -10,7 +10,7 @@ templates. It is not an application — there is no build, no test runner, no li
 no package manifest. The "artifacts" are Markdown definitions, bundled bash
 scripts, and plain-JS workflow files.
 
-Today the repo holds skills (each a directory under `skills/`), methodology docs
+Today the repo holds skills (each a directory under `plugin/skills/`), methodology docs
 (under `docs/`), and config templates. Other Claude Code config kept here in
 future — slash commands (Markdown files under a `commands/` dir), agents, hooks —
 goes into the same plugin.
@@ -19,10 +19,15 @@ Git remote: `github.com:LunarCommand/claude-skills`.
 
 ## The one thing to understand first: this repo is one plugin
 
-The whole repository is a single Claude Code plugin named `lunar`. The root
-`.claude-plugin/plugin.json` is its manifest, every skill under `skills/` loads
-from it, and every script under `bin/` reaches the Bash tool's `PATH` through it.
+This repository publishes a single Claude Code plugin named `lunar`, and
+**`plugin/` is the plugin** — its entire contents and nothing else. Skills under
+`plugin/skills/` load from it, scripts under `plugin/bin/` reach the Bash tool's
+`PATH` through it, and `plugin/.claude-plugin/plugin.json` is its manifest.
 Skills are invoked as `/lunar:<name>`.
+
+Everything outside `plugin/` is repository material a user never receives: the
+methodology docs, the checks, the templates they merge by hand, this file. That
+split is deliberate and it is enforced — see the payload check below.
 
 There is exactly one install route: the marketplace. Two ways to point at it —
 
@@ -36,10 +41,17 @@ There is exactly one install route: the marketplace. Two ways to point at it —
   { "source": "directory", "path": "/path/to/claude-skills" }
   ```
 
-  Nothing is copied. The working tree *is* the loaded plugin, so an edit here is
-  live in any session after `/reload-plugins`. This is the reason the
-  source-vs-deployed distinction no longer exists, and why there is no drift
-  check: there is no second copy to drift from.
+  Claude Code loads the checkout in place: `plugin/bin/` goes on `PATH` and the
+  skills resolve to the working tree, so an edit is live after `/reload-plugins`
+  — and immediately for a script, since `PATH` points at the real file. Verify
+  which copy is loaded by running `adversarial_review_path.sh`, which answers for
+  whichever copy contains it.
+
+  `/plugin install` *also* writes an inert snapshot under
+  `~/.claude/plugins/cache/`, pinned to the commit you installed from. Nothing
+  loads from it, but it exists — which is the real reason
+  `adversarial_review_path.sh` resolves from its own `BASH_SOURCE[0]` instead of
+  globbing: two copies are on disk on every machine and only one of them runs.
 
 No `SKILL.md` may reference its scripts by path — not a repo path, not a
 `~/.claude/...` path, and **not `${CLAUDE_PLUGIN_ROOT}`**, which is rejected with
@@ -50,21 +62,34 @@ name, which is also the form the permission rules approve.
 
 Each top-level directory has one role:
 
-- `.claude-plugin/plugin.json` — **the plugin manifest** (`lunar`). One for the
-  whole repo. Its `version` gates updates for anyone installed from GitHub, so
-  bump it in the same change that touches `skills/` or `bin/`; `validate.sh`
-  fails otherwise. See `docs/RELEASING.md`.
+- `plugin/` — **the plugin, and the whole of what a user receives.** Nothing else
+  in the repository reaches them. Its contents:
+  - `.claude-plugin/plugin.json` — the manifest. Its `version` gates updates for
+    anyone installed from GitHub, so bump it in the same change that touches
+    anything under `plugin/`; `validate.sh` fails otherwise. See
+    `docs/RELEASING.md`.
+  - `skills/` — one directory per skill (`adversarial-review/`,
+    `feature-planning/`, `hyperdx/`, `langfuse/`, `mutation-test/`,
+    `pr-review/`). Each is a `SKILL.md` plus, for `adversarial-review`, its
+    `*.workflow.js` engines. Skills carry no manifest and no `bin/` of their own —
+    both live at the plugin root. `validate.sh` rejects either reappearing.
+  - `bin/` — every bundled script, for all skills together. Claude Code adds this
+    one directory to the Bash tool's `PATH`. Basenames must therefore be unique
+    across the whole toolkit, which the `pr_review_` and `mutation_test_`
+    prefixes exist to guarantee.
+  - `LICENSE` — the plugin is redistributed on its own, so it carries its own
+    terms. `validate.sh` asserts it is byte-identical to the root copy.
+
+  **Nothing untracked may sit inside `plugin/`.** A local `directory` marketplace
+  install is a filesystem copy of the plugin root: it skips `.git` and respects
+  neither `.gitignore` nor `.git/info/exclude`. A scratch directory in there is
+  copied into the plugin cache verbatim, which is how a local `_tasks/` and a
+  gitignored `.claude/` once shipped. `validate.sh` compares `plugin/` against
+  `git ls-files` and fails on any difference.
 - `.claude-plugin/marketplace.json` — **the marketplace catalog**
-  (`lunar-skills`), one entry pointing at `"source": "."`.
-- `skills/` — **the skills**, one directory per skill (`adversarial-review/`,
-  `feature-planning/`, `hyperdx/`, `langfuse/`, `mutation-test/`, `pr-review/`).
-  Each is a `SKILL.md` plus, for `adversarial-review`, its `*.workflow.js`
-  engines. Skills carry no manifest and no `bin/` of their own — both live at
-  the plugin root. `validate.sh` rejects either reappearing under a skill.
-- `bin/` — **every bundled script**, for all skills together. Claude Code adds
-  this one directory to the Bash tool's `PATH`. Basenames must therefore be
-  unique across the whole toolkit, which the `pr_review_` and `mutation_test_`
-  prefixes exist to guarantee.
+  (`lunar-skills`), one entry pointing at `"source": "./plugin"`. It sits at the
+  repository root because that is where a marketplace is looked up, and outside
+  `plugin/` because a user has no use for the catalog.
 - `docs/` — **methodology and process docs**. `docs/ai-review/` covers how to get
   high-value review out of AI (the reasoning behind the `adversarial-review`
   skill). `docs/RELEASING.md` is authoritative on how a change actually reaches
@@ -93,7 +118,7 @@ route there is — see the bundled-script invariant below.
 
 ## Skill anatomy
 
-A skill is a directory under `skills/` containing:
+A skill is a directory under `plugin/skills/` containing:
 
 - `SKILL.md` — YAML frontmatter (`name`, `description`) followed by instructions.
   `name` must match the directory name. **The `description` is load-bearing**:
@@ -109,13 +134,14 @@ A skill is a directory under `skills/` containing:
   and does not work — with two copies on disk, the model globs and can pick the
   stale one.
 
-A skill carries no `.claude-plugin/` and no `bin/` of its own. Both live at the
-plugin root, and `validate.sh` rejects either reappearing here: a nested manifest
+A skill carries no `.claude-plugin/` and no `bin/` of its own. Both live at
+`plugin/`, and `validate.sh` rejects either reappearing here: a nested manifest
 would make the skill a second plugin claiming its own name, and a nested `bin/`
 would never reach `PATH`.
 
-Adding a skill is one step — create `skills/<name>/SKILL.md`. There is nothing to
-register; the plugin ships whatever is under `skills/`, and `validate.sh` fails
+Adding a skill is one step — create `plugin/skills/<name>/SKILL.md`. There is
+nothing to register; the plugin ships whatever is under `plugin/skills/`, and
+`validate.sh` fails
 on a `SKILL.md` anywhere else, since only that path loads.
 
 ### The bundled-script invariant
@@ -180,8 +206,8 @@ preflight when adding a script.
 
 `require_cmd` is currently defined once per script. That duplication was forced
 while each skill was its own plugin and could not reference a file outside its
-own directory; with one `bin/` it is no longer forced, and a shared helper
-sourced from `bin/` is the open follow-up.
+own directory; with one `plugin/bin/` it is no longer forced, and a shared helper
+sourced from there is the open follow-up.
 
 ## The scripts
 
@@ -207,19 +233,19 @@ pr_review_resolve_thread.sh <thread_node_id>
 ```
 
 To run one *in this repo* while developing it, use its real path
-(`bin/hdx_query.sh`) — the source tree is not on `PATH` unless a `directory`
+(`plugin/bin/hdx_query.sh`) — the source tree is not on `PATH` unless a `directory`
 marketplace source has this checkout loaded as the plugin.
 
 `hdx_query.sh` and `langfuse_query.sh` are large (400 / 700 lines) and carry real
 routing logic — the Langfuse script in particular abstracts over two API
 generations (legacy ≤ v3 REST vs. v4, where traces/sessions are *derived* from
 observations and reads need explicit `fields` groups). Read the script header and
-`skills/langfuse/SKILL.md` before touching that routing. The pr-review scripts are thin
+`plugin/skills/langfuse/SKILL.md` before touching that routing. The pr-review scripts are thin
 `gh api` wrappers and are invoked one at a time — never chained.
 
 ## Workflow JS files (`*.workflow.js`)
 
-`skills/adversarial-review/` contains two, run by the **Workflow tool** (not
+`plugin/skills/adversarial-review/` contains two, run by the **Workflow tool** (not
 node). Hard constraints, stated in their headers and enforced by the runtime:
 
 - Plain JS only — **no TypeScript, no filesystem, no `Date.now()` /
@@ -257,12 +283,14 @@ agreeing with the manifest it points at, every `SKILL.md` inside the plugin root
 where it can actually load, plus `claude plugin validate` when the CLI is on
 hand),
 config-template JSON validity, that the settings allowlist and the shipped
-`bin/` scripts name each other exactly, non-portable shell idioms in every shell
+`plugin/bin/` scripts name each other exactly, that `plugin/` holds only tracked
+files so a local install cannot copy scratch directories to users, non-portable
+shell idioms in every shell
 artifact — GNU-only tool flags and bash 4 syntax alike, since macOS is stuck on
 bash 3.2 (this workstation is Linux, so a `find -printf` or a `mapfile` passes
 locally; CI runs the suite on macOS too, under the stock bash forced onto `PATH`,
 which is what catches these for real), the **plugin version bump** (a change
-under `skills/` or `bin/` since the last `v<number>` tag must carry a higher
+under `plugin/` since the last `v<number>` tag must carry a higher
 `version`, or everyone who installed from GitHub is stranded — see
 `docs/RELEASING.md`), and repo hygiene (no macOS cruft, personal paths, or
 credential-shaped strings — this repo is public).

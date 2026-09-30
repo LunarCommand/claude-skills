@@ -35,20 +35,40 @@ being offered updates. Move across with:
 Then uninstall the old ones. Every invocation gains a `/lunar:` prefix, which is
 the other half of why this is a major version.
 
-- **One plugin, one manifest.** `.claude-plugin/plugin.json` at the repo root
-  replaces the six per-skill manifests, and `marketplace.json` carries a single
-  entry with `"source": "."`. Adding a skill is creating
-  `skills/<name>/SKILL.md`; there is nothing to register.
+- **One plugin, one manifest.** `plugin/.claude-plugin/plugin.json` replaces the
+  six per-skill manifests, and `marketplace.json` carries a single entry with
+  `"source": "./plugin"`. Adding a skill is creating
+  `plugin/skills/<name>/SKILL.md`; there is nothing to register.
 - **One `bin/`.** Every bundled script moved from `skills/<name>/bin/` to a
-  single `bin/` at the root. No basename collided. The scripts are invoked
-  exactly as before — bare name, no path — and the permission rules are
-  unchanged.
+  single `plugin/bin/`. No basename collided. The scripts are invoked exactly as
+  before — bare name, no path — and the permission rules are unchanged.
+- **`plugin/` is the whole of what you receive**, and nothing outside it reaches
+  you. The methodology docs, the validation suite, the CI workflow and the
+  templates you merge by hand all stay in the repository where they are useful,
+  rather than riding along in your plugin cache. That is enforced rather than
+  observed: `validate.sh` compares `plugin/` against `git ls-files` and fails on
+  any untracked file inside it.
+
+  This matters most for a local `directory` install, which is a filesystem copy
+  of the plugin root — it skips `.git` and respects neither `.gitignore` nor
+  `.git/info/exclude`. With the whole repository as the plugin root, a local
+  scratch directory and a gitignored `.claude/` were both copied into the plugin
+  cache. Nesting the payload is what stops that, and the check is what keeps the
+  nesting honest.
+- **The plugin carries its own `LICENSE`**, since it is redistributed on its own.
+  `validate.sh` asserts it stays byte-identical to the repository's.
 - **`install.sh` is gone.** It existed to copy skills into
   `~/.claude/skills/<name>/`, which was the second of two install routes and the
   source of every "which copy is loaded" problem. The remaining route is the
   marketplace, pointed either at GitHub or at a local clone via a `directory`
   source — the latter loads the working tree in place, so an edit is live after
-  `/reload-plugins` with nothing copied.
+  `/reload-plugins`, and immediately for a script.
+
+  `/plugin install` still writes an inert snapshot under
+  `~/.claude/plugins/cache/`, pinned to the commit installed from. Nothing loads
+  from it, but it exists, and `adversarial_review_path.sh` is what tells you which
+  copy is running — it answers for whichever copy contains it rather than
+  globbing.
 - **Templates moved to `install/`.** `install/user/settings.json` and
   `install/user/CLAUDE.md` are merged into `~/.claude/` once per machine;
   `install/project/.agent.env` stays per-project. Nothing installs them — a

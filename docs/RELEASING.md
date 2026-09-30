@@ -10,12 +10,12 @@ installs receive. For people who *already* installed a plugin, one field decides
 whether they ever see the change:
 
 > A marketplace client offers an update only when the plugin's `version` in
-> `.claude-plugin/plugin.json` changes.
+> `plugin/.claude-plugin/plugin.json` changes.
 
 Merge a fix without bumping that field and every existing user keeps running the
 old copy indefinitely. Nothing warns them and nothing warns you — which is why
-`scripts/validate.sh` fails when anything under `skills/` or `bin/` changed since
-the last tag but the version did not.
+`scripts/validate.sh` fails when anything under `plugin/` changed since the last
+tag but the version did not.
 
 **A tag is a bookmark, not a shipment.** It records what shipped and lets users
 pin (`/plugin marketplace add https://github.com/LunarCommand/claude-skills.git#v1.2.0`),
@@ -47,8 +47,8 @@ numbers for one thing is a drift waiting to happen.
 1. **Confirm the version is bumped.** `scripts/validate.sh` compares the
    manifest against the highest `v<number>` tag and requires a *higher* version —
    a repeat, a decrement, a missing field, or a non-`X.Y.Z` string all fail. It
-   only asks when `skills/` or `bin/` changed, since those are what the plugin
-   delivers as running code. It compares against the git index, so it sees what a
+   only asks when `plugin/` changed, since that is exactly what a user
+   receives. It compares against the git index, so it sees what a
    commit will contain and ignores unrelated work in progress.
 
    `SKIP_VERSION_CHECK=1` bypasses the check entirely. It exists for a clone with

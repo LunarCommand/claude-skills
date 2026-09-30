@@ -286,9 +286,20 @@ Then, in a Claude Code session:
 /plugin install lunar@lunar-skills
 ```
 
-Nothing is copied. Claude Code loads the checkout in place, so editing a
-`SKILL.md` or a script and running `/reload-plugins` makes the change live in the
-session — no reinstall, no restart, and no second copy to drift from.
+Claude Code loads the checkout in place, so editing a `SKILL.md` or a script and
+running `/reload-plugins` makes the change live in the session — no reinstall and
+no restart. A script edit is live immediately, since `PATH` points at the real
+file.
+
+`/plugin install` also writes an inert snapshot under `~/.claude/plugins/cache/`,
+pinned to the commit you installed from. Nothing loads from it, but it exists, so
+if you ever need to know which copy is running, ask:
+
+```
+adversarial_review_path.sh adversarial-review.workflow.js
+```
+
+It reports for whichever copy contains it, which is the whole reason it exists.
 
 ### What neither route installs
 
@@ -306,7 +317,7 @@ Per-project config is separate again — see [Per-project setup](#per-project-se
 Type `/lunar:` in a session; the six skills should complete. If they do not, the
 plugin is not loaded, and no amount of permission tinkering will help.
 
-`which hdx_query.sh` is **not** a useful test. Claude Code puts `bin/` on its own
+`which hdx_query.sh` is **not** a useful test. Claude Code puts `plugin/bin/` on its own
 Bash tool's `PATH`, not on your login shell's, so `which` finds nothing even when
 everything is working. Ask Claude to run `hdx_query.sh --help` instead: `command
 not found` means the plugin is not loaded, and a permission prompt means it is
@@ -451,7 +462,7 @@ If you are unsure whether a change warrants the full loop, it probably does not.
 
 ## Things that surprise people
 
-**"The bare command isn't found."** `bin/` reaches the Bash tool's `PATH` through
+**"The bare command isn't found."** `plugin/bin/` reaches the Bash tool's `PATH` through
 the plugin, so `command not found` means the plugin is not loaded — check
 `/plugin` — rather than that anything is wrong with the script. And `which` never
 finds these, because that `PATH` belongs to the Bash tool rather than your login
@@ -490,11 +501,12 @@ remove the other with `/plugin marketplace remove`.
 
 ## How a skill works
 
-This repository is one plugin. `.claude-plugin/plugin.json` at the root is its
-manifest, each skill is a `SKILL.md` under `skills/`, and every bundled
-executable lives in one `bin/` at the root, which Claude Code puts on the Bash
-tool's `PATH`. Claude auto-invokes a skill based on its `description`, or you
-can call it explicitly as `/lunar:<name>`.
+This repository publishes one plugin, and `plugin/` is it — the whole of what you
+receive, and nothing else in the repo reaches you. Inside it,
+`.claude-plugin/plugin.json` is the manifest, each skill is a `SKILL.md` under
+`skills/`, and every bundled executable lives in one `bin/`, which Claude Code
+puts on the Bash tool's `PATH`. Claude auto-invokes a skill based on its
+`description`, or you can call it explicitly as `/lunar:<name>`.
 
 All external access — HyperDX, Langfuse, GitHub — goes through the bundled
 scripts, never raw `curl` or `gh api`. That is deliberate: the scripts read
