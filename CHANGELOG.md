@@ -94,6 +94,15 @@ the other half of why this is a major version.
   "tree unchanged" against a baseline belonging to a different repository. The
   snapshot is the only guard for an in-place review of uncommitted work, so it
   now goes in the session's own scratchpad, which is unique by construction.
+- **An edit to an already-untracked file is no longer invisible.** Step 0
+  archived untracked files but Step 5 never compared them, and `git status`
+  prints `?? path` identically whether or not the contents changed — so an agent
+  rewriting a module you had just created produced "tree unchanged". That was the
+  highest-value case rather than an edge one: brand-new files are the ones
+  holding work not yet committed, which is the state the snapshot exists for.
+  Both steps now record a sorted `git hash-object` manifest of the untracked
+  files, compared as a fourth check. The archive stays — it is what restores the
+  files; the manifest is what detects the change.
 - **A missing baseline is reported as unverified rather than as damage.** `diff`
   exits non-zero when the before-file is simply absent, which read as "an agent
   mutated the tree" and sent the reader looking for damage that was never there.

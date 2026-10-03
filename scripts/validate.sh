@@ -562,11 +562,19 @@ if unchanged:
 existed, old_raw = git('cat-file', '-p', f'{tag}:{MAN}')
 if not existed:
     # Genuinely absent at the tag => the plugin is new and needs no bump. This
-    # is the one exemption, and it is granted only on an explicit "the blob is
-    # not there", never on an unexplained read failure.
-    ok_probe, _ = git('cat-file', '-e', f'{tag}:{MAN}')
-    if ok_probe:
-        bad.append(f'payload changed, and {MAN} is unreadable at {tag}')
+    # is the one exemption, and it is granted only on an explicit "the path is
+    # not in the tag's tree", never on an unexplained read failure.
+    #
+    # ls-tree rather than a second cat-file: `-e` asks the same question `-p`
+    # just failed, so it failed for every reason `-p` did and the exemption was
+    # unconditional. ls-tree separates the three cases -- exit 0 with no output
+    # (absent), exit 0 with a row (present, so the read itself failed), and
+    # non-zero (git could not answer).
+    ok_ls, listing = git('ls-tree', tag, '--', MAN)
+    if not ok_ls:
+        bad.append(f'payload changed, and {tag} could not be read')
+    elif listing.strip():
+        bad.append(f'payload changed, and {MAN} exists at {tag} but is unreadable')
 else:
     was, err = parsed(old_raw, f'{tag}')
     if err:
@@ -677,7 +685,16 @@ fi
 # outright ("Error: Contains expansion") rather than expanded.
 # The tilde is bracketed so shellcheck does not read it as a path (SC2088);
 # `[~]` and `~` are the same character class to grep.
-pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-Za-z0-9_.-]+\.sh' \
+#
+# The path alternation is built from what plugin/bin/ actually ships, so it
+# cannot fall behind a rename and does not need a list kept in step. Any path
+# component before a shipped basename fails: bin/, plugin/bin/, ../bin/, an
+# absolute path. The previous pattern enumerated three historical spellings
+# (~/.claude/skills, scripts/, and the expansion) and so missed every spelling
+# that consolidating to a single bin/ made the likely one to write.
+shipped_re=$(cd plugin/bin && ls ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | paste -sd'|' -)
+[[ -n "$shipped_re" ]] || fail "skill paths  plugin/bin/ ships nothing, so the path check would pass vacuously"
+pathrefs=$(grep -nE "[~]/\.claude/skills/|\\\$\{CLAUDE_PLUGIN_ROOT\}|[A-Za-z0-9_.~/-]+/($shipped_re)\.sh" \
   plugin/skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
 [[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
   fail "a SKILL.md references a script by path (breaks one install route):"

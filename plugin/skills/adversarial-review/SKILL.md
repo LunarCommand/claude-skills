@@ -128,6 +128,18 @@ table and keep a git snapshot guard for when it isn't.
    # (measured: 64 of 3000 files). It also avoids `xargs -r`, which is GNU-only.
    git ls-files --others --exclude-standard -z \
      | tar czf "$SNAP/ar_untracked_before.tgz" --null -T -
+   # The archive RESTORES; it does not DETECT. `git status` reports an untracked
+   # file as `?? path` whether or not its contents changed, so none of the three
+   # compares in Step 5 can see an agent rewrite one -- and brand-new files are
+   # the likeliest to hold work just written and never committed, which is the
+   # state this snapshot exists for. The hash manifest is what sees it.
+   # `git hash-object` rather than shasum/sha256sum: git is already required, and
+   # which of those two exists differs between macOS and Linux. stderr is kept in
+   # the file on purpose -- a dangling symlink errors, and recording the error
+   # against its path is better than dropping the path from the manifest.
+   git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+     printf '%s  %s\n' "$(git hash-object -- "$f" 2>&1)" "$f"
+   done | LC_ALL=C sort > "$SNAP/ar_untracked_hashes_before.txt"
    # SUBMODULES are also invisible to `git diff HEAD` (it reports only a changed
    # POINTER, never dirty content inside). Record their state separately.
    git submodule status --recursive > "$SNAP/ar_submodules_before.txt" 2>/dev/null || true
@@ -403,11 +415,15 @@ single finding:
 SNAP="<the same scratchpad path Step 0 used>"
 git status --porcelain  > "$SNAP/ar_tree_after.txt"
 git diff HEAD           > "$SNAP/ar_diff_after.txt"
+git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+  printf '%s  %s\n' "$(git hash-object -- "$f" 2>&1)" "$f"
+done | LC_ALL=C sort > "$SNAP/ar_untracked_hashes_after.txt"
 git submodule foreach --recursive --quiet \
   'git status --porcelain | sed "s|^|$displaypath |"' \
   > "$SNAP/ar_submodule_dirt_after.txt" 2>/dev/null || true
 diff "$SNAP/ar_tree_before.txt" "$SNAP/ar_tree_after.txt" && \
   diff "$SNAP/ar_diff_before.txt" "$SNAP/ar_diff_after.txt" && \
+  diff "$SNAP/ar_untracked_hashes_before.txt" "$SNAP/ar_untracked_hashes_after.txt" && \
   diff "$SNAP/ar_submodule_dirt_before.txt" "$SNAP/ar_submodule_dirt_after.txt" && \
   echo "tree unchanged"
 ```
@@ -417,12 +433,16 @@ submodule working tree is not sandboxed, and agents sometimes act on the real
 repo path rather than their worktree. On one isolated run an agent left a
 self-referential symlink inside a submodule. So run the compare either way.
 
-The three compares cover different things, and each is blind to the others'
+The four compares cover different things, and each is blind to the others'
 territory. The porcelain compare catches added / removed / renamed files **and is
 the only one that reveals a dirty submodule** (as a ` M <path>` line). The
 `git diff HEAD` compare catches a tracked in-place edit, including one that
 leaves the line count unchanged, but it says **nothing** about untracked files or
-about content inside a submodule. The submodule compare covers the rest.
+about content inside a submodule. The untracked-hash compare is the only thing
+that sees an **edit to a file that was already untracked**: porcelain prints
+`?? path` identically before and after, so without it an agent could rewrite a
+module you had just created and the check would still say "tree unchanged". The
+submodule compare covers the rest.
 
 **A missing baseline is not a clean result, and it is not damage either.** `diff`
 also exits non-zero when `ar_tree_before.txt` does not exist, so check that the
