@@ -120,12 +120,14 @@ the other half of why this is a major version.
 ### All skills
 
 - **`--help` works on every bundled script.** It was documented as working and
-  did on four of eight. `hdx_query.sh` rejected it as an unknown option;
-  `adversarial_review_path.sh` read it as a bundled filename;
-  `langfuse_query.sh` ignored it and walked on into environment validation,
-  emitting a raw bash error about a missing key; and
+  did properly on two of eight. Four failed outright: `hdx_query.sh` rejected it
+  as an unknown option; `adversarial_review_path.sh` read it as a bundled
+  filename; `langfuse_query.sh` ignored it and walked on into environment
+  validation, emitting a raw bash error about a missing key; and
   `pr_review_resolve_thread.sh` handed it to `gh` as a thread node ID, so asking
-  that script for help made a live GitHub API call.
+  that script for help made a live GitHub API call. The other two printed a usage
+  line but exited 1, and only after the dependency preflight, so they failed two
+  of the three properties below.
 - Help is answered **before** the dependency preflight. Someone without `gh` or
   `curl` installed is the reader most likely to be asking what a script needs,
   and exiting 127 at them answers a different question than the one asked.
@@ -254,10 +256,16 @@ judging the result stay manual, as they were.
   makes it one-sided — a same-named executable anywhere earlier shadows the
   shipped script outright, the permission rule keeps approving the call, and the
   failure reads as the skill misbehaving.
+- The README no longer tells you that `plugin/bin/` is the directory on the Bash
+  tool's `PATH`. That is the repository's spelling of it. Installed from GitHub
+  you receive the plugin root's *contents*, so the directory is
+  `<cache>/<version>/bin/` with no `plugin/` level. The old wording was true only
+  of a local `directory` install, which is how this repo is developed — so it was
+  the one setup that could never contradict it.
 - `scripts/validate.sh` follows the consolidation. It validates one plugin
   manifest instead of six, runs `claude plugin validate` once, and checks the
-  version bump against the single `version`, scoped to `skills/` and `bin/` —
-  the paths the plugin delivers as running code. Two checks changed shape rather
+  version bump against the single `version`, scoped to `plugin/` — everything
+  you receive, not only the parts that execute. Two checks changed shape rather
   than moving: "every skill is listed in the marketplace" became "every tracked
   `SKILL.md` sits inside the plugin root, where it can actually load", since
   there is no longer a list to fall out of; and the duplicate-basename check is
