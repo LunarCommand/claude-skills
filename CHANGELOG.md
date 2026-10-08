@@ -24,8 +24,7 @@ Skills are now invoked as `/lunar:<name>`.
 
 **If you installed an individual skill from the marketplace, this breaks it.**
 `hyperdx@lunar-skills` and its five siblings no longer exist as plugins, and no
-version bump can offer you a plugin under a different name — you will simply stop
-being offered updates. Move across with:
+version bump can offer you a plugin under a different name. Move across with:
 
 ```
 /plugin marketplace update lunar-skills
