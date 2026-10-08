@@ -14,9 +14,7 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
-
-### lunar — 1.0.0
+## v1.0.0 — 2026-10-07
 
 The six plugins become one. Installing `lunar` gets every skill, every bundled
 script is on one `PATH` entry, and the skills-directory install route is gone.
