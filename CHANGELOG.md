@@ -55,6 +55,14 @@ the other half of why this is a major version.
   scratch directory and a gitignored `.claude/` were both copied into the plugin
   cache. Nesting the payload is what stops that, and the check is what keeps the
   nesting honest.
+- **The README says plainly that the two install routes cannot coexist.** It
+  warned against registering the same *plugin* twice, which is the wrong level:
+  the collision is on the marketplace name. Both routes register `lunar-skills`
+  and there is no way to rename one, so they are mutually exclusive per machine
+  rather than merely inadvisable to combine. The path this catches is a consumer
+  who installs from GitHub and later clones to make a change — the obvious next
+  step, and the one that stops. Found on a machine that had the GitHub
+  registration; it is not reachable from one that never did.
 - **The plugin carries its own `LICENSE`**, since it is redistributed on its own.
   `validate.sh` asserts it stays byte-identical to the repository's.
 - **`install.sh` is gone.** It existed to copy skills into

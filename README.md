@@ -256,9 +256,11 @@ than failing partway through a query.
 Everything here is one plugin, `lunar`. Installing it gets all six skills, and
 each is invoked as `/lunar:<name>`.
 
-There are two ways to point Claude Code at it. **Pick one.** Both offer a plugin
-called `lunar`, so registering both gives you two copies competing for one name:
-one silently does not load, and which one wins is not something you control.
+There are two ways to point Claude Code at it, and **you can only have one at a
+time.** Not a recommendation — a constraint. Both routes register a marketplace
+named `lunar-skills`, `claude plugin marketplace add` has no flag to rename one,
+and a second registration under the same name cannot coexist with the first. So
+the choice is which route you want, and switching means removing the other.
 
 ### From GitHub
 
@@ -274,6 +276,8 @@ third-party marketplaces do not auto-update.
 ### From a local clone
 
 Use this if you want to change the skills, or track `main` rather than releases.
+The clone **is** the install — there is no separate installed copy to keep in
+step with it, which is the whole point of this route.
 
 ```bash
 git clone https://github.com/LunarCommand/claude-skills.git
@@ -284,6 +288,14 @@ Then, in a Claude Code session:
 ```
 /plugin marketplace add /absolute/path/to/claude-skills
 /plugin install lunar@lunar-skills
+```
+
+**If you already installed from GitHub, remove that first** — the names collide
+and there is no override:
+
+```
+/plugin uninstall lunar@lunar-skills
+/plugin marketplace remove lunar-skills
 ```
 
 Claude Code loads the checkout in place, so editing a `SKILL.md` or a script and
@@ -494,10 +506,16 @@ instructions forbid. A review skill with unrestricted shell access can revert
 uncommitted work. That is not hypothetical; it is why the snapshot-and-compare
 step in `adversarial-review` exists.
 
-**Do not register the same plugin twice.** A GitHub marketplace and a local
-clone both offer a plugin named `lunar`. Install from both and one silently
-loses, and which one wins is not yours to control. Pick the route you want and
-remove the other with `/plugin marketplace remove`.
+**Do not try to run both install routes at once.** You will not get far, which
+is the kindest version of this problem: the collision is on the *marketplace*
+name rather than the plugin name. Both routes register `lunar-skills`, and
+`marketplace add` offers no way to rename one, so the two are mutually exclusive
+per machine. Switch with `/plugin uninstall lunar@lunar-skills` then
+`/plugin marketplace remove lunar-skills`, and register the other.
+
+Worth knowing before you plan around it: this bites the consumer who later wants
+to contribute. Installing from GitHub and then cloning to make a change is the
+obvious path, and it is the one that stops.
 
 ## How a skill works
 
