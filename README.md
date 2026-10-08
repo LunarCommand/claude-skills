@@ -329,8 +329,8 @@ Per-project config is separate again — see [Per-project setup](#per-project-se
 Type `/lunar:` in a session; the six skills should complete. If they do not, the
 plugin is not loaded, and no amount of permission tinkering will help.
 
-`which hdx_query.sh` is **not** a useful test. Claude Code puts `plugin/bin/` on its own
-Bash tool's `PATH`, not on your login shell's, so `which` finds nothing even when
+`which hdx_query.sh` is **not** a useful test. Claude Code puts the plugin's `bin/`
+on its own Bash tool's `PATH`, not on your login shell's, so `which` finds nothing even when
 everything is working. Ask Claude to run `hdx_query.sh --help` instead: `command
 not found` means the plugin is not loaded, and a permission prompt means it is
 loaded but the rules below are not merged.
@@ -474,7 +474,7 @@ If you are unsure whether a change warrants the full loop, it probably does not.
 
 ## Things that surprise people
 
-**"The bare command isn't found."** `plugin/bin/` reaches the Bash tool's `PATH` through
+**"The bare command isn't found."** The plugin's `bin/` reaches the Bash tool's `PATH` through
 the plugin, so `command not found` means the plugin is not loaded — check
 `/plugin` — rather than that anything is wrong with the script. And `which` never
 finds these, because that `PATH` belongs to the Bash tool rather than your login

@@ -86,6 +86,19 @@ Each top-level directory has one role:
   copied into the plugin cache verbatim, which is how a local `_tasks/` and a
   gitignored `.claude/` once shipped. `validate.sh` compares `plugin/` against
   `git ls-files` and fails on any difference.
+
+  That check walks the **repository**, deliberately. A cache-side version of it
+  would be tempting — the installed tree is what a user actually has — but the
+  versioned cache directory carries a `.in_use` entry that is not ours: an empty
+  directory Claude Code creates at install as a runtime lease marker. Diffing
+  `ls -A` of the cache against `git ls-files` reports it as an unexpected file,
+  and the obvious next move is to "fix" a leak that was never there. Verified on
+  macOS, with `.in_use` set aside: the installed tree holds exactly the 18
+  tracked payload files, empty diff in both directions. That comparison needs
+  one adjustment to run at all — `git ls-tree -r --name-only <ref> -- plugin`
+  prints paths beginning `plugin/`, and the cache holds the plugin root's
+  contents without that level, so the prefix comes off one side first. It
+  compares path lists. Contents were not hashed.
 - `.claude-plugin/marketplace.json` — **the marketplace catalog**
   (`lunar-skills`), one entry pointing at `"source": "./plugin"`. It sits at the
   repository root because that is where a marketplace is looked up, and outside
@@ -220,7 +233,7 @@ at them answers a different question than the one asked. Add a script and it
 inherits the requirement.
 
 Common invocations, run from a consuming project — bare name, no path, because
-`plugin/bin/` is on the Bash tool's `PATH`:
+the plugin's `bin/` is on the Bash tool's `PATH`:
 
 ```bash
 # HyperDX logs/traces (cloud REST or local ClickHouse-in-Docker)
