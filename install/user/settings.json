@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Permissions for the Claude Skills Toolkit (github.com/LunarCommand/claude-skills).",
+    "Merge into ~/.claude/settings.json. The toolkit installs as one plugin at user scope,",
+    "so its permissions belong at the same scope; a per-project copy means re-approving the",
+    "same toolkit in every repository. That is safe only because this file covers this",
+    "toolkit and nothing else. Without it, every bundled script prompts on each call, which",
+    "reads as the skill being broken.",
+    "Nothing installs this for you — plugin.json has no permissions field and a plugin",
+    "cannot ship a settings layer. Merging by hand is the only route there is.",
+    "Scripts are approved by BARE NAME, never by path: bin/ reaches the Bash tool's PATH",
+    "through the plugin. A bare name failing with 'command not found' means the plugin is",
+    "not loaded, not that the rule is wrong.",
+    "The ask list is deliberate, not leftover: the git operations the recommended workflow",
+    "confirms first, plus the destructive ones adversarial-review's own instructions forbid."
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(adversarial_review_path.sh:*)",
+      "Bash(hdx_query.sh:*)",
+      "Bash(langfuse_query.sh:*)",
+      "Bash(mutation_test_changed_lines.sh:*)",
+      "Bash(pr_review_parse_comments.sh:*)",
+      "Bash(pr_review_post_reply.sh:*)",
+      "Bash(pr_review_resolve_thread.sh:*)",
+
+      "Bash(gh repo view:*)",
+      "Bash(gh pr view:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git submodule status:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git branch -a --contains:*)",
+
+      "Bash(diff:*)",
+
+      "Bash(mkdir:*)",
+      "Bash(tar czf:*)"
+    ],
+    "ask": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git clean:*)",
+
+      "Bash(git submodule foreach:*)"
+    ]
+  }
+}

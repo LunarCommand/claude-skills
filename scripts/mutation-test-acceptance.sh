@@ -20,8 +20,8 @@ set -uo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
-WT_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_worktree.sh"
-CL_SH="$REPO_ROOT/skills/mutation-test/bin/mutation_test_changed_lines.sh"
+WT_SH="$REPO_ROOT/plugin/bin/mutation_test_worktree.sh"
+CL_SH="$REPO_ROOT/plugin/bin/mutation_test_changed_lines.sh"
 
 for c in git python3 sed; do
   command -v "$c" >/dev/null 2>&1 || { echo "  FAIL  missing required command: $c" >&2; exit 127; }

@@ -1,31 +1,141 @@
 # Changelog
 
-Each skill is published as its own plugin with its own version, so entries are
-grouped by plugin rather than by repository. A plugin appears in a release
-section only if it changed.
+The repository ships as a single plugin, `lunar`, with one version. Each release
+section is one version of it, with entries grouped by the skill they affect.
 
-Changes that belong to no plugin — the installer, the checks, the release
-process, repo-wide docs — go under a `### Repository` heading in the same section.
-They carry no version of their own; they ship whenever they land on `main`.
+Sections at `v0.12.0` and below predate the consolidation, when every skill was
+its own plugin with its own version. Those headings name the plugin and the
+version it actually shipped as, and are left as they were — the record of what
+users received.
 
-**The version bump is what ships.** Marketplace users receive an update only when
-a plugin's `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
+**The version bump is what ships.** Anyone installed from GitHub receives an
+update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md).
 
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
-[Semantic Versioning](https://semver.org/) per plugin.
-
-<!--
-Shape for an entry — list the version each plugin will ship as, and only the
-plugins that actually changed:
-
-### hyperdx — 0.9.1
-
-- Fixed local multi-term queries returning zero rows on macOS.
--->
+[Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-### mutation-test — 0.11.0
+### lunar — 1.0.0
+
+The six plugins become one. Installing `lunar` gets every skill, every bundled
+script is on one `PATH` entry, and the skills-directory install route is gone.
+Skills are now invoked as `/lunar:<name>`.
+
+**If you installed an individual skill from the marketplace, this breaks it.**
+`hyperdx@lunar-skills` and its five siblings no longer exist as plugins, and no
+version bump can offer you a plugin under a different name. Move across with:
+
+```
+/plugin marketplace update lunar-skills
+/plugin install lunar@lunar-skills
+```
+
+Then uninstall the old ones. Every invocation gains a `/lunar:` prefix, which is
+the other half of why this is a major version.
+
+- **One plugin, one manifest.** `plugin/.claude-plugin/plugin.json` replaces the
+  six per-skill manifests, and `marketplace.json` carries a single entry with
+  `"source": "./plugin"`. Adding a skill is creating
+  `plugin/skills/<name>/SKILL.md`; there is nothing to register.
+- **One `bin/`.** Every bundled script moved from `skills/<name>/bin/` to a
+  single `plugin/bin/`. No basename collided. The scripts are invoked exactly as
+  before — bare name, no path — and the permission rules are unchanged.
+- **`plugin/` is the whole of what you receive**, and nothing outside it reaches
+  you. The methodology docs, the validation suite, the CI workflow and the
+  templates you merge by hand all stay in the repository where they are useful,
+  rather than riding along in your plugin cache. That is enforced rather than
+  observed: `validate.sh` compares `plugin/` against `git ls-files` and fails on
+  any untracked file inside it.
+
+  This matters most for a local `directory` install, which is a filesystem copy
+  of the plugin root — it skips `.git` and respects neither `.gitignore` nor
+  `.git/info/exclude`. With the whole repository as the plugin root, a local
+  scratch directory and a gitignored `.claude/` were both copied into the plugin
+  cache. Nesting the payload is what stops that, and the check is what keeps the
+  nesting honest.
+- **The README says plainly that the two install routes cannot coexist.** It
+  warned against registering the same *plugin* twice, which is the wrong level:
+  the collision is on the marketplace name. Both routes register `lunar-skills`
+  and there is no way to rename one, so they are mutually exclusive per machine
+  rather than merely inadvisable to combine. The path this catches is a consumer
+  who installs from GitHub and later clones to make a change — the obvious next
+  step, and the one that stops. Found on a machine that had the GitHub
+  registration; it is not reachable from one that never did.
+- **The plugin carries its own `LICENSE`**, since it is redistributed on its own.
+  `validate.sh` asserts it stays byte-identical to the repository's.
+- **`install.sh` is gone.** It existed to copy skills into
+  `~/.claude/skills/<name>/`, which was the second of two install routes and the
+  source of every "which copy is loaded" problem. The remaining route is the
+  marketplace, pointed either at GitHub or at a local clone via a `directory`
+  source — the latter loads the working tree in place, so an edit is live after
+  `/reload-plugins`, and immediately for a script.
+
+  `/plugin install` still writes an inert snapshot under
+  `~/.claude/plugins/cache/`, pinned to the commit installed from. Nothing loads
+  from it, but it exists, and `adversarial_review_path.sh` is what tells you which
+  copy is running — it answers for whichever copy contains it rather than
+  globbing.
+- **Templates moved to `install/`.** `install/user/settings.json` and
+  `install/user/CLAUDE.md` are merged into `~/.claude/` once per machine;
+  `install/project/.agent.env` stays per-project. Nothing installs them — a
+  plugin cannot ship a permissions layer or an auto-loading CLAUDE.md.
+- **`adversarial_review_path.sh` resolves against the plugin root**, one level up
+  from its own `BASH_SOURCE[0]`, and still answers for the copy that contains
+  it rather than globbing.
+- The adversarial-review `SKILL.md` documents the step that was previously
+  folklore: **copy the resolved engine into the session scratchpad and pass the
+  copy** to the Workflow tool, which accepts a `scriptPath` only inside the
+  working directory. The engine lives with the plugin, outside every project it
+  reviews, so the copy is the mechanism rather than a workaround. Copy it fresh
+  each session; never glob for it and never reuse an older copy.
+
+### adversarial-review
+
+- **The Step 0 snapshot no longer lands in a shared `/tmp`.** It used
+  `${CLAUDE_JOB_DIR:-/tmp}/tmp`, and `CLAUDE_JOB_DIR` is not set in a normal
+  session, so every review on a machine wrote its baseline to the same
+  `/tmp/tmp/ar_tree_before.txt`. A second review running anywhere — another
+  project, another session — overwrote it, and the Step 5 compare then judged one
+  tree against another's baseline: a change reported that never happened, or
+  "tree unchanged" against a baseline belonging to a different repository. The
+  snapshot is the only guard for an in-place review of uncommitted work, so it
+  now goes in the session's own scratchpad, which is unique by construction.
+- **An edit to an already-untracked file is no longer invisible.** Step 0
+  archived untracked files but Step 5 never compared them, and `git status`
+  prints `?? path` identically whether or not the contents changed — so an agent
+  rewriting a module you had just created produced "tree unchanged". That was the
+  highest-value case rather than an edge one: brand-new files are the ones
+  holding work not yet committed, which is the state the snapshot exists for.
+  Both steps now record a sorted `git hash-object` manifest of the untracked
+  files, compared as a fourth check. The archive stays — it is what restores the
+  files; the manifest is what detects the change.
+- **A missing baseline is reported as unverified rather than as damage.** `diff`
+  exits non-zero when the before-file is simply absent, which read as "an agent
+  mutated the tree" and sent the reader looking for damage that was never there.
+  Step 5 now distinguishes the two.
+- The engine copy step says to use the session scratchpad named in the
+  environment, instead of an undefined `$SCRATCH`.
+
+### All skills
+
+- **`--help` works on every bundled script.** It was documented as working and
+  did on four of eight. `hdx_query.sh` rejected it as an unknown option;
+  `adversarial_review_path.sh` read it as a bundled filename;
+  `langfuse_query.sh` ignored it and walked on into environment validation,
+  emitting a raw bash error about a missing key; and
+  `pr_review_resolve_thread.sh` handed it to `gh` as a thread node ID, so asking
+  that script for help made a live GitHub API call.
+- Help is answered **before** the dependency preflight. Someone without `gh` or
+  `curl` installed is the reader most likely to be asking what a script needs,
+  and exiting 127 at them answers a different question than the one asked.
+- `validate.sh` now runs each script with `--help` and `-h`, requires usage
+  output and exit 0, and requires the flag to be answered before the first
+  `require_cmd`. None of this was reachable by reading the scripts, which is why
+  the check runs them. All three properties were confirmed by breaking each one
+  and watching the check fail.
+
+### mutation-test
 
 Scoping, not automation. Point it at a PR or a diff and it tells you which lines
 changed and gives you a checkout you cannot damage. Choosing the mutation and
@@ -44,19 +154,25 @@ judging the result stay manual, as they were.
   wrong file, or dropped while the summary still read as a complete inventory.
 - A hunk still open at the end of the input is **refused as a malformed diff**
   rather than reported with guessed line numbers.
-- **`mutation_test_worktree.sh`** (from 0.10.0) is what step 3 uses: a throwaway
-  checkout at the ref you name, bootstrapped, with the baseline confirmed green
-  before your command runs, removed afterwards. `--ref` now documents the
-  `git fetch` a PR head needs, and says plainly that a non-HEAD ref means the
-  working-tree checks are skipped.
-
-### mutation-test — 0.10.0
-
-- Groundwork for scoped runs: `mutation_test_worktree.sh` builds a throwaway
-  `git worktree` to mutate in, so the tool never writes to your source tree. The
-  runner that uses it is not here yet. Every blocker that held the first attempt
-  back lived in a back-up-and-restore path, and a tree you never write to cannot
-  have them.
+- **`mutation_test_worktree.sh`** is what step 3 uses: a throwaway checkout at
+  the ref you name, bootstrapped, with the baseline confirmed green before your
+  command runs, removed afterwards. `--ref` documents the `git fetch` a PR head
+  needs, and says plainly that a non-HEAD ref means the working-tree checks are
+  skipped.
+- `mutation_test_worktree.sh` builds a throwaway `git worktree` to mutate in, so
+  the tool never writes to your source tree. Every blocker that held the first
+  attempt back lived in a back-up-and-restore path, and a tree you never write to
+  cannot have them.
+- **There is no batch runner, and one is no longer planned.**
+  `mutation_test_changed_lines.sh` tells you which lines changed and
+  `mutation_test_worktree.sh` gives you somewhere safe to mutate them; choosing
+  the mutation and judging the result stay yours. A runner that did the sweep was
+  written and withdrawn after five review rounds found blockers in it — every one
+  in the mutate-and-restore path, and each fix opened another.
+  [#13](https://github.com/LunarCommand/claude-skills/issues/13), which tracked
+  rebuilding it around a worktree, is closed: its premise was that a worktree
+  removes the need to restore, and that is wrong, because one worktree serves
+  many mutants and each still has to be undone.
 - The manual path gains the rule that makes its backup discipline
   load-bearing: mutate the file in place, never a copy in a worktree or a
   scratch checkout. An editable install records an absolute path to the original
@@ -132,12 +248,22 @@ judging the result stay manual, as they were.
   in a single review, since the tip-recheck runs per finding per verifier. The
   template is meant to cover exactly what the shipped skills run, and for three
   releases it did not.
-- `CLAUDE.md` states where a skill's `bin/` lands on `PATH`: at the end, after
-  `/usr/bin` and everything else. The bare-name rule already required distinctive
-  basenames, but framed a collision as a question of which copy gets reached. The
-  order makes it one-sided — a same-named executable anywhere earlier shadows the
+- `CLAUDE.md` states where `bin/` lands on `PATH`: at the end, after `/usr/bin`
+  and everything else. The bare-name rule already required distinctive basenames,
+  but framed a collision as a question of which copy gets reached. The order
+  makes it one-sided — a same-named executable anywhere earlier shadows the
   shipped script outright, the permission rule keeps approving the call, and the
   failure reads as the skill misbehaving.
+- `scripts/validate.sh` follows the consolidation. It validates one plugin
+  manifest instead of six, runs `claude plugin validate` once, and checks the
+  version bump against the single `version`, scoped to `skills/` and `bin/` —
+  the paths the plugin delivers as running code. Two checks changed shape rather
+  than moving: "every skill is listed in the marketplace" became "every tracked
+  `SKILL.md` sits inside the plugin root, where it can actually load", since
+  there is no longer a list to fall out of; and the duplicate-basename check is
+  gone because one `bin/` makes the collision it guarded impossible. The
+  end-to-end `install.sh` run is gone with the installer, which leaves
+  `--quick` skipping one slow section rather than two.
 
 ## v0.12.0 — 2026-08-23
 

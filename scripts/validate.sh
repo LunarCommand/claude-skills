@@ -9,20 +9,19 @@
 #   - macOS cruft / personal paths committed into a public repo
 #   - a workflow JS file using an API that breaks Workflow-tool resume
 #   - a SKILL.md whose frontmatter name does not match its directory
-#   - a plugin manifest whose name drifts from its directory, or a marketplace
-#     entry pointing at a directory that is not a plugin
-#   - a skill changed without bumping its plugin version, which strands every
-#     user who already installed it (see docs/RELEASING.md)
+#   - a marketplace entry whose name disagrees with the manifest it points at,
+#     or a SKILL.md sitting outside the plugin root, where it never loads
+#   - a shipped change without a plugin version bump, which strands every user
+#     who already installed it (see docs/RELEASING.md)
 #
 # Usage:
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
 #
-# --quick skips BOTH slow sections: the install integration test and the
-# mutation-test acceptance suite. What remains is entirely syntactic, so a green
-# --quick run says the artifacts are spelled correctly and nothing about whether
-# they behave. The acceptance suite is ~22s of the ~29s full run, which is why
-# the hook does not carry it; CI does.
+# --quick skips the mutation-test acceptance suite. What remains is entirely
+# syntactic, so a green --quick run says the artifacts are spelled correctly and
+# nothing about whether they behave. The suite is ~22s of the ~29s full run,
+# which is why the hook does not carry it; CI does.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
@@ -131,11 +130,9 @@ fi
 # on a user's Mac. The macOS CI job is what catches them for real; this scan is
 # the local approximation that fires before a push, and it names the idiom
 # instead of leaving you to read a failure log from a machine you do not have.
-# Nothing in this repo is exempt: the earlier carve-out for
-# scripts/ and install.sh assumed they never leave a machine we control, but the
-# repo is public, so install.sh runs on every clone-route user's machine and this
-# script on every contributor's. That exemption is how a bash 4 builtin sat in
-# validate.sh from its first commit until a macOS user reported it.
+# Nothing in this repo is exempt, scripts/ included: the repo is public, so this
+# script runs on every contributor's machine. Exempting it is how a bash 4
+# builtin sat in validate.sh from its first commit until a macOS user hit it.
 # `\\x` covers sed/printf hex escapes: GNU substitutes the byte, BSD emits the
 # literal characters, which is a SILENT wrong answer rather than an error.
 # grep's -P is matched inside a bundled short-option run (-oP, -qP), not just
@@ -173,7 +170,7 @@ gnuisms=""
 shopt -s nullglob
 # Every shell artifact in the repo, plus SKILL.md, which ships shell the agent
 # runs verbatim.
-for f in skills/*/bin/*.sh skills/*/SKILL.md install.sh scripts/*.sh .githooks/*; do
+for f in plugin/bin/*.sh plugin/skills/*/SKILL.md scripts/*.sh .githooks/*; do
   [[ -f "$f" ]] || continue
   # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
   # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
@@ -197,7 +194,7 @@ shopt -u nullglob
 section "Workflow JS (Workflow-tool constraints)"
 # --------------------------------------------------------------------------
 shopt -s nullglob
-for f in skills/*/*.workflow.js; do
+for f in plugin/skills/*/*.workflow.js; do
   if err=$(node --check "$f" 2>&1); then pass "syntax      $f"
   else fail "syntax      $f"; printf '%s\n' "$err" | sed 's/^/        /'; fi
 
@@ -226,7 +223,7 @@ shopt -u nullglob
 # docs apologising for a rule one had and the other did not. So assert the shared
 # constants are byte-identical, and make the next drift a failing build instead of
 # a paragraph explaining itself.
-if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skills/adversarial-review/spec-accept-review.workflow.js ]]; then
+if [[ ! -f plugin/skills/adversarial-review/adversarial-review.workflow.js || ! -f plugin/skills/adversarial-review/spec-accept-review.workflow.js ]]; then
   # Not "nothing to do": the check vanishing silently is how an invariant stops
   # being enforced while the suite stays green. If an engine was renamed, this
   # check needs updating with it.
@@ -234,8 +231,8 @@ if [[ ! -f skills/adversarial-review/adversarial-review.workflow.js || ! -f skil
 else
   if out=$(python3 - <<'PARITY' 2>&1
 import re, sys, pathlib
-CODE = pathlib.Path('skills/adversarial-review/adversarial-review.workflow.js').read_text()
-SPEC = pathlib.Path('skills/adversarial-review/spec-accept-review.workflow.js').read_text()
+CODE = pathlib.Path('plugin/skills/adversarial-review/adversarial-review.workflow.js').read_text()
+SPEC = pathlib.Path('plugin/skills/adversarial-review/spec-accept-review.workflow.js').read_text()
 SHARED = ['WORKTREE_REF_MANDATE', 'ABSENCE_SEARCH_MANDATE', 'TIP_RECHECK_MANDATE', 'REF_SCOPE_MANDATE']
 
 def body(src, name):
@@ -269,7 +266,7 @@ fi
 # --------------------------------------------------------------------------
 section "Skills"
 # --------------------------------------------------------------------------
-for d in skills/*/; do
+for d in plugin/skills/*/; do
   name=$(basename "$d")
   f="$d/SKILL.md"
   if [[ ! -f "$f" ]]; then fail "$name — no SKILL.md"; continue; fi
@@ -312,22 +309,74 @@ for d in skills/*/; do
     pass "description  $name, $desclen/1024 characters"
   fi
 
-  # bin/ is what Claude Code puts on the Bash tool's PATH. A non-executable file
-  # there is invisible to the skill, which then falls back to prompting.
-  for s in "$d"bin/*.sh; do
-    [[ -e "$s" ]] || continue
-    [[ -x "$s" ]] && pass "executable  $s" || fail "not executable: $s"
-  done
-  # scripts/ was the pre-plugin layout; anything left there is not on PATH.
+  # One plugin means one bin/, at plugin/, so a skill directory holding its own
+  # is the old per-skill layout left behind — and it would not reach PATH.
+  if [[ -d "$d/bin" ]]; then
+    fail "$name — has its own bin/; scripts live in plugin/bin/ now"
+  fi
   if [[ -d "$d/scripts" ]]; then
     fail "$name — has scripts/; bundled executables belong in bin/ to reach PATH"
   fi
+  if [[ -d "$d/.claude-plugin" ]]; then
+    fail "$name — has .claude-plugin/; there is one manifest, at the plugin root"
+  fi
+done
+
+# CLAUDE.md promises every bundled script is self-documenting via `--help`. That
+# was true of four of the eight: one rejected the flag as an unknown option, one
+# read it as a bundled filename, one ignored it and walked on into environment
+# validation, and pr_review_resolve_thread.sh passed it to `gh` as a thread node
+# ID -- so asking a script for help made a live API call. None of it was
+# catchable by reading the scripts, which is why this runs them.
+#
+# The ordering half matters as much as the output: help is answered before the
+# dependency preflight, because a reader without `gh` installed is precisely the
+# one asking what the script needs, and exiting 127 at them answers a different
+# question. Static, because hiding one binary from PATH without also hiding `cat`
+# is not something a portable test can arrange.
+help_bad=""
+for s in plugin/bin/*.sh; do
+  [[ -e "$s" ]] || continue
+  for flag in --help -h; do
+    if out=$("$s" "$flag" 2>&1); then
+      printf '%s' "$out" | grep -qi usage \
+        || help_bad="$help_bad
+  $s $flag exited 0 but printed no usage"
+    else
+      help_bad="$help_bad
+  $s $flag exited $? instead of 0"
+    fi
+  done
+  # The first CALL, not the function definition, so the `[a-z]` argument matters.
+  pf=$(grep -nE '^[[:space:]]*require_cmd [a-z]' "$s" | head -1 | cut -d: -f1)
+  hp=$(grep -nE '\(-h\|--help\)|-h\|--help\)' "$s" | head -1 | cut -d: -f1)
+  if [[ -n "$pf" ]]; then
+    if [[ -z "$hp" ]]; then
+      help_bad="$help_bad
+  $s answers --help nowhere, but preflights a dependency at line $pf"
+    elif [[ "$hp" -gt "$pf" ]]; then
+      help_bad="$help_bad
+  $s answers --help at line $hp, after the preflight at line $pf"
+    fi
+  fi
+done
+if [[ -z "$help_bad" ]]; then
+  pass "help        every bundled script answers --help and -h with usage, exit 0, before preflight"
+else
+  fail "help        a bundled script mishandles --help:"; printf '%s\n' "$help_bad" | sed '/^$/d'
+fi
+
+# bin/ is what Claude Code prepends to the Bash tool's PATH. A non-executable
+# file there is invisible to every skill, which then falls back to prompting.
+for s in plugin/bin/*.sh; do
+  [[ -e "$s" ]] || continue
+  [[ -x "$s" ]] && pass "executable  $s" || fail "not executable: $s"
 done
 
 # --------------------------------------------------------------------------
 section "Plugin manifests"
 # --------------------------------------------------------------------------
-for f in .claude-plugin/marketplace.json skills/*/.claude-plugin/plugin.json; do
+for f in .claude-plugin/marketplace.json plugin/.claude-plugin/plugin.json; do
   if python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
     pass "valid JSON  $f"
   else
@@ -335,19 +384,30 @@ for f in .claude-plugin/marketplace.json skills/*/.claude-plugin/plugin.json; do
   fi
 done
 
-# A plugin whose manifest name drifts from its directory installs under the
-# wrong identifier, and the marketplace entry then points at nothing.
+# A marketplace entry whose name disagrees with the manifest it points at
+# installs under one identifier and is offered under another, so `/plugin
+# install <name>@lunar-skills` resolves to nothing.
+#
+# The second half is reachability. Claude Code discovers skills at
+# `<plugin root>/skills/*/SKILL.md` and nowhere else, so a SKILL.md parked
+# anywhere else in the repo is tracked, reviewed, and never loaded — the
+# failure reads as "I added the skill and it does not show up". Comparing
+# against `git ls-files` also catches the reverse: a skill that exists only in
+# the working tree ships in nobody's install.
 if out=$(python3 - <<'PY' 2>&1
-import json, os, sys
+import glob, json, os, subprocess, sys
+
+def norm(p):
+    return os.path.normpath(p)
+
 bad = []
 mp = json.load(open('.claude-plugin/marketplace.json'))
-listed = set()
+shipped = set()
 for entry in mp.get('plugins', []):
     name, src = entry.get('name'), entry.get('source')
-    listed.add(name)
     if not isinstance(src, str):
         bad.append(f'{name}: source is not a relative path'); continue
-    d = os.path.normpath(src)
+    d = norm(src)
     if not os.path.isdir(d):
         bad.append(f'{name}: source {src} is not a directory'); continue
     man = os.path.join(d, '.claude-plugin', 'plugin.json')
@@ -356,24 +416,93 @@ for entry in mp.get('plugins', []):
     pn = json.load(open(man)).get('name')
     if pn != name:
         bad.append(f'{name}: plugin.json name is {pn!r}')
-    if pn != os.path.basename(d):
-        bad.append(f'{name}: plugin.json name {pn!r} != directory {os.path.basename(d)!r}')
-for d in sorted(os.listdir('skills')):
-    if os.path.isdir(os.path.join('skills', d)) and d not in listed:
-        bad.append(f'{d}: skill exists but is not listed in marketplace.json')
+    shipped.update(norm(p) for p in glob.glob(os.path.join(d, 'skills', '*', 'SKILL.md')))
+
+p = subprocess.run(('git', 'ls-files', '*SKILL.md'), capture_output=True, text=True)
+if p.returncode != 0:
+    bad.append(f'could not list tracked SKILL.md files: {p.stderr.strip()}')
+else:
+    tracked = {norm(line) for line in p.stdout.split('\n') if line}
+    for f in sorted(tracked - shipped):
+        bad.append(f'{f}: tracked but outside every plugin root — it will not load')
+    for f in sorted(shipped - tracked):
+        bad.append(f'{f}: under a plugin root but not tracked — it will not ship')
+
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 PY
 ); then
-  pass "marketplace every entry resolves, names agree, no skill unlisted"
+  pass "marketplace every entry resolves, names agree, every skill reachable"
 else
   fail "marketplace manifest inconsistency:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# What a user receives is exactly the plugin root, so the plugin root must hold
+# nothing but tracked files. An install from a local `directory` marketplace is a
+# filesystem copy of that directory: it skips `.git` and respects neither
+# `.gitignore` nor `.git/info/exclude`, so an untracked scratch directory sitting
+# inside it is copied into the plugin cache verbatim. That is measured, not
+# theoretical -- a local `_tasks/` and a gitignored `.claude/` both shipped that
+# way while the plugin root was the whole repository.
+#
+# Nesting the payload under plugin/ is what keeps them out; this check is what
+# keeps the nesting honest, and it fails at commit time rather than after an
+# install.
+if out=$(python3 - <<'PAYLOAD_PY' 2>&1
+import os, subprocess, sys
+
+p = subprocess.run(('git', 'ls-files', '-z', '--', 'plugin'),
+                   capture_output=True, text=True)
+if p.returncode != 0:
+    print(f'could not list tracked files under plugin/: {p.stderr.strip()}')
+    sys.exit(1)
+tracked = {f for f in p.stdout.split(chr(0)) if f}
+
+# A comparison of two empty sets passes while asserting nothing, so say the
+# payload cannot be empty rather than letting that read as success.
+if not tracked:
+    print('no tracked files under plugin/ -- the payload cannot be empty')
+    sys.exit(1)
+
+on_disk = set()
+for root, dirs, files in os.walk('plugin'):
+    for f in files:
+        on_disk.add(os.path.join(root, f))
+
+untracked = sorted(on_disk - tracked)
+if untracked:
+    print('these would be copied into every local install:')
+    print(chr(10).join('  ' + f for f in untracked))
+    sys.exit(1)
+PAYLOAD_PY
+); then
+  pass "payload     plugin/ holds only tracked files ($(git ls-files -- plugin | wc -l | tr -d ' ') of them)"
+else
+  fail "payload     plugin/ holds untracked files:"; printf '%s\n' "$out" | sed 's/^/        /'
+  printf '        %s\n' "A local 'directory' marketplace copies the plugin root verbatim," \
+    "ignoring .gitignore and .git/info/exclude. Move these outside plugin/."
+fi
+
+# The plugin is redistributed on its own, so it carries its own licence text.
+# Byte-identical to the root copy, or one of the two misstates the terms.
+if [[ ! -f plugin/LICENSE ]]; then
+  fail "licence     plugin/LICENSE is missing — the shipped artifact carries no terms"
+elif cmp -s LICENSE plugin/LICENSE; then
+  pass "licence     plugin/LICENSE matches the repository LICENSE"
+else
+  fail "licence     plugin/LICENSE differs from the repository LICENSE"
 fi
 
 # A plugin whose files changed since the last release but whose version did not
 # is invisible to everyone who already installed it: marketplace clients offer an
 # update only when `version` changes. Nothing else surfaces that, so it is a
 # check rather than a convention. See docs/RELEASING.md.
+#
+# Scoped to `plugin/`, which is exactly what a user receives. Everything else in
+# the repository — `docs/`, `scripts/`, `install/`, the README — is outside the
+# plugin root and reaches nobody through an update, so requiring a version bump
+# for a typo in a methodology doc would train the bump into a reflex, which is
+# how it stops being a signal.
 # The baseline is the highest v<number> tag in the REPOSITORY, not the nearest
 # one reachable from HEAD. `git describe` walks ancestry, so on a branch cut
 # before the tag — or with the release tag on a sibling — it reports an older tag
@@ -418,65 +547,76 @@ def parsed(raw, where):
         return None, f'{where}: version {v!r} is not X.Y.Z'
     return str(v), None
 
+MAN = 'plugin/.claude-plugin/plugin.json'
+PAYLOAD = ('plugin',)
+
 bad = []
-for d in sorted(p for p in os.listdir('skills') if os.path.isdir(os.path.join('skills', p))):
-    sk = f'skills/{d}'
-    man = f'{sk}/.claude-plugin/plugin.json'
-    # Compare the tag against the INDEX: that is exactly what the commit will
-    # contain. Comparing to HEAD hides a staged change from the pre-commit hook;
-    # comparing to the working tree makes unrelated dirty state in some other
-    # skill block a commit that does not touch it.
-    unchanged, _ = git('diff', '--cached', '--quiet', tag, '--', sk)
-    if unchanged:
-        continue
-    existed, old_raw = git('cat-file', '-p', f'{tag}:{man}')
-    if not existed:
-        # Genuinely absent at the tag => a new plugin, which needs no bump. This
-        # is the one exemption, and it is granted only on an explicit "the blob
-        # is not there", never on an unexplained read failure.
-        ok_probe, _ = git('cat-file', '-e', f'{tag}:{sk}')
-        if ok_probe:
-            bad.append(f'{d}: changed, and {man} is unreadable at {tag} (renamed?)')
-        continue
-    was, err = parsed(old_raw, f'{d} at {tag}')
+# Compare the tag against the INDEX: that is exactly what the commit will
+# contain. Comparing to HEAD hides a staged change from the pre-commit hook;
+# comparing to the working tree makes unrelated dirty state block a commit that
+# does not touch the payload.
+unchanged, _ = git('diff', '--cached', '--quiet', tag, '--', *PAYLOAD)
+if unchanged:
+    sys.exit(0)
+
+existed, old_raw = git('cat-file', '-p', f'{tag}:{MAN}')
+if not existed:
+    # Genuinely absent at the tag => the plugin is new and needs no bump. This
+    # is the one exemption, and it is granted only on an explicit "the path is
+    # not in the tag's tree", never on an unexplained read failure.
+    #
+    # ls-tree rather than a second cat-file: `-e` asks the same question `-p`
+    # just failed, so it failed for every reason `-p` did and the exemption was
+    # unconditional. ls-tree separates the three cases -- exit 0 with no output
+    # (absent), exit 0 with a row (present, so the read itself failed), and
+    # non-zero (git could not answer).
+    ok_ls, listing = git('ls-tree', tag, '--', MAN)
+    if not ok_ls:
+        bad.append(f'payload changed, and {tag} could not be read')
+    elif listing.strip():
+        bad.append(f'payload changed, and {MAN} exists at {tag} but is unreadable')
+else:
+    was, err = parsed(old_raw, f'{tag}')
     if err:
-        bad.append(err); continue
-    # Index only — never fall back to the working tree. Falling back let a
-    # commit that STAGES A DELETION of the manifest pass, because the on-disk
-    # copy still carried a bumped version. A manifest absent from the index is
-    # absent from the commit, and a plugin without one cannot be installed.
-    ok_now, now_raw = git('show', f':{man}')
-    if not ok_now:
-        bad.append(f'{d}: changed, but {man} is not in the index '
-                   '(staged for deletion, or never added?)')
-        continue
-    now, err = parsed(now_raw, d)
-    if err:
-        bad.append(err); continue
-    if tuple(map(int, SEMVER.match(now).groups())) <= tuple(map(int, SEMVER.match(was).groups())):
-        rel = 'is still' if now == was else f'went BACKWARDS from {was} to'
-        bad.append(f'{d}: changed since {tag} but {rel} {now}')
+        bad.append(err)
+    else:
+        # Index only — never fall back to the working tree. Falling back let a
+        # commit that STAGES A DELETION of the manifest pass, because the
+        # on-disk copy still carried a bumped version. A manifest absent from
+        # the index is absent from the commit, and a plugin without one cannot
+        # be installed.
+        ok_now, now_raw = git('show', f':{MAN}')
+        if not ok_now:
+            bad.append(f'payload changed, but {MAN} is not in the index '
+                       '(staged for deletion, or never added?)')
+        else:
+            now, err = parsed(now_raw, MAN)
+            if err:
+                bad.append(err)
+            elif (tuple(map(int, SEMVER.match(now).groups()))
+                  <= tuple(map(int, SEMVER.match(was).groups()))):
+                rel = 'is still' if now == was else f'went BACKWARDS from {was} to'
+                bad.append(f'plugin/ changed since {tag} '
+                           f'but version {rel} {now}')
 
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 PY
 ); then
-  pass "versions    every plugin changed since $last_tag has a higher version"
+  pass "versions    plugin version is ahead of $last_tag, or nothing shipped changed"
 else
-  fail "versions    a plugin changed since $last_tag without a valid bump:"
+  fail "versions    the plugin changed since $last_tag without a valid bump:"
   printf '%s\n' "$out" | sed 's/^/        /'
   printf '        %s\n' "Users who installed it will never be offered the update." \
-    "Bump the version in skills/<name>/.claude-plugin/plugin.json and add a" \
+    "Bump the version in plugin/.claude-plugin/plugin.json and add a" \
     "CHANGELOG.md entry under Unreleased. See docs/RELEASING.md."
 fi
 
 # The authoritative check, when the CLI is on hand. CI has no Claude Code, so
 # the python checks above stand alone there.
 if command -v claude >/dev/null 2>&1; then
-  for t in . skills/*/; do
-    if out=$(claude plugin validate "$t" 2>&1); then pass "plugin validate $t"
-    else fail "plugin validate $t"; printf '%s\n' "$out" | sed 's/^/        /'; fi
-  done
+  if out=$(claude plugin validate ./plugin 2>&1); then pass "plugin validate ./plugin"
+  else fail "plugin validate ./plugin"; printf '%s\n' "$out" | sed 's/^/        /'; fi
 else
   warn "claude CLI not installed — 'claude plugin validate' skipped"
 fi
@@ -484,10 +624,10 @@ fi
 # --------------------------------------------------------------------------
 section "Config templates"
 # --------------------------------------------------------------------------
-if python3 -c "import json,sys; json.load(open('project-files/.claude/settings.json'))" 2>/dev/null; then
-  pass "valid JSON  project-files/.claude/settings.json"
+if python3 -c "import json,sys; json.load(open('install/user/settings.json'))" 2>/dev/null; then
+  pass "valid JSON  install/user/settings.json"
 else
-  fail "invalid JSON project-files/.claude/settings.json"
+  fail "invalid JSON install/user/settings.json"
 fi
 
 # The allowlist approves skill scripts by bare name, because bin/ is on the
@@ -499,11 +639,10 @@ if out=$(python3 - <<'PY' 2>&1
 import glob, json, os, re, sys
 bad = []
 try:
-    cfg = json.load(open('project-files/.claude/settings.json'))
+    cfg = json.load(open('install/user/settings.json'))
 except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
-shipped_paths = glob.glob('skills/*/bin/*.sh')
-shipped = {os.path.basename(p) for p in shipped_paths}
+shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
 # Scripts that ship WITHOUT a rule on purpose. The invariant exists so a script
 # does not prompt because someone forgot a rule; a deliberate absence, named
 # here with its reason, serves that purpose and stays visible in review.
@@ -514,25 +653,18 @@ deliberately_unruled = {
     # per mutation session, so the prompt is cheap and shows the exact command.
     'mutation_test_worktree.sh',
 }
-# A basename shipped by two skills is unreachable for one of them: bare-name
-# invocation resolves through PATH, which can only ever pick one. The set
-# comparison below would happily pass such a pair.
-seen = {}
-for p in shipped_paths:
-    seen.setdefault(os.path.basename(p), []).append(p)
-for base, paths in sorted(seen.items()):
-    if len(paths) > 1:
-        bad.append(f'{base} is shipped by {len(paths)} skills ({", ".join(sorted(paths))}); '
-                   'bare-name invocation can only ever reach one')
 ruled = set()
 for rule in cfg.get('permissions', {}).get('allow', []):
     m = re.fullmatch(r'Bash\(([A-Za-z0-9_.-]+\.sh):\*\)', rule)
     if m:
         ruled.add(m.group(1))
-    elif re.search(r'~/\.claude/skills/', rule):
-        bad.append(f'path-shaped skill rule will not match a PATH invocation: {rule}')
+    elif re.search(r'Bash\([^)]*/[A-Za-z0-9_.-]+\.sh', rule):
+        # A rule is a text match on the command string, and every SKILL.md
+        # invokes by bare name, so a path-shaped rule approves a spelling that
+        # never occurs and the call prompts anyway.
+        bad.append(f'path-shaped skill rule will not match a bare-name call: {rule}')
 for name in sorted(ruled - shipped):
-    bad.append(f'rule approves {name}, which no skill ships')
+    bad.append(f'rule approves {name}, which the plugin does not ship')
 for name in sorted(shipped - ruled - deliberately_unruled):
     bad.append(f'{name} ships but has no allowlist rule — it will prompt')
 for name in sorted(ruled & deliberately_unruled):
@@ -547,15 +679,23 @@ else
 fi
 
 # The central invariant of the plugin layout: a SKILL.md must name its scripts
-# by bare name only. A path works on one install route and silently fails on the
-# other — ${CLAUDE_PLUGIN_ROOT} resolves under a marketplace install and passes
-# through literally under install.sh, where the Bash call is then rejected. Four
-# SKILL.md files were rewritten by hand to satisfy this; nothing but this check
-# stops the next edit from reintroducing it.
+# by bare name only. `bin/` is on the Bash tool's PATH, so the bare name is what
+# runs and what the permission rules approve; a path-qualified call prompts even
+# though the script is pre-approved, and `${CLAUDE_PLUGIN_ROOT}` is rejected
+# outright ("Error: Contains expansion") rather than expanded.
 # The tilde is bracketed so shellcheck does not read it as a path (SC2088);
 # `[~]` and `~` are the same character class to grep.
-pathrefs=$(grep -nE '[~]/\.claude/skills/|\$\{CLAUDE_PLUGIN_ROOT\}|\bscripts/[A-Za-z0-9_.-]+\.sh' \
-  skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
+#
+# The path alternation is built from what plugin/bin/ actually ships, so it
+# cannot fall behind a rename and does not need a list kept in step. Any path
+# component before a shipped basename fails: bin/, plugin/bin/, ../bin/, an
+# absolute path. The previous pattern enumerated three historical spellings
+# (~/.claude/skills, scripts/, and the expansion) and so missed every spelling
+# that consolidating to a single bin/ made the likely one to write.
+shipped_re=$(cd plugin/bin && ls ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | paste -sd'|' -)
+[[ -n "$shipped_re" ]] || fail "skill paths  plugin/bin/ ships nothing, so the path check would pass vacuously"
+pathrefs=$(grep -nE "[~]/\.claude/skills/|\\\$\{CLAUDE_PLUGIN_ROOT\}|[A-Za-z0-9_.~/-]+/($shipped_re)\.sh" \
+  plugin/skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
 [[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
   fail "a SKILL.md references a script by path (breaks one install route):"
   printf '%s\n' "$pathrefs" | sed 's/^/        /'
@@ -574,7 +714,7 @@ suite = open('scripts/mutation-test-acceptance.sh').read()
 # 'missing-dependency', but within one script a slug used twice is two guards
 # no assertion can tell apart.
 scripts = {
-    'skills/mutation-test/bin/mutation_test_worktree.sh': {
+    'plugin/bin/mutation_test_worktree.sh': {
         'missing-dependency': 'requires git/mktemp/sed to be absent from PATH',
         'tmpdir':             'requires mktemp -d to fail',
         'git-failed':         'requires git status to fail on a valid repository',
@@ -582,7 +722,7 @@ scripts = {
         'unresolvable-repo':  'requires a directory that exists but cannot be cd-ed into',
         'unresolvable-toplevel': 'requires rev-parse --show-toplevel to name an uncd-able path',
     },
-    'skills/mutation-test/bin/mutation_test_changed_lines.sh': {
+    'plugin/bin/mutation_test_changed_lines.sh': {
         'missing-dependency': 'requires awk/sort to be absent from PATH',
         'unreadable-diff':    'requires a file that exists but cannot be read',
     },
@@ -651,13 +791,18 @@ fi
 # otherwise leaves working prose pointing at a command that is not on PATH, and
 # the check above only covers SKILL.md — which is exactly how CLAUDE.md kept
 # naming parse_comments.sh after it became pr_review_parse_comments.sh.
+# CHANGELOG.md is exempt: it is a record of what happened, so naming a script
+# that was since renamed or withdrawn is the entry doing its job.
 if out=$(python3 - <<'PY' 2>&1
 import glob, os, re, sys
-shipped = {os.path.basename(p) for p in glob.glob('skills/*/bin/*.sh')}
-# The repo's own tooling, named in docs but never installed as a skill script.
-own = {'install.sh', 'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh'}
+shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
+# The repo's own tooling, named in docs but never on a skill's PATH.
+own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
+       'check-install-drift.sh'}
 bad = []
-for md in sorted(glob.glob('*.md') + glob.glob('skills/*/SKILL.md') + glob.glob('docs/**/*.md', recursive=True)):
+docs = (glob.glob('*.md') + glob.glob('plugin/skills/*/SKILL.md')
+        + glob.glob('docs/**/*.md', recursive=True))
+for md in sorted(d for d in docs if os.path.basename(d) != 'CHANGELOG.md'):
     for n, line in enumerate(open(md), 1):
         for name in re.findall(r'\b[A-Za-z0-9_.-]+\.sh\b', line):
             if name not in shipped and name not in own:
@@ -782,51 +927,6 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
     scan_file 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f"
   done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
-
-# --------------------------------------------------------------------------
-if [[ "$QUICK" == false ]]; then
-section "Install integration"
-# --------------------------------------------------------------------------
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
-  if CLAUDE_HOME="$tmp" ./install.sh >"$tmp/out.log" 2>&1; then
-    pass "install.sh ran clean"
-  else
-    fail "install.sh failed:"; sed 's/^/        /' "$tmp/out.log"
-  fi
-  for d in skills/*/; do
-    name=$(basename "$d")
-    [[ -f "$tmp/skills/$name/SKILL.md" ]] && pass "installed   $name" || fail "install.sh did not install $name"
-    [[ -f "$tmp/skills/$name/.claude-plugin/plugin.json" ]] \
-      && pass "manifest    $name" \
-      || fail "install.sh did not install $name's plugin.json"
-  done
-  # A script that arrives without +x is on PATH but unrunnable.
-  for s in "$tmp"/skills/*/bin/*.sh; do
-    [[ -e "$s" ]] || continue
-    [[ -x "$s" ]] && pass "installed +x ${s#"$tmp"/}" || fail "installed non-executable: ${s#"$tmp"/}"
-  done
-  # An existing user CLAUDE.md must never be clobbered.
-  printf 'PRESERVE ME\n' >"$tmp/CLAUDE.md"
-  CLAUDE_HOME="$tmp" ./install.sh >/dev/null 2>&1
-  [[ "$(cat "$tmp/CLAUDE.md")" == "PRESERVE ME" ]] \
-    && pass "existing CLAUDE.md preserved" \
-    || fail "install.sh overwrote an existing ~/.claude/CLAUDE.md"
-
-  # Re-install must leave the skills root holding ONLY the skills. Claude Code
-  # loads every directory under it that carries a manifest, so a backup left in
-  # place becomes a second plugin claiming the live name, and the stale copy can
-  # win. install.sh has now run 3x above, so any accumulation shows here.
-  expected=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l)
-  actual=$(find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)
-  manifests=$(find "$tmp/skills" -name plugin.json | wc -l)
-  if [[ "$actual" -eq "$expected" && "$manifests" -eq "$expected" ]]; then
-    pass "re-install    skills root holds exactly $expected skills, $expected manifests"
-  else
-    fail "re-install left $actual dirs / $manifests manifests in the skills root (expected $expected / $expected):"
-    find "$tmp/skills" -mindepth 1 -maxdepth 1 -type d | sed 's/^/        /'
-  fi
-fi
 
 # --------------------------------------------------------------------------
 if [[ "$QUICK" == false ]]; then
