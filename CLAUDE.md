@@ -93,8 +93,12 @@ Each top-level directory has one role:
   directory Claude Code creates at install as a runtime lease marker. Diffing
   `ls -A` of the cache against `git ls-files` reports it as an unexpected file,
   and the obvious next move is to "fix" a leak that was never there. Verified on
-  macOS: the installed tree is otherwise byte-identical to
-  `git ls-tree -r --name-only <ref> -- plugin`, empty diff in both directions.
+  macOS, with `.in_use` set aside: the installed tree holds exactly the 18
+  tracked payload files, empty diff in both directions. That comparison needs
+  one adjustment to run at all — `git ls-tree -r --name-only <ref> -- plugin`
+  prints paths beginning `plugin/`, and the cache holds the plugin root's
+  contents without that level, so the prefix comes off one side first. It
+  compares path lists. Contents were not hashed.
 - `.claude-plugin/marketplace.json` — **the marketplace catalog**
   (`lunar-skills`), one entry pointing at `"source": "./plugin"`. It sits at the
   repository root because that is where a marketplace is looked up, and outside
