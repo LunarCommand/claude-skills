@@ -14,6 +14,32 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### All skills
+
+- The dependency preflight is defined once, in `plugin/bin/lib/require_cmd.sh`,
+  and sourced by the five scripts that used to carry their own copy. Identical
+  behaviour: the same message, the same exit 127, the same remediation hints.
+  A script whose install is missing the helper now says so and exits 127 rather
+  than dying on an undefined function.
+- The two `mutation_test_` scripts keep their own preflight on purpose. Theirs
+  takes a list of commands and exits **41** with a `missing-dependency` slug
+  that their acceptance suite asserts by identity, so sharing would have changed
+  a documented exit code for no gain. `CLAUDE.md` now states both contracts; it
+  previously said every script exits 127, which was never true of those two.
+
+### Repository
+
+- `validate.sh` sees inside `plugin/bin/lib/`. The portability scan enumerates
+  its own file list under a comment claiming every shell artifact in the repo,
+  and a subdirectory of `bin/` escaped it — verified by planting a `readlink -f`
+  in the helper and watching the scan miss it, then catch it. The doc-scripts
+  check needed the same widening for a different reason: it asks whether a `*.sh`
+  named in the docs actually ships, and the helper does. The allowlist check was
+  deliberately left alone, since it asks which scripts need a permission rule
+  and a sourced helper needs none.
+
 ## v1.0.0 — 2026-10-07
 
 The six plugins become one. Installing `lunar` gets every skill, every bundled

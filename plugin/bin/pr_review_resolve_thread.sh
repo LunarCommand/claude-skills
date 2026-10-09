@@ -23,20 +23,23 @@ for arg in "$@"; do
   case "$arg" in (-h|--help) usage; exit 0 ;; esac
 done
 
-# Dependency preflight. Without it a missing binary surfaces mid-pipeline as
-# `gh: command not found`, which reads as a bug in this script. The skill
-# instructs the agent to fix a failing script rather than work around it, so an
-# unclear failure sends it editing working code instead of naming the problem.
-#
+# Shared dependency preflight: require_cmd lives in lib/ beside this script,
+# sourced by explicit path because bin/lib/ is not a PATH entry. A bare name
+# WOULD resolve if the helper sat in bin/ itself; see
+# plugin/bin/lib/require_cmd.sh for why it does not.
+_require_cmd_lib="$(dirname "${BASH_SOURCE[0]}")/lib/require_cmd.sh"
+if [[ -r "$_require_cmd_lib" ]]; then
+  # shellcheck source=lib/require_cmd.sh
+  . "$_require_cmd_lib"
+else
+  echo "Missing required file: $_require_cmd_lib" >&2
+  echo "  This plugin install is incomplete; reinstall lunar." >&2
+  exit 127
+fi
+
 # gh only — the `--jq` below is gh's own embedded gojq engine, so the standalone
 # jq binary is NOT required. Do not add `require_cmd jq` here: it refuses hosts
 # where every code path would have worked.
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 && return 0
-  echo "Missing required command: $1" >&2
-  echo "  $2" >&2
-  exit 127
-}
 require_cmd gh "Install the GitHub CLI and authenticate: https://cli.github.com then run 'gh auth login'."
 
 if [[ $# -ne 1 ]]; then
