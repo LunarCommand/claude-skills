@@ -71,7 +71,17 @@ numbers for one thing is a drift waiting to happen.
    `validate.sh` catches a `*.sh` name that no longer ships and a `SKILL.md` that
    names a script by path; it cannot catch a stale sentence.
 
-4. **Check the date.** The `CHANGELOG` heading must be the day you actually tag.
+4. **Check the date.** The `CHANGELOG` heading must be the day you actually tag,
+   in the **tagger's local timezone** — not UTC. Every release through `v1.0.0`
+   uses the local date, and for two of them it differs from UTC: an evening tag
+   from a US timezone has already rolled over there, so a reviewer reading
+   GitHub's clock reports the heading as a day behind when it is not. Check
+   against the tag rather than against a clock:
+
+   ```bash
+   git for-each-ref refs/tags/v1.0.0 --format='%(taggerdate:format-local:%Y-%m-%d %z)'
+   ```
+
    Drift is normal when the entry was drafted early.
 
 5. **Review what is about to ship.** `git diff <last-tag>..main` alongside the new
