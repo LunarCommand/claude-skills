@@ -14,7 +14,7 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v1.0.1 — 2026-10-09
 
 ### All skills
 
@@ -31,6 +31,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ### Repository
 
+- `docs/RELEASING.md` names the clock the `CHANGELOG` date follows — the
+  tagger's local timezone, not UTC. Every release so far used it, but the doc
+  never said so, and an evening tag from a US timezone has already rolled over
+  in UTC: a reviewer reading GitHub's clock reports the heading as a day behind
+  when it is not. The verification command it gives reads the zone recorded in
+  the tag rather than the reader's own.
 - `validate.sh` sees inside `plugin/bin/lib/`. The portability scan enumerates
   its own file list under a comment claiming every shell artifact in the repo,
   and a subdirectory of `bin/` escaped it — verified by planting a `readlink -f`
