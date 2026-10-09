@@ -76,10 +76,12 @@ numbers for one thing is a drift waiting to happen.
    uses the local date, and for two of them it differs from UTC: an evening tag
    from a US timezone has already rolled over there, so a reviewer reading
    GitHub's clock reports the heading as a day behind when it is not. Check
-   against the tag rather than against a clock:
+   against the tag rather than against a clock — `format:` renders the zone
+   recorded in the tag, where `format-local:` would re-render it in whichever
+   zone the reader is sitting in and reintroduce the same disagreement:
 
    ```bash
-   git for-each-ref refs/tags/v1.0.0 --format='%(taggerdate:format-local:%Y-%m-%d %z)'
+   git for-each-ref refs/tags/v1.0.0 --format='%(taggerdate:format:%Y-%m-%d %z)'
    ```
 
    Drift is normal when the entry was drafted early.
