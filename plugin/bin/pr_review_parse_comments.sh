@@ -29,10 +29,10 @@ for arg in "$@"; do
   case "$arg" in (-h|--help) usage; exit 0 ;; esac
 done
 
-# Shared dependency preflight: require_cmd lives in lib/ beside this script.
-# Sourced by path from BASH_SOURCE[0] because `source` does not search PATH --
-# see plugin/bin/lib/require_cmd.sh for why that does not contravene the
-# bare-name rule.
+# Shared dependency preflight: require_cmd lives in lib/ beside this script,
+# sourced by explicit path because bin/lib/ is not a PATH entry. A bare name
+# WOULD resolve if the helper sat in bin/ itself; see
+# plugin/bin/lib/require_cmd.sh for why it does not.
 _require_cmd_lib="$(dirname "${BASH_SOURCE[0]}")/lib/require_cmd.sh"
 if [[ -r "$_require_cmd_lib" ]]; then
   # shellcheck source=lib/require_cmd.sh

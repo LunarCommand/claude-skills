@@ -10,13 +10,15 @@
 # Exit 127 is the contract -- the shell's own "command not found" status, and
 # what CLAUDE.md and the skills document.
 #
-# Callers source this by PATH-relative path, which looks like it contravenes the
-# bare-name rule and does not: that rule governs how a *command* is invoked,
-# because the permission allowlist matches a command name. `source` does not
-# search PATH at all, so there is no bare-name spelling available here, and this
-# path never appears in a command a user approves. `bin/` is the one directory
-# Claude Code puts on PATH; `bin/lib/` is not a PATH entry, so nothing in here
-# is reachable by name and nothing in here needs a permission rule.
+# Callers source this by explicit path because `bin/lib/` is not a PATH entry.
+# `source` DOES search PATH for a slashless name, so a bare `. require_cmd.sh`
+# would resolve if this file sat in `bin/` itself -- and it deliberately does
+# not, because a file there is a callable command: it would need an executable
+# bit and a permission rule, neither of which a sourced fragment should carry.
+#
+# The bare-name rule is unaffected either way. It governs how a *command* is
+# invoked, because the permission allowlist matches a command name, and sourcing
+# is not the command a user approves.
 #
 # The mutation_test_ scripts deliberately do NOT source this. They route the
 # same condition through their own `refuse()` to exit 41 with a

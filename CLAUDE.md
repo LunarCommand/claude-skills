@@ -229,14 +229,15 @@ identity, so unifying the two would change a documented exit code to no end.
 Reach for the shared one in a new script unless it also owns a refusal
 vocabulary.
 
-The helper is **sourced by path**, from the sourcing script's own
-`BASH_SOURCE[0]`, which looks like it contravenes the bare-name rule and does
-not: that rule governs how a *command* is invoked, because the permission
-allowlist matches a command name. `source` does not search `PATH` at all, so
-there is no bare-name spelling to use, and the path never appears in a command a
-user approves. `bin/` is the one directory Claude Code puts on `PATH` —
-`bin/lib/` is not a `PATH` entry, so nothing in it is callable by name or needs a
-permission rule. Two `validate.sh` checks were widened to see inside `bin/lib/`:
+The helper is **sourced by explicit path**, resolved from the sourcing script's
+own `BASH_SOURCE[0]`, because `bin/lib/` is not a `PATH` entry. `source` *does*
+search `PATH` for a slashless name, so a bare `. require_cmd.sh` would resolve
+if the helper sat in `bin/` itself — and it deliberately does not, because a
+file there is a callable command, needing an executable bit and a permission
+rule that a sourced fragment should not carry. The bare-name rule is unaffected
+either way: it governs how a *command* is invoked, because the allowlist matches
+a command name, and sourcing is not the command a user approves. Two
+`validate.sh` checks were widened to see inside `bin/lib/`:
 the portability scan, whose comment claims every shell artifact in the repo, and
 the doc-scripts check, which asks whether a name in the docs refers to something
 that ships. The allowlist check was deliberately *not* widened — it asks which
