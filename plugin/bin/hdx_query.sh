@@ -53,19 +53,19 @@ for arg in "$@"; do
   case "$arg" in (-h|--help) usage; exit 0 ;; esac
 done
 
-# ---------------------------------------------------------------------------
-# Dependency preflight
-# ---------------------------------------------------------------------------
-# Without this a missing binary surfaces as `jq: command not found` partway
-# through a pipeline, which reads as a bug in this script. The skill instructs
-# the agent to fix a failing script rather than work around it, so an unclear
-# failure here sends it editing working code instead of naming the real problem.
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 && return 0
-  echo "Missing required command: $1" >&2
-  echo "  $2" >&2
+# Shared dependency preflight: require_cmd lives in lib/ beside this script.
+# Sourced by path from BASH_SOURCE[0] because `source` does not search PATH --
+# see plugin/bin/lib/require_cmd.sh for why that does not contravene the
+# bare-name rule.
+_require_cmd_lib="$(dirname "${BASH_SOURCE[0]}")/lib/require_cmd.sh"
+if [[ -r "$_require_cmd_lib" ]]; then
+  # shellcheck source=lib/require_cmd.sh
+  . "$_require_cmd_lib"
+else
+  echo "Missing required file: $_require_cmd_lib" >&2
+  echo "  This plugin install is incomplete; reinstall lunar." >&2
   exit 127
-}
+fi
 # jq only: it formats output on BOTH the cloud and local paths. curl and docker
 # are mode-specific and are checked after argument parsing, once the mode is
 # known — a docker-only host has no use for host-side curl, since local mode

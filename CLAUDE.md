@@ -76,7 +76,9 @@ Each top-level directory has one role:
   - `bin/` — every bundled script, for all skills together. Claude Code adds this
     one directory to the Bash tool's `PATH`. Basenames must therefore be unique
     across the whole toolkit, which the `pr_review_` and `mutation_test_`
-    prefixes exist to guarantee.
+    prefixes exist to guarantee. `bin/lib/` holds what scripts *source* rather
+    than run — it is not a `PATH` entry, so a file there is not callable and
+    carries no executable bit.
   - `LICENSE` — the plugin is redistributed on its own, so it carries its own
     terms. `validate.sh` asserts it is byte-identical to the root copy.
 
@@ -93,8 +95,8 @@ Each top-level directory has one role:
   directory Claude Code creates at install as a runtime lease marker. Diffing
   `ls -A` of the cache against `git ls-files` reports it as an unexpected file,
   and the obvious next move is to "fix" a leak that was never there. Verified on
-  macOS, with `.in_use` set aside: the installed tree holds exactly the 18
-  tracked payload files, empty diff in both directions. That comparison needs
+  macOS, with `.in_use` set aside: the installed tree holds exactly the tracked
+  payload and nothing else, empty diff in both directions. That comparison needs
   one adjustment to run at all — `git ls-tree -r --name-only <ref> -- plugin`
   prints paths beginning `plugin/`, and the cache holds the plugin root's
   contents without that level, so the prefix comes off one side first. It
@@ -211,16 +213,34 @@ the template. Scripts validate required keys and tell the user what's missing
 rather than guessing.
 
 The same rule covers **binaries**: every script that shells out preflights its
-dependencies with `require_cmd` and exits 127 naming what to install. This is
-load-bearing, not politeness — every SKILL.md tells the agent that a failing
-script must be *fixed, not worked around*, so a bare `jq: command not found`
-sends it editing working code instead of reporting a missing package. Keep the
-preflight when adding a script.
+dependencies with `require_cmd`, naming what to install. This is load-bearing,
+not politeness — every SKILL.md tells the agent that a failing script must be
+*fixed, not worked around*, so a bare `jq: command not found` sends it editing
+working code instead of reporting a missing package. Keep the preflight when
+adding a script.
 
-`require_cmd` is currently defined once per script. That duplication was forced
-while each skill was its own plugin and could not reference a file outside its
-own directory; with one `plugin/bin/` it is no longer forced, and a shared helper
-sourced from there is the open follow-up.
+**There are two `require_cmd` contracts, deliberately.** Five scripts source the
+shared one from `plugin/bin/lib/require_cmd.sh`, which takes a command plus a
+remediation hint and exits **127** — the shell's own "command not found" status.
+The two `mutation_test_` scripts define their own, which takes a list of
+commands and routes the same condition through their `refuse()` to exit **41**
+with a `missing-dependency` slug; their acceptance suite asserts that slug by
+identity, so unifying the two would change a documented exit code to no end.
+Reach for the shared one in a new script unless it also owns a refusal
+vocabulary.
+
+The helper is **sourced by path**, from the sourcing script's own
+`BASH_SOURCE[0]`, which looks like it contravenes the bare-name rule and does
+not: that rule governs how a *command* is invoked, because the permission
+allowlist matches a command name. `source` does not search `PATH` at all, so
+there is no bare-name spelling to use, and the path never appears in a command a
+user approves. `bin/` is the one directory Claude Code puts on `PATH` —
+`bin/lib/` is not a `PATH` entry, so nothing in it is callable by name or needs a
+permission rule. Two `validate.sh` checks were widened to see inside `bin/lib/`:
+the portability scan, whose comment claims every shell artifact in the repo, and
+the doc-scripts check, which asks whether a name in the docs refers to something
+that ships. The allowlist check was deliberately *not* widened — it asks which
+scripts need a permission rule, and a sourced helper needs none.
 
 ## The scripts
 

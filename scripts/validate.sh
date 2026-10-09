@@ -170,7 +170,7 @@ gnuisms=""
 shopt -s nullglob
 # Every shell artifact in the repo, plus SKILL.md, which ships shell the agent
 # runs verbatim.
-for f in plugin/bin/*.sh plugin/skills/*/SKILL.md scripts/*.sh .githooks/*; do
+for f in plugin/bin/*.sh plugin/bin/lib/*.sh plugin/skills/*/SKILL.md scripts/*.sh .githooks/*; do
   [[ -f "$f" ]] || continue
   # Blank FULL-LINE comments only. Stripping from any '#' also blanked real code
   # — ${#ARR[@]}, ${var#prefix}, and `[[ $# -gt 0 ]]` all contain one — which hid
@@ -795,7 +795,11 @@ fi
 # that was since renamed or withdrawn is the entry doing its job.
 if out=$(python3 - <<'PY' 2>&1
 import glob, os, re, sys
-shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
+# Includes bin/lib/, unlike the allowlist check above: that one asks which
+# scripts need a permission rule, and a sourced helper needs none. This one asks
+# whether a name in the docs refers to a file that ships, and the helper does.
+shipped = {os.path.basename(p) for p in
+           glob.glob('plugin/bin/*.sh') + glob.glob('plugin/bin/lib/*.sh')}
 # The repo's own tooling, named in docs but never on a skill's PATH.
 own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
        'check-install-drift.sh'}
