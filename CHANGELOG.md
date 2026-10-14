@@ -18,6 +18,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ### Repository
 
+- `docs/RELEASING.md` says which date the `CHANGELOG` heading means. It held two
+  rules that disagreed: the version bump is the release and a tag is only a
+  bookmark, but the heading must be the day you tag. Those diverge whenever the
+  bump lands before the tag, as `1.0.1` did. The heading dates the tag, and the
+  doc now says so, says users may have had the version earlier, and says to
+  re-date the heading if the tag slips — the step that was missing.
+
 - `install/user/CLAUDE.md` matches the workflow it is a template for again. It
   had one commit, was genericized from a copy older than the live file, and was
   never re-ported: two workflow rules were missing, the code-comments section
