@@ -14,6 +14,17 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Repository
+
+- `install/user/CLAUDE.md` matches the workflow it is a template for again. It
+  had one commit, was genericized from a copy older than the live file, and was
+  never re-ported: two workflow rules were missing, the code-comments section
+  predated a rewrite, it still listed a `docs/` branch prefix that is no longer
+  used, and it pointed the long-form at `_docs/`, which nothing uses. Merge it
+  again if you took the old one.
+
 ## v1.0.1 — 2026-10-13
 
 ### All skills
