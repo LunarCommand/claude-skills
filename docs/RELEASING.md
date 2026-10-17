@@ -19,7 +19,9 @@ tag but the version did not.
 
 **A tag is a bookmark, not a shipment.** It records what shipped and lets users
 pin (`/plugin marketplace add https://github.com/LunarCommand/claude-skills.git#v1.2.0`),
-but tagging is not what delivers anything.
+but tagging is not what delivers anything. The `CHANGELOG` heading dates that
+bookmark and not the delivery, so it can name a later day than the day the
+version became available — step 4 below says what to do about that.
 
 ## Versioning
 
@@ -84,7 +86,17 @@ numbers for one thing is a drift waiting to happen.
    git for-each-ref refs/tags/v1.0.0 --format='%(taggerdate:format:%Y-%m-%d %z)'
    ```
 
-   Drift is normal when the entry was drafted early.
+   Drift is normal when the entry was drafted early. **If the tag slips past the
+   day the heading names, re-date the heading before tagging.** The heading is
+   one line to change; published notes are not.
+
+   The heading dates the **tag**, not the day the version reached users — and
+   there is no single such day. Whenever the bump lands on `main` before the tag
+   is cut, a fresh install gets the new version from that earlier day, and
+   anyone already installed is offered an update from it but has the version
+   only once they take it. That is expected rather than a defect: this section
+   becomes the Release notes verbatim, so its heading labels the bookmark being
+   published, and the tag itself is the only date a reader can verify.
 
 5. **Review what is about to ship.** `git diff <last-tag>..main` alongside the new
    CHANGELOG section, read together, before anything is tagged.
