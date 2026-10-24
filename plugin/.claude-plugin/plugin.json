@@ -1,7 +1,7 @@
 {
   "name": "lunar",
-  "description": "Claude Code skills for planning, adversarial and pull-request review, mutation testing, and observability. Installed as one plugin; each skill is invoked as /lunar:<name>.",
-  "version": "1.0.1",
+  "description": "Claude Code skills for planning, adversarial and pull-request review, mutation testing, task tracking, and observability. Installed as one plugin; each skill is invoked as /lunar:<name>.",
+  "version": "1.1.0",
   "author": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"
@@ -13,6 +13,7 @@
     "planning",
     "code-review",
     "mutation-testing",
+    "task-tracking",
     "observability",
     "workflow"
   ]

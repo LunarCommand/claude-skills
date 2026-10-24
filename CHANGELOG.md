@@ -16,14 +16,45 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ## Unreleased
 
+### gh-tasks (new)
+
+- A new skill that reads a project's work queue from GitHub issues organised on
+  a GitHub Project, so the queue survives the machine it was written on. Ask it
+  "where are we" or "what's next" and it answers in prose; ask for one task and
+  it reads that task's comments, which are where a change of mind or a reversed
+  ruling actually lives. `gh_tasks_board.sh` prints the board, `gh_tasks_show.sh`
+  prints one task.
+
+  It finds the board through the link between the board and your repository, so
+  most projects configure nothing. Where GitHub refuses to link them — a board
+  and the code repos under different owners — `~/.claude/gh-tasks.conf` names
+  it instead; `install/user/gh-tasks.conf` is the template.
+
+  **It reads and does not write.** Add, update, close and reorder come next, and
+  the skill says so rather than reaching for `gh` directly.
+
+  Two things it will tell you that are easy to get wrong. An issue is exactly as
+  public as the repository it lives in, whatever the board's privacy says — a
+  private board hides the board, not its items. And the order items come back in
+  is the board's own manual position, the one you set by dragging: it is not a
+  field, cannot be sorted on, and a view with a sort applied no longer shows it.
+
+  Needs the `project` token scope, which ordinary `gh` auth does not include.
+  Without it the scripts exit 77 and print the one command that fixes it.
+
+  Asking for closed items orders them by when they closed rather than by board
+  position, because "what did we finish" is a question about dates. A board
+  with more than 50 fields reports that it was read in part, and
+  `GH_TASKS_FIELD_PAGE` raises the limit.
+
 ### Repository
 
 - `docs/RELEASING.md` says which date the `CHANGELOG` heading means. It held two
   rules that disagreed: the version bump is the release and a tag is only a
   bookmark, but the heading must be the day you tag. Those diverge whenever the
   bump lands before the tag, as `1.0.1` did. The heading dates the tag, and the
-  doc now says so, says users may have had the version earlier, and says to
-  re-date the heading if the tag slips — the step that was missing.
+  doc now says so, says the version may have been available earlier, and says
+  to re-date the heading if the tag slips — the step that was missing.
 
 - `install/user/CLAUDE.md` matches the workflow it is a template for again. It
   had one commit, was genericized from a copy older than the live file, and was

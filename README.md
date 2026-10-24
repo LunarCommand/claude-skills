@@ -1,8 +1,8 @@
 # Claude Skills Toolkit
 
 A complete, working [Claude Code](https://claude.com/claude-code) setup for
-building AI agents locally — with the observability, planning discipline, and
-review depth you'd usually only have in production.
+building AI agents locally — with the observability, planning discipline,
+review depth and task tracking you'd usually only have in production.
 
 The approach is **prod-local**: run the same observability stack on your machine
 that you'd run in production, so debugging an agent means querying real traces
@@ -49,15 +49,17 @@ flowchart TD
     prr["<b>/lunar:pr-review</b><br/><i>triage review comments one at a time</i>"]
     g3{{"GATE 3 &nbsp; approve each reply before it posts"}}
     merge(["merge"])
+    tasks["<b>/lunar:gh-tasks</b><br/><i>what's next, and what got deferred<br/>on a board that outlives the machine</i>"]
 
     idea --> fp1 --> g1 --> fp2 --> g2 --> impl --> adv --> pr --> prr --> g3 --> merge
     impl --- dbg
+    merge --> tasks --> idea
 
     classDef skill fill:#1f3a5f,stroke:#4a7fb5,color:#e8f0f8
     classDef gate fill:#5c3a1a,stroke:#c98b3a,stroke-width:2px,color:#fdf0dd
     classDef artifact fill:#3a3a3a,stroke:#888,color:#eee
 
-    class fp1,fp2,impl,adv,prr,dbg skill
+    class fp1,fp2,impl,adv,prr,dbg,tasks skill
     class g1,g2,g3 gate
     class idea,pr,merge artifact
 ```
@@ -71,7 +73,7 @@ Three layers, meant to be used together.
 
 ### 1. Skills
 
-`/`-invokable tools Claude Code loads on demand, grouped by the three concerns
+`/`-invokable tools Claude Code loads on demand, grouped by the concerns
 above. Each also triggers from a plain description — the slash form is just the
 explicit way to reach for one. It is `/<name>` on the clone and hand-copy
 routes, `/<name>:<name>` via the marketplace.
@@ -204,6 +206,38 @@ reasoning, and the exact reply it proposes — then stops. You answer `yes`,
 `edit` or `skip` per comment; nothing is posted or resolved without that. It is
 allowed to disagree with a reviewer, and should.
 
+**Tracking** — keep the queue somewhere that survives the machine.
+
+#### `/lunar:gh-tasks` — the work queue, on GitHub
+
+**Use it for:** "where are we", "what's next", "what am I blocked on" — a
+project's follow-ups and deferred decisions, kept as GitHub issues on a GitHub
+Project instead of a scratch directory that exists on exactly one workstation
+and has no history.
+
+```
+/lunar:gh-tasks where are we
+/lunar:gh-tasks show me task 22
+```
+
+```bash
+gh_tasks_board.sh --state open
+gh_tasks_show.sh 22
+```
+
+It finds the board by the link between it and your repository, so there is
+usually nothing to configure. **This version reads only** — add, update, close
+and reorder are not implemented yet, and it says so rather than improvising.
+
+Two things are worth knowing before you point it at a board. An issue is exactly
+as public as the repository it lives in, whatever the board's own privacy says —
+a private board hides the board, not its items. And the order items appear in is
+the board's own manual position, the one you set by dragging; it is not a field,
+so a view with a sort applied stops showing it.
+
+It needs one token scope ordinary `gh` auth does not include, and tells you the
+exact command if it is missing.
+
 ### 2. The recommended user CLAUDE.md
 
 **Use it for:** making Claude stop and wait at the points you would want to be
@@ -229,6 +263,10 @@ the observability skills at your stack.
   so its permissions belong there too; a per-project copy would mean re-approving
   the same toolkit in every repository. It is scoped to this toolkit and nothing
   else, which is what makes that safe.
+- **`install/user/gh-tasks.conf`** — optional, and most projects need none of
+  it. `gh-tasks` finds a board through the link between it and your repository;
+  this names one for the case GitHub will not let you link, where the board and
+  the code live under different owners.
 - **`install/project/.agent.env`** — the one genuinely per-project file: the
   endpoints and API keys `hdx_query.sh` and `langfuse_query.sh` read, loaded from
   the project root.
@@ -236,7 +274,7 @@ the observability skills at your stack.
 ## Prerequisites
 
 Claude Code, plus whatever the skills you actually use shell out to. You get all
-six either way — nothing here is installed piecemeal — so a missing dependency
+seven either way — nothing here is installed piecemeal — so a missing dependency
 only matters when you reach for that skill:
 
 | Skill | Needs |
@@ -244,6 +282,7 @@ only matters when you reach for that skill:
 | **hyperdx** | `jq`, plus `curl` for cloud mode or `docker` for local mode |
 | **langfuse** | `curl`, `python3` |
 | **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
+| **gh-tasks** | `gh`, plus the `project` token scope: `gh auth refresh -s project` |
 | **adversarial-review** | nothing beyond Claude Code |
 | **feature-planning** | nothing beyond Claude Code |
 | **mutation-test** | nothing beyond Claude Code |
@@ -253,8 +292,8 @@ than failing partway through a query.
 
 ## Install
 
-Everything here is one plugin, `lunar`. Installing it gets all six skills, and
-each is invoked as `/lunar:<name>`.
+Everything here is one plugin, `lunar`. Installing it gets all seven skills,
+and each is invoked as `/lunar:<name>`.
 
 There are two ways to point Claude Code at it, and **you can only have one at a
 time.** Not a recommendation — a constraint. Both routes register a marketplace
@@ -326,7 +365,7 @@ Per-project config is separate again — see [Per-project setup](#per-project-se
 
 ### Checking it worked
 
-Type `/lunar:` in a session; the six skills should complete. If they do not, the
+Type `/lunar:` in a session; the seven skills should complete. If they do not, the
 plugin is not loaded, and no amount of permission tinkering will help.
 
 `which hdx_query.sh` is **not** a useful test. Claude Code puts the plugin's `bin/`
