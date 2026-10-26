@@ -139,6 +139,10 @@ fi
 # alone. timeout/realpath/base64 -w are GNU coreutils, absent on a stock macOS.
 GNU_RE="find [^|]*-printf|sed -i |sed -r |date -d |date --date|readlink -f"
 GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
+# A template-less mktemp is GNU defaulting to tmp.XXXXXXXXXX; BSD mktemp(1)
+# requires a template or -t, so `$(mktemp)` aborts a `set -e` script on a Mac at
+# its first temporary file.
+GNU_RE="$GNU_RE|mktemp[[:space:]]*(\\)|;|\\||&|$)"
 # timeout/realpath only in command position — otherwise the word "timeout" in
 # an error message matches.
 GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
@@ -165,6 +169,38 @@ canary_hits=$(printf '%s\n' "$port_canary" | grep -cE "$PORT_RE" || true)
 [[ "$canary_hits" -ge 1 ]] \
   && pass "portability regex matches its canary (scan is live)" \
   || fail "portability regex matched NOTHING in known-bad input — this grep lacks a feature the pattern uses, so a clean result below is meaningless"
+
+# BRE alternation is its own check rather than a PORT_RE entry, because `\|`
+# is a GNU sed/grep extension in a BASIC expression and a literal pipe in an
+# EXTENDED one. Only the first is a bug, and the two are told apart by whether
+# the line asks for -E, which a single pattern cannot express. This check exists
+# because the scan above missed it and a `\|` shipped: on BSD the alternation
+# matches a literal pipe, so a filter silently stops filtering and a scan that
+# finds nothing reads exactly like a clean tree.
+bre_pat='\\|'
+bre_canary="grep -q 'a\|b' f; sed -n 's/x\|y//p' f"
+bre_canary_hits=$(printf '%s\n' "$bre_canary" | grep -c "$bre_pat" || true)
+[[ "$bre_canary_hits" -ge 1 ]] \
+  && pass "BRE-alternation regex matches its canary (scan is live)" \
+  || fail "BRE-alternation scan matched NOTHING in known-bad input, so a clean result below is meaningless"
+
+bres=""
+shopt -s nullglob
+for f in ./*.sh ./*/*.sh ./*/*/*.sh ./*/*/*/*.sh .githooks/pre-commit; do
+  [[ -f "$f" ]] || continue
+  # Comments and this file's own pattern definitions are blanked first: it
+  # documents and defines the idiom it forbids, so it matches itself otherwise.
+  hits=$(sed -E -e 's/^[[:space:]]*#.*//' \
+                -e 's/^(GNU_RE|BASH4_RE|PORT_RE|port_canary|bre_pat|bre_canary|bre_canary_hits)=.*//' "$f" \
+    | grep -n "$bre_pat" \
+    | grep -v '\-[a-zA-Z]*E' || true)
+  [[ -n "$hits" ]] && bres+="$f:$hits"$'\n'
+done
+shopt -u nullglob
+[[ -z "$bres" ]] && pass "no BRE alternation outside an extended expression" || {
+  fail "BRE alternation (\\| is GNU-only in a basic expression; use -E):"
+  printf '%s\n' "$bres" | sed 's/^/        /'
+}
 
 gnuisms=""
 shopt -s nullglob
@@ -695,7 +731,7 @@ fi
 shipped_re=$(cd plugin/bin && ls ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | paste -sd'|' -)
 [[ -n "$shipped_re" ]] || fail "skill paths  plugin/bin/ ships nothing, so the path check would pass vacuously"
 pathrefs=$(grep -nE "[~]/\.claude/skills/|\\\$\{CLAUDE_PLUGIN_ROOT\}|[A-Za-z0-9_.~/-]+/($shipped_re)\.sh" \
-  plugin/skills/*/SKILL.md 2>/dev/null | grep -v 'never\|NOT\|not resolve\|passes through' || true)
+  plugin/skills/*/SKILL.md 2>/dev/null | grep -Ev 'never|NOT|not resolve|passes through' || true)
 [[ -z "$pathrefs" ]] && pass "skill paths  no SKILL.md names a script by path" || {
   fail "a SKILL.md references a script by path (breaks one install route):"
   printf '%s\n' "$pathrefs" | sed 's/^/        /'

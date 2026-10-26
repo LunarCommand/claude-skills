@@ -19,22 +19,20 @@ directly:
 
 - `gh_tasks_board.sh` — the whole board as JSON: its fields, its items in board
   order, the counts
-- `gh_tasks_show.sh <issue_number>` — one task in full, with its board fields
-  and every comment
+- `gh_tasks_show.sh <issue_number>` — one task with its board fields and its
+  comments
 
 **Invoke each by bare name**, never by a path. A path-qualified call prompts even
 though the script is pre-approved, because the permission rules match the bare
 form.
 
 Both take `--owner <login> --number <N>` to name a board directly, which skips
-discovery. `gh_tasks_board.sh` takes `--state open|closed|all` (default `open`),
-`--order board|closed`, `--all` to read every page, and `--limit`.
+discovery. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
+`open`), `--order board|closed`, `--all` to read every page, and `--limit`.
 `gh_tasks_show.sh` takes `--repo` to skip the board lookup and `--comments N`.
 
 `GH_TASKS_FIELD_PAGE` raises how many of a board's fields are read per item
-(default 50, maximum 100). Only a board with more fields than that needs it, and
-the scripts say so in `warnings` when it happens rather than quietly showing
-part of an item.
+(default 50, maximum 100).
 
 Run each on its own — never chain them.
 
@@ -45,32 +43,72 @@ Run each on its own — never chain them.
 - **The board is the index**, and its fields are the columns.
 - **History lives in comments.** A change of mind, a correction, a ruling
   reversed: each is a comment. The body says only what is true now, so a
-  question about *why* something changed is answered from comments, which is
-  why `gh_tasks_show.sh` reads them in full.
+  question about *why* something changed is answered from comments.
 
 ## Reading the board
 
-`gh_tasks_board.sh` prints one JSON object. Four parts of it decide what you can
-honestly say:
+`gh_tasks_board.sh` prints one JSON object:
 
-- **`items` is in board order.** That order is the board's own manual position —
-  what a drag sets. It is not a field, cannot be sorted on, and the sequence
-  *is* the answer to "what's next". Do not re-sort it before reporting. The one
-  exception is reported in `order`: asking for closed items orders them by when
-  they closed, since board position says nothing about recency.
-- **`counts`.** `onBoard` is every item on the board. `returned` is how many
-  you received, which is smaller whenever `stateFilter` excluded some — a board
-  of 33 with 3 closed returns 30 open, and nothing is missing. `allPagesRead`
-  is the one that matters: **when it is false, items went unread, so say how
-  many or re-run with `--all`.** Never describe a partial read as the state of
-  the queue.
-- **`schema`** lists the board's actual fields. Boards differ, and this skill
-  works with whatever a board has.
-- **`warnings`** are for the user. Repeat them rather than filtering them out.
+- **`items`** — the tasks, in board order.
+- **`counts`** — `onBoard`, `openSeen`, `closedSeen`, `nonIssueSeen`,
+  `returned`, `unread`, `pagesRead`, `allPagesRead`.
+- **`schema`** — the board's actual fields and their types.
+- **`warnings`** — plain sentences for the user.
+- **`board`**, **`discovery`**, **`stateFilter`**, **`order`** — what was read
+  and how.
 
-**Never assume a field exists.** A field with no value for an item is absent
-from that item's `fields` object, so most items on a real board carry only some
-of them. Read what is there; do not report a missing field as empty or zero.
+Five rules govern what you may say from it.
+
+**1. `items` is in board order, and that order is the answer to "what's next".**
+It is the board's own manual position, what a drag sets. It is not a field and
+cannot be sorted on. Do not re-sort it. The one exception is `--state closed`,
+which orders by when each task closed, and `order` always says which you have.
+
+**2. When `allPagesRead` is false, quote `counts.unread`.** That is the number
+of items you did not see. Do not compute it yourself — **`onBoard - returned` is
+not it**, because `onBoard` counts every item in every state while `returned` is
+what survived `stateFilter`. Either quote `unread` or re-run with `--all`.
+Never describe a partial read as the state of the queue.
+
+**3. A field absent from an item's `fields` means unset only when
+`fieldsUndecoded` is 0.** That key counts field values whose type these scripts
+do not decode. When it is above zero, a field missing from that item may still
+have a value, and you must not report it as empty, unset or zero. `schema` lists
+what the board has; `fields` lists what was read.
+
+**4. `truncated` names each connection that was capped.** An item listing
+`"truncated": ["subIssues"]` has more sub-issues than are in its array, so
+counting the array gives a wrong number. Say "at least N" or re-read the item
+with `gh_tasks_show.sh`.
+
+**5. Repeat `warnings` to the user.** Do not filter them out or summarise them
+away. They are the only channel that reports a board that changed mid-read, a
+visibility mismatch, or fields that went unread.
+
+## Reading one task
+
+`gh_tasks_show.sh` prints one JSON object: `issue`, `title`, `state`, `url`,
+`repo`, `visibility`, `repoResolution`, `author`, `createdAt`, `closedAt`,
+`warnings`, `labels`, `assignees`, `parent`, `subIssues` as
+`{total, read, nodes}`, `body`, `comments` as `{total, read, nodes}`, and
+`boards` — one entry per Project carrying the issue, each with its own `fields`
+and `fieldsUndecoded`.
+
+**Comments are read to a limit, 50 by default and 100 at most.** So:
+
+- **When `comments.read` is less than `comments.total`, say how many went
+  unread.**
+- **Do not answer a "why did this change" question from a capped read.** Re-run
+  with a higher `--comments` first. The unread comments are the likeliest place
+  a reversal lives, and that is the whole reason to read comments at all.
+
+`repoResolution` says how the issue's repository was found: `explicit` from
+`--repo`, `exact` from a board item, or `searched`. A `searched` result was
+located by looking in the repositories the board names and was accepted only
+because the board appears among the issue's own projects — mention that it was
+not among the board items read.
+
+Its `warnings` array follows the same rule as the board's: repeat it.
 
 ## Answering "where are we"
 
@@ -82,9 +120,7 @@ orient the user:
 - what is blocked, and on what — the board may carry a field for it, or the
   reason may be in an item's comments
 - the next few items in board order, by title, not by number alone
-- anything closed recently, which needs `--state closed` — that comes back
-  most-recently-closed first, not in board order, because "what did we finish"
-  is a question about dates
+- anything closed recently, which needs `--state closed`
 
 Two or three short paragraphs. Name specific items. A count on its own does not
 tell anyone where they are.
@@ -95,10 +131,11 @@ tell anyone where they are.
 board's own privacy hides the board, nothing more. A private board may hold
 items from public repos, each governed by its own repo.
 
-Never tell the user a private board makes a public item private. If
-`warnings` reports a mismatch between the declared visibility and what the
-board actually holds, pass it on — it means either the configuration or a
-repository changed.
+Never tell the user a private board makes a public item private. If `warnings`
+reports a mismatch between the declared visibility and what the board holds,
+pass it on — it means either the configuration or a repository changed. That
+check only covers the items actually read, and says so when it could not see the
+whole board.
 
 ## Setup, which nothing can do for the user
 
@@ -126,8 +163,10 @@ the session predates the install. Neither is a reason to edit a script.
 
 - Never call `gh api`, `gh project` or `gh issue` directly — the scripts are the
   only route, and a failing script gets fixed rather than worked around
-- Never report a partial read as the whole queue
+- Never report a partial read as the whole queue; quote `counts.unread`
 - Never re-sort `items`; board order is the working order
-- Never claim a field's value for an item whose `fields` object does not carry it
-- Repeat `warnings` to the user
+- Never claim a field is unset on an item whose `fieldsUndecoded` is above zero
+- Never count a `truncated` array as complete
+- Never answer "why did this change" from a capped comment read
+- Repeat `warnings` from either script to the user
 - Say plainly that writes are not implemented yet rather than finding another way

@@ -235,6 +235,12 @@ a private board hides the board, not its items. And the order items appear in is
 the board's own manual position, the one you set by dragging; it is not a field,
 so a view with a sort applied stops showing it.
 
+What it reads, it reports honestly: how many items it did not see, which fields
+it could not decode, which per-item lists were capped, and whether the board
+changed while it was being paged. Those land in a `warnings` array the skill is
+told to repeat verbatim, because a queue tool that quietly shows you part of the
+queue is worse than one that refuses.
+
 It needs one token scope ordinary `gh` auth does not include, and tells you the
 exact command if it is missing.
 

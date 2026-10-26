@@ -43,11 +43,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   Without it the scripts exit 77 and print the one command that fixes it.
 
   Asking for closed items orders them by when they closed rather than by board
-  position, because "what did we finish" is a question about dates. A board
-  with more than 50 fields reports that it was read in part, and
-  `GH_TASKS_FIELD_PAGE` raises the limit.
+  position, because "what did we finish" is a question about dates.
+
+  What it could not see, it says. A partial read reports how many items went
+  unread; a board that changed while being paged is reported rather than passed
+  off as complete; an item whose labels, assignees or sub-issues were capped
+  names the capped list; a field value of a type the scripts do not decode is
+  counted, so a missing field is never mistaken for an unset one; and a capped
+  comment read is flagged, because an unread comment is where a reversal
+  usually is. `GH_TASKS_FIELD_PAGE` raises how many fields are read per item.
+
+  Asking for one task by number without naming its repository consults the
+  board, and an issue found that way is accepted only once the board turns up
+  among the issue's own projects — so an unrelated repository's issue with the
+  same number is never returned as the task.
 
 ### Repository
+
+- `scripts/validate.sh` fails on two non-portable idioms it used to miss: a
+  `mktemp` with no template, which is a GNU default that BSD rejects outright,
+  and `\|` alternation in a basic regular expression, which is a GNU extension
+  that BSD reads as a literal pipe — so a filter silently stops filtering and a
+  scan that finds nothing looks exactly like a clean tree. The second check
+  found one in `validate.sh` itself, now fixed. Both are proven against a
+  canary, so a grep lacking the feature cannot report a vacuous pass.
 
 - `docs/RELEASING.md` says which date the `CHANGELOG` heading means. It held two
   rules that disagreed: the version bump is the release and a tag is only a
