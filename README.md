@@ -272,7 +272,8 @@ the observability skills at your stack.
 - **`install/user/gh-tasks.conf`** — optional, and most projects need none of
   it. `gh-tasks` finds a board through the link between it and your repository;
   this names one for the case GitHub will not let you link, where the board and
-  the code live under different owners.
+  the code live under different owners. A row here wins over a link, so it also
+  overrides a board that was found that way.
 - **`install/project/.agent.env`** — the one genuinely per-project file: the
   endpoints and API keys `hdx_query.sh` and `langfuse_query.sh` read, loaded from
   the project root.

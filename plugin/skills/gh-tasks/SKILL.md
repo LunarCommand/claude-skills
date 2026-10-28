@@ -148,7 +148,8 @@ rather than a broken skill. Say so once and continue.
   configuration at all. Where the board and the code repos sit under different
   owners GitHub refuses to link them, so the board is named in
   `~/.claude/gh-tasks.conf` instead — one whitespace-separated row per
-  repository. `install/user/gh-tasks.conf` is the template.
+  repository. `install/user/gh-tasks.conf` is the template. A row takes
+  precedence over a link, and `discovery.source` says which was used.
 - **The permission rules**, which live in the toolkit's `install/user/settings.json`
   template. A plugin cannot ship a permissions layer, so the user merges them in.
   If every call prompts, that is why.

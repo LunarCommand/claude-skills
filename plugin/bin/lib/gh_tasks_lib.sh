@@ -266,15 +266,27 @@ gh_tasks_config_lookup() {
   done < "$path"
 }
 
-# Linkage first: a board linked to this repo is discoverable with no local
-# state, which is the point of keeping the queue off any one machine. The keyed
-# file covers the case linkage cannot express -- a board links only to repos
-# under the same owner, so a workspace whose board and code repos sit in
-# different orgs has no linkage to read.
+# The keyed file wins over linkage. A row states which board holds this repo's
+# tasks and what visibility the workspace expects; linkage only infers the
+# board, and cannot carry a declared visibility at all. Query linkage first and
+# a row is discarded whenever a board happens to be linked, which nothing
+# surfaces: the board that comes back is a real one.
+#
+# Linkage still covers the common case with no local state, which is the point
+# of keeping the queue off any one machine. The file covers what linkage cannot
+# express: a board links only to repos under the same owner, so a workspace
+# whose board and code repos sit in different orgs has no linkage to read.
 #
 # Prints "login<TAB>number<TAB>visibility<TAB>source".
 gh_tasks_discover() {
   local repo="$1" owner name linked count cfg
+
+  cfg="$(gh_tasks_config_lookup "$repo")" || exit $?
+  if [[ -n "$cfg" ]]; then
+    printf '%s\tconfig\n' "$cfg"
+    return 0
+  fi
+
   owner="${repo%%/*}"
   name="${repo#*/}"
 
@@ -303,12 +315,6 @@ gh_tasks_discover() {
     echo "  Name the one to use in $(gh_tasks_config_path):" >&2
     echo "      $repo  <board owner>  <board number>  private" >&2
     exit 1
-  fi
-
-  cfg="$(gh_tasks_config_lookup "$repo")" || exit $?
-  if [[ -n "$cfg" ]]; then
-    printf '%s\tconfig\n' "$cfg"
-    return 0
   fi
 
   echo "Error: no task board found for $repo." >&2

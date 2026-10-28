@@ -28,7 +28,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   It finds the board through the link between the board and your repository, so
   most projects configure nothing. Where GitHub refuses to link them — a board
   and the code repos under different owners — `~/.claude/gh-tasks.conf` names
-  it instead; `install/user/gh-tasks.conf` is the template.
+  it instead; `install/user/gh-tasks.conf` is the template. A row in that file
+  takes precedence over a link, which is what makes it able to override a
+  linked board and to declare the visibility a workspace expects.
 
   **It reads and does not write.** Add, update, close and reorder come next, and
   the skill says so rather than reaching for `gh` directly.
