@@ -17,6 +17,8 @@
   "permissions": {
     "allow": [
       "Bash(adversarial_review_path.sh:*)",
+      "Bash(gh_tasks_board.sh:*)",
+      "Bash(gh_tasks_show.sh:*)",
       "Bash(hdx_query.sh:*)",
       "Bash(langfuse_query.sh:*)",
       "Bash(mutation_test_changed_lines.sh:*)",

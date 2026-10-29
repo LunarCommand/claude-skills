@@ -1,6 +1,6 @@
 {
   "name": "lunar-skills",
-  "description": "Claude Code skills used by LunarCommand: planning, adversarial and pull-request review, mutation testing, and observability.",
+  "description": "Claude Code skills used by LunarCommand: planning, adversarial and pull-request review, mutation testing, task tracking, and observability.",
   "owner": {
     "name": "LunarCommand",
     "url": "https://github.com/LunarCommand"

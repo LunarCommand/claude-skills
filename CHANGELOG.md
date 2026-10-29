@@ -16,14 +16,83 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ## Unreleased
 
+### gh-tasks (new)
+
+- A new skill that reads a project's work queue from GitHub issues organised on
+  a GitHub Project, so the queue survives the machine it was written on. Ask it
+  "where are we" or "what's next" and it answers in prose; ask for one task and
+  it reads that task's comments, which are where a change of mind or a reversed
+  ruling actually lives. `gh_tasks_board.sh` prints the board, `gh_tasks_show.sh`
+  prints one task.
+
+  It finds the board through the link between the board and your repository, so
+  most projects configure nothing. Where GitHub refuses to link them — a board
+  and the code repos under different owners — `~/.claude/gh-tasks.conf` names
+  it instead; `install/user/gh-tasks.conf` is the template. A row in that file
+  takes precedence over a link, which is what makes it able to override a
+  linked board and to declare the visibility a workspace expects.
+
+  **It reads and does not write.** Add, update, close and reorder come next, and
+  the skill says so rather than reaching for `gh` directly.
+
+  Two things it will tell you that are easy to get wrong. An issue is exactly as
+  public as the repository it lives in, whatever the board's privacy says — a
+  private board hides the board, not its items. And the order items come back in
+  is the board's own manual position, the one you set by dragging: it is not a
+  field, cannot be sorted on, and a view with a sort applied no longer shows it.
+
+  Needs the `project` token scope, which ordinary `gh` auth does not include.
+  Without it the scripts exit 77 and print the one command that fixes it.
+
+  Asking for closed items orders them by when they closed rather than by board
+  position, because "what did we finish" is a question about dates.
+
+  What it could not see, it says. A partial read reports how many items went
+  unread; a board that changed while being paged is reported rather than passed
+  off as complete; an item whose labels, assignees or sub-issues were capped
+  names the capped list; a field value of a type the scripts do not decode is
+  counted, so a missing field is never mistaken for an unset one; and a capped
+  comment read is flagged, because an unread comment is where a reversal
+  usually is. `GH_TASKS_FIELD_PAGE` raises how many fields are read per item.
+
+  Asking for one task by number without naming its repository consults the
+  board, and an issue found that way is accepted only once the board turns up
+  among the issue's own projects — so an unrelated repository's issue with the
+  same number is never returned as the task. Where that lookup read only part
+  of the board, `boardReadComplete` says so and the match is reported as the
+  one found among the items read, not as settled.
+
+  Discovery refuses rather than guesses when a repository is linked to more
+  boards than can be read at once: one open board among those read is not
+  evidence it is the only one, and none among them does not mean none exists.
+  Name the board in the config file in that case.
+
+  Looking up a task by number reads the whole board rather than its first page,
+  so an issue number carried by two of the board's repositories is reported as
+  ambiguous instead of being answered with whichever came first.
+  `GH_TASKS_LOCATE_PAGES` caps that read at 10 pages by default.
+
+  When the board itself cannot be read, the error says where its number came
+  from — a row in the config file, a repository link, or `--owner`/`--number` —
+  because GitHub answers a deleted board, a wrong number and a board the token
+  cannot see with the same message.
+
 ### Repository
+
+- `scripts/validate.sh` fails on two non-portable idioms it used to miss: a
+  `mktemp` with no template, which is a GNU default that BSD rejects outright,
+  and `\|` alternation in a basic regular expression, which is a GNU extension
+  that BSD reads as a literal pipe — so a filter silently stops filtering and a
+  scan that finds nothing looks exactly like a clean tree. The second check
+  found one in `validate.sh` itself, now fixed. Both are proven against a
+  canary, so a grep lacking the feature cannot report a vacuous pass.
 
 - `docs/RELEASING.md` says which date the `CHANGELOG` heading means. It held two
   rules that disagreed: the version bump is the release and a tag is only a
   bookmark, but the heading must be the day you tag. Those diverge whenever the
   bump lands before the tag, as `1.0.1` did. The heading dates the tag, and the
-  doc now says so, says users may have had the version earlier, and says to
-  re-date the heading if the tag slips — the step that was missing.
+  doc now says so, says the version may have been available earlier, and says
+  to re-date the heading if the tag slips — the step that was missing.
 
 - `install/user/CLAUDE.md` matches the workflow it is a template for again. It
   had one commit, was genericized from a copy older than the live file, and was
