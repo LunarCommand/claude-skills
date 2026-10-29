@@ -279,7 +279,7 @@ gh_tasks_config_lookup() {
 #
 # Prints "login<TAB>number<TAB>visibility<TAB>source".
 gh_tasks_discover() {
-  local repo="$1" owner name linked count cfg
+  local repo="$1" owner name page linked truncated count cfg
 
   cfg="$(gh_tasks_config_lookup "$repo")" || exit $?
   if [[ -n "$cfg" ]]; then
@@ -290,21 +290,39 @@ gh_tasks_discover() {
   owner="${repo%%/*}"
   name="${repo#*/}"
 
-  linked="$(gh_tasks_api \
+  page="$(gh_tasks_api \
     -F owner="$owner" -F name="$name" \
     -f query='query($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
-        projectsV2(first: 20) {
+        projectsV2(first: 100) {
+          totalCount
           nodes { number closed owner { ... on Organization { login } ... on User { login } } }
         }
       }
     }' \
-    --jq '[(.data.repository.projectsV2.nodes // [])[]
-           | select(.closed == false)
-           | select(.owner.login != null)]
-          | .[] | "\(.owner.login)\t\(.number)"')" || exit $?
+    --jq '(.data.repository.projectsV2) as $p |
+          "TRUNCATED\t\((($p.totalCount // 0) > (($p.nodes // []) | length)))",
+          (($p.nodes // [])[]
+            | select(.closed == false)
+            | select(.owner.login != null)
+            | "BOARD\t\(.owner.login)\t\(.number)")')" || exit $?
 
+  truncated="$(printf '%s\n' "$page" | awk -F'\t' '$1 == "TRUNCATED" { print $2; exit }')"
+  linked="$(printf '%s\n' "$page" | awk -F'\t' '$1 == "BOARD" { print $2 "\t" $3 }')"
   count="$(printf '%s' "$linked" | grep -c . || true)"
+
+  # No count taken from a truncated list is evidence. One open board among those
+  # read may not be the only one, and none among them does not mean none exists,
+  # so neither the linkage answer below nor the no-board error can be reached
+  # from here.
+  if [[ "$truncated" == "true" ]]; then
+    echo "Error: $repo is linked to more boards than could be read, so linkage cannot" >&2
+    echo "  settle which one holds its tasks. Open boards among those read: $count." >&2
+    echo "  Name the one to use in $(gh_tasks_config_path):" >&2
+    echo "      $repo  <board owner>  <board number>  private" >&2
+    exit 1
+  fi
+
   if [[ "$count" -eq 1 ]]; then
     printf '%s\tunspecified\tlinkage\n' "$linked"
     return 0
@@ -324,6 +342,27 @@ gh_tasks_discover() {
   exit 1
 }
 
+# A NOT_FOUND on the board says nothing about where its number came from, which
+# is the one thing needed to fix it: GitHub answers a deleted board, a wrong
+# number and a board the token cannot see with the same error.
+gh_tasks_board_origin() {
+  local source="$1" login="$2" number="$3" repo="${4:-}"
+  case "$source" in
+    (explicit)
+      echo "  Board $number under $login was named by --owner and --number." >&2
+      ;;
+    (config)
+      echo "  Board $number under $login came from a row in $(gh_tasks_config_path):" >&2
+      echo "      $repo  $login  $number" >&2
+      echo "  Correct that row, or remove it to fall back to the repository's link." >&2
+      ;;
+    (linkage)
+      echo "  Board $number under $login was found through its link to $repo." >&2
+      echo "  Re-link the repository, or name a board in $(gh_tasks_config_path)." >&2
+      ;;
+  esac
+}
+
 # Locating an issue's repository is the one thing a single-item read cannot do
 # from the issue alone: the caller has a number, and which repo holds it is a
 # property of the workspace.
@@ -334,12 +373,12 @@ gh_tasks_discover() {
 # "a repo that has an issue numbered N" is not the same claim as "the repo
 # holding board item N" -- only an EXACT line carries the second.
 # shellcheck disable=SC2034  # read by gh_tasks_locate_issue below
-GH_TASKS_LOCATE_QUERY='query($login: String!, $num: Int!, $first: Int!) {
+GH_TASKS_LOCATE_QUERY='query($login: String!, $num: Int!, $first: Int!, $after: String) {
   repositoryOwner(login: $login) {
     ... on ProjectV2Owner {
       projectV2(number: $num) {
-        items(first: $first) {
-          pageInfo { hasNextPage }
+        items(first: $first, after: $after) {
+          pageInfo { hasNextPage endCursor }
           nodes { content { ... on Issue { number repository { nameWithOwner } } } }
         }
       }
@@ -347,27 +386,59 @@ GH_TASKS_LOCATE_QUERY='query($login: String!, $num: Int!, $first: Int!) {
   }
 }'
 
+gh_tasks_locate_pages() {
+  local n="${GH_TASKS_LOCATE_PAGES:-10}"
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -lt 1 ]] || [[ "$n" -gt 100 ]]; then
+    echo "Error: GH_TASKS_LOCATE_PAGES must be 1-100, got: $n" >&2
+    exit 1
+  fi
+  printf '%s' "$n"
+}
+
 # Prints one "EXACT<TAB>owner/name" line per board item matching issue $3, a
 # "CANDIDATE<TAB>owner/name" line per distinct repository on the page, and one
 # "MORE<TAB>true|false" line saying whether the board continues past it.
 gh_tasks_locate_issue() {
-  local login="$1" number="$2" issue="$3" page
-  page="$(gh_tasks_api \
-    -F login="$login" -F num="$number" -F first=100 \
-    -f query="$GH_TASKS_LOCATE_QUERY" \
-    --jq '
+  local login="$1" number="$2" issue="$3" page seen="" cursor="" pages=0 cap more=false
+
+  # Every page is read, not just the one holding the first match: whether the
+  # board carries this number in more than one repository is a property of the
+  # whole board, and a caller told "exact" from a partial read has no way to
+  # know it was a guess. The cap bounds the cost of that on a large board and
+  # is reported as an incomplete read when it stops the loop.
+  cap="$(gh_tasks_locate_pages)" || exit $?
+  while :; do
+    set -- -F login="$login" -F num="$number" -F first=100 \
+           -f query="$GH_TASKS_LOCATE_QUERY"
+    [[ -n "$cursor" ]] && set -- "$@" -F after="$cursor"
+    page="$(gh_tasks_api "$@" --jq '
       (.data.repositoryOwner.projectV2.items) as $i |
-      "MORE\t\($i.pageInfo.hasNextPage)",
+      "NEXT\t\($i.pageInfo.hasNextPage)",
+      "CURSOR\t\($i.pageInfo.endCursor // "")",
       (($i.nodes // [])[] | select(.content.number != null)
             | "SEEN\t\(.content.number)\t\(.content.repository.nameWithOwner)")')" || exit $?
+    pages=$((pages + 1))
+    seen="$seen$(printf '%s\n' "$page" | awk -F'\t' '$1 == "SEEN"')"$'\n'
+    if [[ "$(printf '%s\n' "$page" | awk -F'\t' '$1 == "NEXT" { print $2; exit }')" != "true" ]]; then
+      break
+    fi
+    if [[ "$pages" -ge "$cap" ]]; then
+      more=true
+      break
+    fi
+    cursor="$(printf '%s\n' "$page" | awk -F'\t' '$1 == "CURSOR" { print $2; exit }')"
+    if [[ -z "$cursor" ]]; then
+      more=true
+      break
+    fi
+  done
 
-  printf '%s\n' "$page" | awk -F'\t' -v n="$issue" '
-    $1 == "MORE" { more = $2 }
+  printf '%s\n' "$seen" | awk -F'\t' -v n="$issue" -v more="$more" '
     $1 == "SEEN" && $2 == n && !exactseen[$3]++ { exact[++e] = $3 }
     $1 == "SEEN" && !seen[$3]++                 { cand[++c] = $3 }
     END {
       for (i = 1; i <= e; i++) print "EXACT\t" exact[i]
       for (i = 1; i <= c; i++) print "CANDIDATE\t" cand[i]
-      print "MORE\t" (more == "" ? "false" : more)
+      print "MORE\t" more
     }'
 }

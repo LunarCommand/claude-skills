@@ -98,6 +98,7 @@ fi
 
 CURRENT=""
 RESOLUTION=explicit
+SOURCE=explicit
 BOARD_MORE=false
 CANDIDATES=""
 
@@ -109,17 +110,27 @@ if [[ -z "$REPO" ]]; then
     # See gh_tasks_board.sh: the assignment has to carry the status, because a
     # `read` in front of the substitution would swallow a non-zero exit.
     DISCOVERED="$(gh_tasks_discover "$CURRENT")" || exit $?
-    IFS=$'\t' read -r LOGIN NUMBER _DECLARED _SOURCE <<<"$DISCOVERED"
+    IFS=$'\t' read -r LOGIN NUMBER _DECLARED SOURCE <<<"$DISCOVERED"
   fi
   if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
     echo "Error: board number must be numeric, got: $NUMBER" >&2
     exit 1
   fi
+  if ! [[ "$LOGIN" =~ ^[A-Za-z0-9-]{1,39}$ ]]; then
+    echo "Error: board owner must be a GitHub login, got: $LOGIN" >&2
+    exit 1
+  fi
 
-  LOCATED="$(gh_tasks_locate_issue "$LOGIN" "$NUMBER" "$ISSUE")" || exit $?
+  LOCATE_STATUS=0
+  LOCATED="$(gh_tasks_locate_issue "$LOGIN" "$NUMBER" "$ISSUE")" || LOCATE_STATUS=$?
+  if [[ "$LOCATE_STATUS" -ne 0 ]]; then
+    [[ "$LOCATE_STATUS" -eq 44 ]] && gh_tasks_board_origin "$SOURCE" "$LOGIN" "$NUMBER" "$CURRENT"
+    exit "$LOCATE_STATUS"
+  fi
   EXACT="$(printf '%s\n' "$LOCATED" | awk -F'\t' '$1 == "EXACT" {print $2}')"
   CANDIDATES="$(printf '%s\n' "$LOCATED" | awk -F'\t' '$1 == "CANDIDATE" {print $2}')"
   BOARD_MORE="$(printf '%s\n' "$LOCATED" | awk -F'\t' '$1 == "MORE" {print $2; exit}')"
+  [[ "$BOARD_MORE" == "true" ]] || BOARD_MORE=false
   EXACT_N="$(printf '%s' "$EXACT" | grep -c . || true)"
 
   if [[ "$EXACT_N" -gt 1 ]]; then
@@ -137,7 +148,7 @@ if [[ -z "$REPO" ]]; then
     # it holds turns out to be on this board, checked below.
     RESOLUTION=searched
     if [[ -z "$CANDIDATES" ]]; then
-      echo "Error: no issues were found among the first 100 items of board $NUMBER under $LOGIN," >&2
+      echo "Error: no issues were found among the items read from board $NUMBER under $LOGIN," >&2
       echo "  so there is no repository to look in for #$ISSUE." >&2
       echo "  Name it directly: gh_tasks_show.sh $ISSUE --repo <owner>/<name>" >&2
       exit 1
@@ -191,11 +202,24 @@ QUERY='query($owner: String!, $name: String!, $issue: Int!, $comments: Int!) {
   }
 }'
 
-# RESOLUTION is one of a fixed set of literals checked above, so interpolating
-# it into the filter cannot introduce a program fragment.
+# Every value interpolated into the filter is checked above: RESOLUTION and
+# BOARD_MORE against fixed sets of literals, LOGIN against the GitHub login
+# charset, NUMBER as digits. None can introduce a program fragment.
+#
+# A searched candidate is accepted or rejected here rather than by matching the
+# serialised result, because this is where the response is parsed: a board is
+# identified by its owner and number as values, not as a byte sequence that
+# could also occur inside a title or a field.
 SHOW_JQ='
     .data.repository.issue as $i |
-    if $i == null then "null" else
+    if $i == null then "null"
+    elif "__RESOLUTION__" == "searched"
+         and ([($i.projectItems.nodes // [])[]
+               | select(.project.owner.login == "__LOGIN__"
+                        and .project.number == __NUMBER__)] | length) == 0
+      then (if ($i.projectItems.totalCount // 0) > 10
+            then "rejectpartial" else "reject" end)
+    else
     ([
       (if (($i.comments.nodes | length) < $i.comments.totalCount)
         then "read \(($i.comments.nodes | length)) of \($i.comments.totalCount) comments; re-run with a higher --comments before answering why something changed"
@@ -210,6 +234,12 @@ SHOW_JQ='
         then "this issue carries field values of a type these scripts do not decode; a field missing from a fields object may still have a value" else empty end),
       (if "__RESOLUTION__" == "searched"
         then "this issue was not among the board items read; it was found by searching the repositories the board names, and accepted because the board appears among its own projects"
+        else empty end),
+      (if "__BOARDMORE__" == "true" and "__RESOLUTION__" == "exact"
+        then "the board continues past the items read, so this is the match among those items; another repository on the board could hold an issue of the same number"
+        else empty end),
+      (if "__BOARDMORE__" == "true" and "__RESOLUTION__" == "searched"
+        then "the board continues past the items read, so the repositories searched are only those named by the items that were read"
         else empty end)
     ]) as $warnings |
     {
@@ -220,6 +250,7 @@ SHOW_JQ='
       repo:       $i.repository.nameWithOwner,
       visibility: $i.repository.visibility,
       repoResolution: "__RESOLUTION__",
+      boardReadComplete: (if "__RESOLUTION__" == "explicit" then null else "__BOARDMORE__" != "true" end),
       author:     ($i.author.login // null),
       createdAt:  $i.createdAt,
       closedAt:   $i.closedAt,
@@ -262,6 +293,11 @@ SHOW_JQ='
 QUERY="$(gh_tasks_expand "$QUERY")" || exit $?
 SHOW_JQ="$(gh_tasks_expand "$SHOW_JQ")" || exit $?
 SHOW_JQ="${SHOW_JQ//__RESOLUTION__/$RESOLUTION}"
+SHOW_JQ="${SHOW_JQ//__BOARDMORE__/$BOARD_MORE}"
+SHOW_JQ="${SHOW_JQ//__LOGIN__/$LOGIN}"
+# An empty NUMBER would leave `== ` in the filter, which fails to PARSE even on
+# the --repo path where the comparison is never reached.
+SHOW_JQ="${SHOW_JQ//__NUMBER__/${NUMBER:--1}}"
 
 fetch_issue() {
   gh_tasks_api \
@@ -272,13 +308,10 @@ fetch_issue() {
 # A candidate holds the task only if the board it was sought on is one of the
 # issue's own projects. Without that check, a repository that merely has an
 # issue with the same number answers as the task: right number, wrong subject.
-on_searched_board() {
-  printf '%s' "$1" | grep -q "\"owner\":\"$LOGIN\",\"number\":$NUMBER,"
-}
-
 OUT=""
 TRIED=""
 REJECTED=""
+REJECTED_PARTIAL=""
 for candidate in ${REPO:-$CANDIDATES}; do
   if ! [[ "$candidate" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
     echo "Error: implausible repository from the board: $candidate" >&2
@@ -314,8 +347,12 @@ for candidate in ${REPO:-$CANDIDATES}; do
   if [[ "$status" -eq 44 || "$RESULT" == "null" ]]; then
     continue
   fi
-  if [[ "$RESOLUTION" == "searched" ]] && ! on_searched_board "$RESULT"; then
+  if [[ "$RESULT" == "reject" ]]; then
     REJECTED="$REJECTED $candidate"
+    continue
+  fi
+  if [[ "$RESULT" == "rejectpartial" ]]; then
+    REJECTED_PARTIAL="$REJECTED_PARTIAL $candidate"
     continue
   fi
   OUT="$RESULT"
@@ -331,8 +368,14 @@ if [[ -z "$OUT" ]]; then
     echo "  These hold an issue #$ISSUE that is not on the board, so it is not this task:" >&2
     printf '        %s\n' $REJECTED >&2
   fi
+  if [[ -n "$REJECTED_PARTIAL" ]]; then
+    REJECTED_PARTIAL="${REJECTED_PARTIAL# }"
+    echo "  These hold an issue #$ISSUE on more than 10 boards, and this board was not" >&2
+    echo "  among the 10 that were read, so whether it is this task is unsettled:" >&2
+    printf '        %s\n' $REJECTED_PARTIAL >&2
+  fi
   if [[ "$BOARD_MORE" == "true" ]]; then
-    echo "  The board continues past the 100 items that were read, so it may hold #$ISSUE" >&2
+    echo "  The board continues past the items that were read, so it may hold #$ISSUE" >&2
     echo "  in a repository not named above." >&2
   fi
   echo "  Name its repository directly: gh_tasks_show.sh $ISSUE --repo <owner>/<name>" >&2

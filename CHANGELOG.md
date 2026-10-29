@@ -58,7 +58,24 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   Asking for one task by number without naming its repository consults the
   board, and an issue found that way is accepted only once the board turns up
   among the issue's own projects — so an unrelated repository's issue with the
-  same number is never returned as the task.
+  same number is never returned as the task. Where that lookup read only part
+  of the board, `boardReadComplete` says so and the match is reported as the
+  one found among the items read, not as settled.
+
+  Discovery refuses rather than guesses when a repository is linked to more
+  boards than can be read at once: one open board among those read is not
+  evidence it is the only one, and none among them does not mean none exists.
+  Name the board in the config file in that case.
+
+  Looking up a task by number reads the whole board rather than its first page,
+  so an issue number carried by two of the board's repositories is reported as
+  ambiguous instead of being answered with whichever came first.
+  `GH_TASKS_LOCATE_PAGES` caps that read at 10 pages by default.
+
+  When the board itself cannot be read, the error says where its number came
+  from — a row in the config file, a repository link, or `--owner`/`--number` —
+  because GitHub answers a deleted board, a wrong number and a board the token
+  cannot see with the same message.
 
 ### Repository
 

@@ -196,7 +196,12 @@ RETURNED=0
 while :; do
   set -- -F login="$LOGIN" -F num="$NUMBER" -F first="$LIMIT" -f query="$BOARD_QUERY"
   [[ -n "$CURSOR" ]] && set -- "$@" -F after="$CURSOR"
-  PAGE="$(gh_tasks_api "$@" --jq "$(page_filter)")" || exit $?
+  STATUS=0
+  PAGE="$(gh_tasks_api "$@" --jq "$(page_filter)")" || STATUS=$?
+  if [[ "$STATUS" -ne 0 ]]; then
+    [[ "$STATUS" -eq 44 ]] && gh_tasks_board_origin "$SOURCE" "$LOGIN" "$NUMBER" "$REPO"
+    exit "$STATUS"
+  fi
   PAGES=$((PAGES + 1))
   CURSOR=""
 

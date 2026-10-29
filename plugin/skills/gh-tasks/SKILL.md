@@ -32,7 +32,12 @@ discovery. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
 `gh_tasks_show.sh` takes `--repo` to skip the board lookup and `--comments N`.
 
 `GH_TASKS_FIELD_PAGE` raises how many of a board's fields are read per item
-(default 50, maximum 100).
+(default 50, maximum 100). `GH_TASKS_LOCATE_PAGES` caps how many pages of a
+board `gh_tasks_show.sh` reads while looking for an issue's repository
+(default 10, maximum 100, 100 items per page). The whole board is read rather
+than stopping at the first match, because whether two repositories carry the
+same issue number is a property of the whole board; when the cap stops the read,
+`boardReadComplete` is false.
 
 Run each on its own — never chain them.
 
@@ -88,7 +93,8 @@ visibility mismatch, or fields that went unread.
 ## Reading one task
 
 `gh_tasks_show.sh` prints one JSON object: `issue`, `title`, `state`, `url`,
-`repo`, `visibility`, `repoResolution`, `author`, `createdAt`, `closedAt`,
+`repo`, `visibility`, `repoResolution`, `boardReadComplete`, `author`,
+`createdAt`, `closedAt`,
 `warnings`, `labels`, `assignees`, `parent`, `subIssues` as
 `{total, read, nodes}`, `body`, `comments` as `{total, read, nodes}`, and
 `boards` — one entry per Project carrying the issue, each with its own `fields`
@@ -107,6 +113,13 @@ and `fieldsUndecoded`.
 located by looking in the repositories the board names and was accepted only
 because the board appears among the issue's own projects — mention that it was
 not among the board items read.
+
+**`boardReadComplete` qualifies `repoResolution`.** It is `null` when `--repo`
+named the repository, so no board was read. When it is `false` the board
+continues past the items that were read, and neither `exact` nor `searched` is
+settled: `exact` is the match among the items read, and another repository on
+the board could hold an issue of the same number. Say so, or re-run with
+`--repo` once you know which repository you mean.
 
 Its `warnings` array follows the same rule as the board's: repeat it.
 
