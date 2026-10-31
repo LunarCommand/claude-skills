@@ -635,8 +635,13 @@ gh_tasks_option_id() {
   printf '%s' "$hit"
 }
 
+# The page of labels the resolve read is searched first because it is what
+# matches a name whose case differs from the repository's. GitHub's
+# label(name:) is case-sensitive, so it can only answer for an exact spelling --
+# but it is not bounded by that page, which is what a repository holding more
+# labels than were read needs.
 gh_tasks_label_id() {
-  local resolved="$1" want="$2" hit total
+  local resolved="$1" want="$2" repo="$3" hit total read_n status=0
   hit="$(printf '%s\n' "$resolved" | awk -F'\t' -v want="$want" '
     $1 == "LABEL" {
       name = $3; for (i = 4; i <= NF; i++) name = name "\t" $i
@@ -645,9 +650,24 @@ gh_tasks_label_id() {
     }
     END { if (fold != "") print fold }')"
   if [[ -z "$hit" ]]; then
+    hit="$(gh_tasks_api -f owner="${repo%%/*}" -f name="${repo#*/}" -f label="$want" \
+      -f query='query($owner: String!, $name: String!, $label: String!) {
+        repository(owner: $owner, name: $name) { label(name: $label) { id } }
+      }' --jq '.data.repository.label.id // empty')" || status=$?
+    [[ "$status" -eq 0 ]] || exit "$status"
+  fi
+  if [[ -z "$hit" ]]; then
     total="$(gh_tasks_resolved "$resolved" LABELSTOTAL)"
-    echo "Error: $want is not a label on this repository, among the $total read." >&2
-    echo "  Create it first, or name one that exists." >&2
+    read_n="$(printf '%s\n' "$resolved" | awk -F'\t' '$1 == "LABEL" { n++ } END { print n + 0 }')"
+    if [[ "${total:-0}" -gt "$read_n" ]]; then
+      echo "Error: $repo has no label spelled exactly '$want'." >&2
+      echo "  $read_n of its $total labels were read, and none of those matches" >&2
+      echo "  ignoring case either. One beyond them is found only by its exact" >&2
+      echo "  spelling, so check the case and name it as the repository has it." >&2
+    else
+      echo "Error: $want is not a label on this repository, among the $total read." >&2
+      echo "  Create it first, or name one that exists." >&2
+    fi
     exit 1
   fi
   printf '%s' "$hit"
