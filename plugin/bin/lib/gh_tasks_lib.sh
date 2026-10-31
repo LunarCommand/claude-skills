@@ -442,3 +442,364 @@ gh_tasks_locate_issue() {
       print "MORE\t" more
     }'
 }
+
+# ---------------------------------------------------------------------------
+# The write path
+# ---------------------------------------------------------------------------
+#
+# Writes name their repository instead of searching the board for it, which is
+# the one place the write path is deliberately less willing than the read path.
+# A located repository is a fair answer to "show me task 22" and an unfair
+# target for a mutation: two repositories on one board can both hold an issue
+# numbered 22, and the write cannot be taken back.
+
+# Every ID a write needs arrives in one call: the board's ID, each field's ID
+# with the IDs of the values it can take, the repository's ID and real
+# visibility, and -- for an existing task -- the issue's ID with its item ID on
+# this board. Resolving twice would mean two snapshots, and a field renamed
+# between them leaves a mutation carrying an ID that the name no longer means.
+#
+# The board is never paged to find the item. An issue carries its own
+# projectItems, so the item ID comes from the issue for the cost of a selection
+# rather than a walk over every item on the board.
+#
+# @include keeps one document for both shapes rather than two that drift. The
+# issue selection is skipped on a create, where no issue exists to name.
+# shellcheck disable=SC2034  # read by the gh_tasks_* scripts that source this
+GH_TASKS_RESOLVE_QUERY='query($login: String!, $num: Int!, $owner: String!, $name: String!, $issue: Int!, $withIssue: Boolean!) {
+  repositoryOwner(login: $login) {
+    ... on ProjectV2Owner {
+      projectV2(number: $num) {
+        id
+        number
+        title
+        url
+        fields(first: __FIELDPAGE__) {
+          totalCount
+          nodes {
+            ... on ProjectV2FieldCommon { id name dataType }
+            ... on ProjectV2SingleSelectField { options { id name } }
+            ... on ProjectV2IterationField {
+              configuration { iterations { id title } }
+            }
+          }
+        }
+      }
+    }
+  }
+  repository(owner: $owner, name: $name) {
+    id
+    nameWithOwner
+    visibility
+    hasIssuesEnabled
+    labels(first: 100) { totalCount nodes { id name } }
+    issue(number: $issue) @include(if: $withIssue) {
+      id
+      number
+      title
+      state
+      url
+      parent { number }
+      projectItems(first: 20) {
+        totalCount
+        nodes { id project { id number } }
+      }
+    }
+  }
+}'
+
+# Free text goes LAST on every tagged line. A board's field names and option
+# names come from whoever made the board, so a name holding a tab shifts no
+# column that is read by position.
+GH_TASKS_RESOLVE_JQ='
+  (.data.repositoryOwner.projectV2) as $p |
+  (.data.repository) as $r |
+  "PROJECT\t\($p.id // "")",
+  "BOARDNUM\t\($p.number // 0)",
+  "FIELDSTOTAL\t\($p.fields.totalCount // 0)",
+  "BOARDTITLE\t\($p.title | tojson)",
+  "BOARDURL\t\($p.url | tojson)",
+  (($p.fields.nodes // [])[] | select(.name != null) | . as $f |
+    "FIELD\t\($f.dataType)\t\($f.id)\t\($f.name)",
+    (($f.options // [])[] | "OPTION\t\($f.id)\t\(.id)\t\(.name)"),
+    (($f.configuration.iterations // [])[] | "OPTION\t\($f.id)\t\(.id)\t\(.title)")),
+  "REPOID\t\($r.id // "")",
+  "REPOVIS\t\($r.visibility // "")",
+  "REPOISSUES\t\($r.hasIssuesEnabled // false)",
+  "LABELSTOTAL\t\($r.labels.totalCount // 0)",
+  (($r.labels.nodes // [])[] | "LABEL\t\(.id)\t\(.name)"),
+  (if $r.issue == null then empty else
+    "ISSUEID\t\($r.issue.id)",
+    "ISSUESTATE\t\($r.issue.state)",
+    "ISSUEPARENT\t\($r.issue.parent.number // "")",
+    "ITEMSTOTAL\t\($r.issue.projectItems.totalCount // 0)",
+    "ISSUEURL\t\($r.issue.url | tojson)",
+    "ISSUETITLE\t\($r.issue.title | tojson)",
+    (($r.issue.projectItems.nodes // [])[]
+      | select(.project.id == ($p.id // "")) | "ITEM\t\(.id)")
+  end)'
+
+# A GraphQL String! variable is passed with -f, never -F: -F parses what looks
+# like a number or a boolean into one, so a login or a title of "123" would
+# arrive as an Int and the query would be rejected on its type.
+gh_tasks_resolve() {
+  local login="$1" number="$2" repo="$3" issue="${4:-}" with=false doc
+  local owner="${repo%%/*}" name="${repo#*/}"
+  [[ -n "$issue" ]] && with=true
+  doc="$(gh_tasks_expand "$GH_TASKS_RESOLVE_QUERY")" || exit $?
+  gh_tasks_api \
+    -f login="$login" -F num="$number" \
+    -f owner="$owner" -f name="$name" \
+    -F issue="${issue:-0}" -F withIssue="$with" \
+    -f query="$doc" --jq "$GH_TASKS_RESOLVE_JQ"
+}
+
+gh_tasks_resolved() {
+  printf '%s\n' "$1" | awk -F'\t' -v tag="$2" '
+    $1 == tag { v = $2; for (i = 3; i <= NF; i++) v = v "\t" $i; print v; exit }'
+}
+
+# Names are matched against the board's own answer and mutations carry only the
+# IDs it gave: an ID GitHub does not know is an error, where a misspelled name
+# would be a write that quietly lands on nothing.
+#
+# Case folding is a fallback, not the match, and an ambiguous name refuses
+# rather than picking -- a board may hold both `Status` and `status`, and
+# neither is the obvious one.
+#
+# Prints "id<TAB>dataType<TAB>name", the name as the board spells it: a caller
+# reporting back what the user typed would name a field the board does not have,
+# and `area` matching `Area` is the whole point of folding the case.
+gh_tasks_field_id() {
+  local resolved="$1" want="$2" hit
+  hit="$(printf '%s\n' "$resolved" | awk -F'\t' -v want="$want" '
+    $1 == "FIELD" {
+      name = $4; for (i = 5; i <= NF; i++) name = name "\t" $i
+      if (name == want)                    { exact[++e] = $3 "\t" $2 "\t" name }
+      else if (tolower(name) == tolower(want)) { fold[++f] = $3 "\t" $2 "\t" name }
+    }
+    END {
+      if (e == 1) { print exact[1]; exit }
+      if (e > 1)  { print "AMBIGUOUS"; exit }
+      if (f == 1) { print fold[1]; exit }
+      if (f > 1)  { print "AMBIGUOUS"; exit }
+    }')"
+  if [[ "$hit" == "AMBIGUOUS" ]]; then
+    echo "Error: more than one field on this board is named '$want'." >&2
+    echo "  Spell the one you mean exactly as the board does." >&2
+    exit 1
+  fi
+  if [[ -z "$hit" ]]; then
+    echo "Error: this board has no field named '$want'. It has:" >&2
+    gh_tasks_field_list "$resolved" >&2
+    exit 1
+  fi
+  printf '%s' "$hit"
+}
+
+gh_tasks_field_list() {
+  printf '%s\n' "$1" | awk -F'\t' '
+    $1 == "FIELD" {
+      name = $4; for (i = 5; i <= NF; i++) name = name "\t" $i
+      printf "      %s [%s]\n", name, $2
+    }'
+}
+
+# Prints "id<TAB>name" for the named value of a select or iteration field, the
+# name as the board spells it.
+gh_tasks_option_id() {
+  local resolved="$1" field="$2" want="$3" label="$4" hit
+  hit="$(printf '%s\n' "$resolved" | awk -F'\t' -v fid="$field" -v want="$want" '
+    $1 == "OPTION" && $2 == fid {
+      name = $4; for (i = 5; i <= NF; i++) name = name "\t" $i
+      if (name == want)                        { exact[++e] = $3 "\t" name }
+      else if (tolower(name) == tolower(want)) { fold[++f] = $3 "\t" name }
+    }
+    END {
+      if (e == 1) { print exact[1]; exit }
+      if (e > 1)  { print "AMBIGUOUS"; exit }
+      if (f == 1) { print fold[1]; exit }
+      if (f > 1)  { print "AMBIGUOUS"; exit }
+    }')"
+  if [[ "$hit" == "AMBIGUOUS" ]]; then
+    echo "Error: field '$label' has more than one value named '$want'." >&2
+    exit 1
+  fi
+  if [[ -z "$hit" ]]; then
+    echo "Error: field '$label' has no value named '$want'. It accepts:" >&2
+    printf '%s\n' "$resolved" | awk -F'\t' -v fid="$field" '
+      $1 == "OPTION" && $2 == fid {
+        name = $4; for (i = 5; i <= NF; i++) name = name "\t" $i
+        printf "      %s\n", name
+      }' >&2
+    exit 1
+  fi
+  printf '%s' "$hit"
+}
+
+gh_tasks_label_id() {
+  local resolved="$1" want="$2" hit total
+  hit="$(printf '%s\n' "$resolved" | awk -F'\t' -v want="$want" '
+    $1 == "LABEL" {
+      name = $3; for (i = 4; i <= NF; i++) name = name "\t" $i
+      if (name == want)                        { print $2; exit }
+      else if (tolower(name) == tolower(want)) { fold = $2 }
+    }
+    END { if (fold != "") print fold }')"
+  if [[ -z "$hit" ]]; then
+    total="$(gh_tasks_resolved "$resolved" LABELSTOTAL)"
+    echo "Error: $want is not a label on this repository, among the $total read." >&2
+    echo "  Create it first, or name one that exists." >&2
+    exit 1
+  fi
+  printf '%s' "$hit"
+}
+
+# ProjectV2CustomFieldType -- GitHub's own enum of the field types a project
+# defines, which is exactly the set `updateProjectV2ItemFieldValue` accepts. Every
+# other dataType on a board is a view of the issue (its labels, its assignees,
+# its milestone, its title), writable only on the issue itself.
+gh_tasks_field_writable() {
+  case "$2" in
+    (TEXT|NUMBER|DATE|SINGLE_SELECT|MULTI_SELECT|ITERATION) return 0 ;;
+  esac
+  echo "Error: '$1' is a $2 field, which the board does not store." >&2
+  case "$2" in
+    (TITLE)     echo "  It shows the issue's title; change the issue." >&2 ;;
+    (LABELS)    echo "  It shows the issue's labels; change them on the issue." >&2 ;;
+    (ASSIGNEES) echo "  It shows the issue's assignees; change them on the issue." >&2 ;;
+    (MILESTONE) echo "  It shows the issue's milestone; change it on the issue." >&2 ;;
+    (*)         echo "  It is derived from the issue and cannot be set." >&2 ;;
+  esac
+  exit 1
+}
+
+# The guard is about publishing, not about configuration. A board found by
+# linkage carries no declaration at all, which is the common case and the point
+# of the design, so a write into a private repository proceeds and only a write
+# that would be world-visible needs the caller to have said so out loud.
+#
+# A declaration, where one exists, is held to exactly. A workspace that says
+# private over a repository that is not is a disagreement that only the person
+# who wrote the row can settle, so these scripts refuse instead of choosing.
+gh_tasks_visibility_guard() {
+  local declared="$1" actual="$2" repo="$3" ok="$4"
+  case "$declared" in
+    (private|public)
+      if [[ "$actual" != "$(printf '%s' "$declared" | tr '[:lower:]' '[:upper:]')" ]]; then
+        echo "Refusing to write: $(gh_tasks_config_path) declares $declared for $repo," >&2
+        echo "  but GitHub reports it $actual. Correct the row, or the repository." >&2
+        exit 78
+      fi
+      ;;
+  esac
+  if [[ "$actual" == "PUBLIC" && "$ok" != "1" ]]; then
+    echo "Refusing to write: $repo is PUBLIC, so this would be world-readable." >&2
+    echo "  Pass --public-ok to write to it anyway." >&2
+    exit 78
+  fi
+}
+
+# Escapes a string for JSON output. Only the write path needs it: the readers
+# echo back nothing but what the API gave them, already serialised by gh's own
+# jq, while a write reports names and values that came from the command line.
+#
+# The control characters left after the named five have no JSON escape short of
+# \u, and none of them belongs in a field name or a task title, so they are
+# dropped rather than smuggled into output that then fails to parse.
+gh_tasks_json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\n'/\\n}"
+  printf '"%s"' "$(printf '%s' "$s" | tr -d '\000-\010\013\014\016-\037')"
+}
+
+# One resolve asks for a repository, a board and an issue together, and one
+# NOT_FOUND cannot say which of the three was missing -- while the three have
+# different fixes: a wrong repository or issue number is the caller's to
+# correct, a board that cannot be read is the configuration's.
+#
+# Each half is asked for on its own rather than the error message parsed. That
+# costs up to two more queries, on a path that has already failed, and does not
+# rest on the wording of a message that is not a contract.
+#
+# Prints "repo", "board" or "issue".
+gh_tasks_resolve_blame() {
+  local login="$1" number="$2" repo="$3" status=0
+  gh_tasks_api -f owner="${repo%%/*}" -f name="${repo#*/}" \
+    -f query='query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) { id }
+    }' --jq '.data.repository.id' >/dev/null 2>&1 || status=$?
+  if [[ "$status" -ne 0 ]]; then printf 'repo'; return 0; fi
+  status=0
+  gh_tasks_resolve "$login" "$number" "$repo" >/dev/null 2>&1 || status=$?
+  if [[ "$status" -ne 0 ]]; then printf 'board'; else printf 'issue'; fi
+}
+
+# A field's value, validated and turned into whatever the mutation must carry:
+# an option's ID for a select, the value itself for the rest.
+#
+# Set as globals rather than printed, because a TEXT value is arbitrary text. A
+# value holding a tab or a newline cannot be read back out of one string, and
+# both the ID the mutation carries and the spelling to report are needed.
+#
+# Resolving a value here rather than at the mutation is what lets a create
+# validate every field before it makes anything: a misspelled option must not
+# leave a task behind.
+GH_TASKS_VALUE_ID=""
+GH_TASKS_VALUE_SHOWN=""
+gh_tasks_field_value() {
+  local resolved="$1" fid="$2" kind="$3" name="$4" raw="$5" found
+  GH_TASKS_VALUE_ID="$raw"
+  GH_TASKS_VALUE_SHOWN="$raw"
+  case "$kind" in
+    (TEXT) ;;
+    (NUMBER)
+      if ! [[ "$raw" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "Error: field '$name' takes a number; got: $raw" >&2
+        exit 1
+      fi ;;
+    (DATE)
+      if ! [[ "$raw" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "Error: field '$name' takes a date as YYYY-MM-DD; got: $raw" >&2
+        exit 1
+      fi ;;
+    (SINGLE_SELECT|ITERATION)
+      found="$(gh_tasks_option_id "$resolved" "$fid" "$raw" "$name")" || exit $?
+      # shellcheck disable=SC2034  # both are read by the scripts that source this
+      IFS=$'\t' read -r GH_TASKS_VALUE_ID GH_TASKS_VALUE_SHOWN <<<"$found" ;;
+    (MULTI_SELECT)
+      echo "Error: field '$name' takes more than one value, which these scripts do not write yet." >&2
+      exit 1 ;;
+    (*) gh_tasks_field_writable "$name" "$kind" ;;
+  esac
+}
+
+# The field's type picks the document, so the mutation is never built around the
+# value: it arrives as a typed variable, where interpolating it would hand
+# whoever can name a board field a way to rewrite the mutation.
+#
+# A select's option ID is eight hex characters, so an ID of "12345678" is
+# ordinary. Only the Float goes through -F: everything else is a String! or a
+# Date!, and -F would send a numeric-looking one as a number and have the write
+# rejected on its type.
+gh_tasks_field_write() {
+  local project="$1" item="$2" fid="$3" kind="$4" value="$5" doc var vopt=-f
+  case "$kind" in
+    (TEXT)          doc='value: {text: $v}';                 var='$v: String!' ;;
+    (NUMBER)        doc='value: {number: $v}';               var='$v: Float!'; vopt=-F ;;
+    (DATE)          doc='value: {date: $v}';                 var='$v: Date!' ;;
+    (SINGLE_SELECT) doc='value: {singleSelectOptionId: $v}'; var='$v: String!' ;;
+    (ITERATION)     doc='value: {iterationId: $v}';          var='$v: String!' ;;
+    (*) echo "Error: a $kind field cannot be written." >&2; return 1 ;;
+  esac
+  gh_tasks_api -f p="$project" -f i="$item" -f f="$fid" "$vopt" v="$value" \
+    -f query="mutation(\$p: ID!, \$i: ID!, \$f: ID!, $var) {
+      updateProjectV2ItemFieldValue(input: {projectId: \$p, itemId: \$i, fieldId: \$f, $doc}) {
+        projectV2Item { id }
+      }
+    }" --jq '.data.updateProjectV2ItemFieldValue.projectV2Item.id'
+}

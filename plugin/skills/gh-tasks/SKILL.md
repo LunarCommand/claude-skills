@@ -8,8 +8,8 @@ description: Always use this skill when the user asks about a project's task que
 Reads a project's working queue — follow-ups, deferred decisions, the "what's
 next" list — kept as GitHub issues on a GitHub Project.
 
-**This version reads. It does not write.** No add, update, close or reorder yet.
-When the user asks for one, say so plainly and offer to do it by hand; do not
+**It adds and updates tasks. It does not close or reorder them yet.** When the
+user asks for one of those, say so plainly and offer to do it by hand; do not
 improvise with `gh issue` or `gh api`.
 
 ## Bundled scripts
@@ -21,13 +21,18 @@ directly:
   order, the counts
 - `gh_tasks_show.sh <issue_number>` — one task with its board fields and its
   comments
+- `gh_tasks_add.sh --title "..."` — create a task: an issue in the destination
+  repository, placed on the board, with its board fields set
+- `gh_tasks_update.sh <issue_number>` — change one task: its board fields, a
+  note appended as a comment, its parent
 
 **Invoke each by bare name**, never by a path. A path-qualified call prompts even
 though the script is pre-approved, because the permission rules match the bare
 form.
 
-Both take `--owner <login> --number <N>` to name a board directly, which skips
-discovery. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
+All four take `--owner <login> --number <N>` to name a board directly, which
+skips discovery. The two writers take `--dry-run`, which resolves everything and
+prints what it would send without sending it. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
 `open`), `--order board|closed`, `--all` to read every page, and `--limit`.
 `gh_tasks_show.sh` takes `--repo` to skip the board lookup and `--comments N`.
 
@@ -123,6 +128,57 @@ the board could hold an issue of the same number. Say so, or re-run with
 
 Its `warnings` array follows the same rule as the board's: repeat it.
 
+## Writing
+
+Both writers print JSON saying what they did, under `applied` or, for a dry run,
+`planned`.
+
+**Draft first, show the user, then create.** A task's title and body are the
+user's words rather than yours, so propose them and wait before
+`gh_tasks_add.sh` runs. The same holds for a note. A field change the user asked
+for in so many words needs no second confirmation — the instruction is the
+approval, and gating every status flip makes the tool tedious enough to abandon.
+
+**The body is never rewritten.** A task's body says what is true now and its
+comments are its history, so a correction, a reversal or a change of mind is
+`--note`. There is deliberately no way to replace a body.
+
+**A new task lands at the end of board order**, which is the bottom of the
+queue. Board order is the working order, so say where it landed rather than
+implying it is next.
+
+**A write into a public repository refuses with exit 78 unless `--public-ok` is
+passed.** An issue is exactly as public as the repository it lives in, so that
+flag is the one confirmation that something is about to become world-readable.
+Never pass it to clear the error: ask the user, because the refusal usually
+means the destination is wrong.
+
+Exit 78 also covers a declared visibility that disagrees with the real one —
+`~/.claude/gh-tasks.conf` says private where GitHub says public, or the reverse.
+Only the user can settle that; report it and stop.
+
+**Field and value names are matched against the board, never spelled into a
+mutation.** A name the board does not have refuses and lists what it does have.
+Matching is exact first and then case-insensitive, and a name matching two
+fields refuses rather than picking one. Report the names the board came back
+with — `--field "area=spec"` on a board whose field is `Area` is applied as
+`Area`, and the output says so.
+
+**A field the board derives from the issue cannot be set through the board** —
+its title, labels, assignees or milestone. The refusal names where the value
+actually lives. `--label` on `gh_tasks_add.sh` sets repository labels while
+creating; changing them afterwards is not implemented.
+
+**Creating validates everything before it creates anything**, so a misspelled
+field value refuses while there is still no issue to delete. Fields are set
+after the issue exists, and a failure there names the task that was created:
+repeat that to the user, because the task is real and its fields are not what
+was asked for. `gh_tasks_update.sh` reports the same way when it stops part way.
+
+Not implemented, and worth saying plainly rather than working around: closing a
+task, reordering one, clearing a parent, multi-select fields, changing a body,
+and adding an existing issue to the board.
+
 ## Answering "where are we"
 
 This is the operation that matters, and it wants prose, not a table. The
@@ -182,5 +238,11 @@ the session predates the install. Neither is a reason to edit a script.
 - Never claim a field is unset on an item whose `fieldsUndecoded` is above zero
 - Never count a `truncated` array as complete
 - Never answer "why did this change" from a capped comment read
-- Repeat `warnings` from either script to the user
-- Say plainly that writes are not implemented yet rather than finding another way
+- Repeat `warnings` from any of these scripts to the user
+- Never pass `--public-ok` unless the user has said to write to a public
+  repository; a refusal at exit 78 is for them to answer, not for you to clear
+- Never rewrite a task's body; a correction is a note
+- Always repeat a partial write: the task exists and its fields are not what was
+  asked for
+- Say plainly that close and reorder are not implemented yet rather than finding
+  another way
