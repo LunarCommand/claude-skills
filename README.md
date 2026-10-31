@@ -223,11 +223,18 @@ and has no history.
 ```bash
 gh_tasks_board.sh --state open
 gh_tasks_show.sh 22
+gh_tasks_add.sh --title "..." --field "Status=Todo"
+gh_tasks_update.sh 22 --field "Status=In Progress" --note "..."
 ```
 
 It finds the board by the link between it and your repository, so there is
-usually nothing to configure. **This version reads only** — add, update, close
-and reorder are not implemented yet, and it says so rather than improvising.
+usually nothing to configure. **It adds and updates; close and reorder are not
+implemented yet**, and it says so rather than improvising.
+
+A write into a public repository refuses unless you pass `--public-ok`, since an
+issue is exactly as public as the repository holding it. Both writers take
+`--dry-run`, which resolves every field and value and prints what it would send
+without sending it.
 
 Two things are worth knowing before you point it at a board. An issue is exactly
 as public as the repository it lives in, whatever the board's own privacy says —

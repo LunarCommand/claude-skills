@@ -32,8 +32,32 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   takes precedence over a link, which is what makes it able to override a
   linked board and to declare the visibility a workspace expects.
 
-  **It reads and does not write.** Add, update, close and reorder come next, and
-  the skill says so rather than reaching for `gh` directly.
+  **It adds and updates. Close and reorder come next**, and the skill says so
+  rather than reaching for `gh` directly.
+
+  `gh_tasks_add.sh` creates a task — an issue in the destination repository,
+  placed on the board in the same call, with its board fields set — and
+  `gh_tasks_update.sh` changes one: its fields, a note appended as a comment,
+  its parent. A task's body is never rewritten, because the body says what is
+  true now and the comments are its history. Both take `--dry-run`, which
+  resolves every name and value and prints what it would send without sending
+  it.
+
+  **A write into a public repository refuses unless `--public-ok` says to do
+  it**, because an issue is exactly as public as the repository it lives in. The
+  same refusal covers a declared visibility that disagrees with the real one, in
+  either direction. Both exit 78.
+
+  Field and value names are matched against the board's own list rather than
+  spelled into a mutation, so a name the board does not have refuses and lists
+  what it does have, and what gets reported back is the board's spelling of what
+  landed. A field the board derives from the issue — its title, labels,
+  assignees, milestone — is refused with the place the value actually lives.
+
+  Creating validates every field, value and label before it creates anything, so
+  a misspelled one refuses while there is still no issue to delete. Where a write
+  does stop part way, it names what already landed instead of leaving it to be
+  discovered.
 
   Two things it will tell you that are easy to get wrong. An issue is exactly as
   public as the repository it lives in, whatever the board's privacy says — a
