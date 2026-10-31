@@ -267,21 +267,21 @@ CREATED="$(gh_tasks_api \
                         projectV2Ids: $projects, labelIds: $labels,
                         parentIssueId: $parent}) {
       issue {
+        id
         number
         url
-        projectItems(first: 20) { nodes { id project { id } } }
       }
     }
   }' \
   --jq '(.data.createIssue.issue) as $i |
         "NUM\t\($i.number)",
         "URL\t\($i.url | tojson)",
-        (($i.projectItems.nodes // [])[] | "ITEM\t\(.project.id)\t\(.id)")')" || CREATE_STATUS=$?
+        "IID\t\($i.id)"')" || CREATE_STATUS=$?
 [[ "$CREATE_STATUS" -eq 0 ]] || exit "$CREATE_STATUS"
 
 NEW_NUM="$(gh_tasks_resolved "$CREATED" NUM)"
 NEW_URL="$(gh_tasks_resolved "$CREATED" URL)"
-ITEM_ID="$(printf '%s\n' "$CREATED" | awk -F'\t' -v p="$PROJECT_ID" '$1 == "ITEM" && $2 == p { print $3; exit }')"
+NEW_ID="$(gh_tasks_resolved "$CREATED" IID)"
 if [[ -z "$NEW_NUM" ]]; then
   echo "Error: the issue may have been created but GitHub returned no number for it." >&2
   echo "  Check $REPO before running this again." >&2
@@ -295,13 +295,32 @@ report_created() {
   echo "Task #$NEW_NUM was created: ${bare#\"}" >&2
 }
 
+# projectV2Ids above does place the issue on the board, but the created issue's
+# own projectItems come back empty in that same response, so the item ID has to
+# be asked for separately. Adding an issue a board already holds answers with
+# the item it already has rather than a second one, which is what makes this
+# safe after the create has done the placing.
+ITEM_ID=""
+if [[ -n "$NEW_ID" ]]; then
+  ITEM_STATUS=0
+  ITEM_ID="$(gh_tasks_api -f project="$PROJECT_ID" -f content="$NEW_ID" \
+    -f query='mutation($project: ID!, $content: ID!) {
+      addProjectV2ItemById(input: {projectId: $project, contentId: $content}) {
+        item { id }
+      }
+    }' --jq '.data.addProjectV2ItemById.item.id // empty')" || ITEM_STATUS=$?
+fi
+
 if [[ -z "$ITEM_ID" ]]; then
   if [[ "${#P_FID[@]}" -gt 0 ]]; then
     report_created
-    echo "  It is not on board $NUMBER under $LOGIN, so its fields were not set." >&2
-    exit 1
+    echo "  Its item on board $NUMBER under $LOGIN could not be read, so its" >&2
+    echo "  fields were not set. Set them with: gh_tasks_update.sh $NEW_NUM" >&2
+    STATUS="${ITEM_STATUS:-1}"
+    [[ "$STATUS" -ne 0 ]] || STATUS=1
+    exit "$STATUS"
   fi
-  add_warning "the new task is not on board $NUMBER under $LOGIN"
+  add_warning "the new task's item on board $NUMBER under $LOGIN could not be read, so whether its fields can be set is unsettled"
 fi
 
 APPLIED=""
