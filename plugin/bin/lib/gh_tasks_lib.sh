@@ -367,10 +367,7 @@ gh_tasks_board_origin() {
 # from the issue alone: the caller has a number, and which repo holds it is a
 # property of the workspace.
 #
-# One page, not the whole board. Every item in a workspace normally lives in one
-# repository, so the first page names it. `hasNextPage` is reported so a caller
-# never states what the board contains on the strength of 100 items, and
-# "a repo that has an issue numbered N" is not the same claim as "the repo
+# "A repo that has an issue numbered N" is not the same claim as "the repo
 # holding board item N" -- only an EXACT line carries the second.
 # shellcheck disable=SC2034  # read by gh_tasks_locate_issue below
 GH_TASKS_LOCATE_QUERY='query($login: String!, $num: Int!, $first: Int!, $after: String) {
@@ -396,8 +393,9 @@ gh_tasks_locate_pages() {
 }
 
 # Prints one "EXACT<TAB>owner/name" line per board item matching issue $3, a
-# "CANDIDATE<TAB>owner/name" line per distinct repository on the page, and one
-# "MORE<TAB>true|false" line saying whether the board continues past it.
+# "CANDIDATE<TAB>owner/name" line per distinct repository among the items read,
+# and one "MORE<TAB>true|false" line saying whether the board continues past
+# them.
 gh_tasks_locate_issue() {
   local login="$1" number="$2" issue="$3" page seen="" cursor="" pages=0 cap more=false
 
