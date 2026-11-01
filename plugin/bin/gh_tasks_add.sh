@@ -201,10 +201,11 @@ done
 L_ARGS=()
 L_NAMES=""
 for label in ${LABELS[@]+"${LABELS[@]}"}; do
-  LID="$(gh_tasks_label_id "$RESOLVED" "$label" "$REPO")" || exit $?
+  LFOUND="$(gh_tasks_label_id "$RESOLVED" "$label" "$REPO")" || exit $?
+  IFS=$'\t' read -r LID LNAME <<<"$LFOUND"
   L_ARGS+=(-f "labels[]=$LID")
   [[ -n "$L_NAMES" ]] && L_NAMES="$L_NAMES,"
-  L_NAMES="$L_NAMES$(gh_tasks_json_string "$label")"
+  L_NAMES="$L_NAMES$(gh_tasks_json_string "$LNAME")"
 done
 
 PARENT_ARGS=()

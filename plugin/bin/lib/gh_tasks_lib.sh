@@ -640,20 +640,24 @@ gh_tasks_option_id() {
 # label(name:) is case-sensitive, so it can only answer for an exact spelling --
 # but it is not bounded by that page, which is what a repository holding more
 # labels than were read needs.
+#
+# The repository's own spelling is returned beside the id: matching ignoring
+# case means the name asked for and the label applied can differ, and a report
+# that echoes the request cannot show that.
 gh_tasks_label_id() {
   local resolved="$1" want="$2" repo="$3" hit total read_n status=0
   hit="$(printf '%s\n' "$resolved" | awk -F'\t' -v want="$want" '
     $1 == "LABEL" {
       name = $3; for (i = 4; i <= NF; i++) name = name "\t" $i
-      if (name == want)                        { print $2; exit }
-      else if (tolower(name) == tolower(want)) { fold = $2 }
+      if (name == want)                        { exact = $2 "\t" name; exit }
+      else if (tolower(name) == tolower(want)) { fold = $2 "\t" name }
     }
-    END { if (fold != "") print fold }')"
+    END { if (exact != "") print exact; else if (fold != "") print fold }')"
   if [[ -z "$hit" ]]; then
     hit="$(gh_tasks_api -f owner="${repo%%/*}" -f name="${repo#*/}" -f label="$want" \
       -f query='query($owner: String!, $name: String!, $label: String!) {
-        repository(owner: $owner, name: $name) { label(name: $label) { id } }
-      }' --jq '.data.repository.label.id // empty')" || status=$?
+        repository(owner: $owner, name: $name) { label(name: $label) { id name } }
+      }' --jq '.data.repository.label | select(. != null) | "\(.id)\t\(.name)"')" || status=$?
     [[ "$status" -eq 0 ]] || exit "$status"
   fi
   if [[ -z "$hit" ]]; then
