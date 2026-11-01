@@ -19,6 +19,8 @@
       "Bash(adversarial_review_path.sh:*)",
       "Bash(gh_tasks_add.sh:*)",
       "Bash(gh_tasks_board.sh:*)",
+      "Bash(gh_tasks_close.sh:*)",
+      "Bash(gh_tasks_move.sh:*)",
       "Bash(gh_tasks_show.sh:*)",
       "Bash(gh_tasks_update.sh:*)",
       "Bash(hdx_query.sh:*)",
