@@ -115,6 +115,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   because GitHub answers a deleted board, a wrong number and a board the token
   cannot see with the same message.
 
+### langfuse
+
+- `langfuse_query.sh` run with no arguments, or with a command it does not
+  recognise, answers with its usage text. The three `.agent.env` keys are
+  checked once a command has been named, so asking what the script does is no
+  longer answered with what has not been configured yet. When a key really is
+  missing the refusal names every one of them at once, and names the
+  `.agent.env` path it read — which is the one in the current directory, not a
+  parent, and was the part easiest to get wrong.
+
 ### Repository
 
 - `scripts/validate.sh` fails on two non-portable idioms it used to miss: a

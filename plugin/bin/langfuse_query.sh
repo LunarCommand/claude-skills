@@ -114,12 +114,24 @@ if [[ -f "$AGENT_ENV" ]]; then
   done < "$AGENT_ENV"
 fi
 
-: "${LANGFUSE_PUBLIC_KEY:?LANGFUSE_PUBLIC_KEY not set — add it to .agent.env}"
-: "${LANGFUSE_SECRET_KEY:?LANGFUSE_SECRET_KEY not set — add it to .agent.env}"
-: "${LANGFUSE_BASE_URL:?LANGFUSE_BASE_URL not set — add it to .agent.env}"
-
-API="${LANGFUSE_BASE_URL}/api/public"
-AUTH="${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}"
+# Called from the router once a command has been named, not here: a bare
+# invocation is asking what this script does, and the keys it has not been given
+# yet are no answer to that. Every command needs all three, so this is the one
+# gate rather than a check per command.
+_require_config() {
+  local missing=""
+  [[ -n "${LANGFUSE_PUBLIC_KEY:-}" ]] || missing="$missing LANGFUSE_PUBLIC_KEY"
+  [[ -n "${LANGFUSE_SECRET_KEY:-}" ]] || missing="$missing LANGFUSE_SECRET_KEY"
+  [[ -n "${LANGFUSE_BASE_URL:-}" ]]   || missing="$missing LANGFUSE_BASE_URL"
+  if [[ -n "$missing" ]]; then
+    echo "Error: missing Langfuse config:$missing" >&2
+    echo "  Add them to $AGENT_ENV, which is read from the current" >&2
+    echo "  directory and not from a parent." >&2
+    exit 1
+  fi
+  API="${LANGFUSE_BASE_URL}/api/public"
+  AUTH="${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}"
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -719,15 +731,17 @@ print()
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
+# _require_config sits in each arm rather than above this case, so an unknown or
+# absent command reaches _usage instead of a list of unset keys.
 case "${1:-}" in
-  traces)       shift; cmd_traces "$@" ;;
-  trace)        shift; cmd_trace "$@" ;;
-  generations)  shift; cmd_generations "$@" ;;
-  observations) shift; cmd_observations "$@" ;;
-  observation)  shift; cmd_observation "$@" ;;
-  sessions)     shift; cmd_sessions "$@" ;;
-  scores)       shift; cmd_scores "$@" ;;
-  prompts)      shift; cmd_prompts "$@" ;;
-  apigen)       _api_gen ;;
+  traces)       shift; _require_config; cmd_traces "$@" ;;
+  trace)        shift; _require_config; cmd_trace "$@" ;;
+  generations)  shift; _require_config; cmd_generations "$@" ;;
+  observations) shift; _require_config; cmd_observations "$@" ;;
+  observation)  shift; _require_config; cmd_observation "$@" ;;
+  sessions)     shift; _require_config; cmd_sessions "$@" ;;
+  scores)       shift; _require_config; cmd_scores "$@" ;;
+  prompts)      shift; _require_config; cmd_prompts "$@" ;;
+  apigen)       _require_config; _api_gen ;;
   *)            _usage ;;
 esac
