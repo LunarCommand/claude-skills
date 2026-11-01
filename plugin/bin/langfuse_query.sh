@@ -126,7 +126,7 @@ _require_config() {
   if [[ -n "$missing" ]]; then
     echo "Error: missing Langfuse config:$missing" >&2
     echo "  Add them to $AGENT_ENV, which is read from the current" >&2
-    echo "  directory and not from a parent, or export them." >&2
+    echo "  directory and not from a parent." >&2
     exit 1
   fi
   API="${LANGFUSE_BASE_URL}/api/public"
