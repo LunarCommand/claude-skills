@@ -1,6 +1,6 @@
 ---
 name: gh-tasks
-description: Always use this skill when the user asks about a project's task queue or backlog kept on GitHub — "where are we", "what's next", "what's outstanding", "what's left to do", "what am I blocked on", "what's in progress", "show me the board", "what did we close recently", "status of the queue", "read the task board", "show task 22", "what is issue 14 about". Use it to read a GitHub Project board whose items are issues, to find which board belongs to the current repository, and to read one task in full with its history. Do not use it to triage a repository's inbound issues from other people, and do not use it for pull-request review comments.
+description: Always use this skill when the user asks about a project's task queue or backlog kept on GitHub — "where are we", "what's next", "what's outstanding", "what's left to do", "what am I blocked on", "what's in progress", "show me the board", "what did we close recently", "status of the queue", "read the task board", "show task 22", "what is issue 14 about" — or asks to change it: "add a task", "put this on the board", "note that for later", "set task 9 to in progress", "mark task 7 done", "close task 7 as not planned", "move this to the top", "make that one next". Use it to read a GitHub Project board whose items are issues, to find which board belongs to the current repository, to read one task in full with its history, and to add, update, close and reorder tasks. Do not use it to triage a repository's inbound issues from other people, and do not use it for pull-request review comments.
 ---
 
 # GitHub task board
@@ -8,9 +8,9 @@ description: Always use this skill when the user asks about a project's task que
 Reads a project's working queue — follow-ups, deferred decisions, the "what's
 next" list — kept as GitHub issues on a GitHub Project.
 
-**It adds and updates tasks. It does not close or reorder them yet.** When the
-user asks for one of those, say so plainly and offer to do it by hand; do not
-improvise with `gh issue` or `gh api`.
+**It reads, adds, updates, closes and reorders tasks.** What it deliberately
+will not do is listed under Writing; when the user asks for one of those, say so
+plainly rather than improvising with `gh issue` or `gh api`.
 
 ## Bundled scripts
 
@@ -25,14 +25,18 @@ directly:
   repository, placed on the board, with its board fields set
 - `gh_tasks_update.sh <issue_number>` — change one task: its board fields, a
   note appended as a comment, its parent
+- `gh_tasks_close.sh <issue_number>` — close a task with a reason, posting a
+  note first
+- `gh_tasks_move.sh <issue_number>` — move a task within board order, to the
+  top or after another task
 
 **Invoke each by bare name**, never by a path. A path-qualified call prompts even
 though the script is pre-approved, because the permission rules match the bare
 form.
 
-All four take `--owner <login> --number <N>` to name a board directly, which
-skips discovery. The two writers take `--dry-run`, which resolves everything and
-prints what it would send without sending it. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
+All six take `--owner <login> --number <N>` to name a board directly, which
+skips discovery. The four writers take `--dry-run`, which resolves everything
+and prints what it would send without sending it. `gh_tasks_board.sh` also takes `--state open|closed|all` (default
 `open`), `--order board|closed`, `--all` to read every page, and `--limit`.
 `gh_tasks_show.sh` takes `--repo` to skip the board lookup and `--comments N`.
 
@@ -145,7 +149,26 @@ comments are its history, so a correction, a reversal or a change of mind is
 
 **A new task lands at the end of board order**, which is the bottom of the
 queue. Board order is the working order, so say where it landed rather than
-implying it is next.
+implying it is next; `gh_tasks_move.sh` is what makes it next.
+
+**Closing is the one write with no undo.** `gh_tasks_close.sh` posts the note
+first and then closes, so the reason lands in the task's history rather than
+only in its state. Propose the reason and the note and wait every time, because
+reopening is not implemented: a task closed by mistake is the user's to fix by
+hand. The reason is `completed`, `not-planned` or `duplicate`, and a duplicate
+has to name what it duplicates with `--duplicate-of N`. An already-closed task
+is refused rather than closed again.
+
+Closing changes nothing on the board. A board that tracks state in a field as
+well wants that field set with `gh_tasks_update.sh`, which the close does not
+guess at.
+
+**A move changes what is next**, so it is the user's call and not an
+improvement to make unasked. `gh_tasks_move.sh` takes `--top` or `--after N`,
+and both tasks must be on the board. It is the one writer with no
+`--public-ok`: a position is board metadata, so nothing becomes world-readable
+by being reordered. A declared visibility that disagrees with GitHub still
+refuses at 78.
 
 **A write into a public repository refuses with exit 78 unless `--public-ok` is
 passed.** An issue is exactly as public as the repository it lives in, so that
@@ -175,9 +198,9 @@ after the issue exists, and a failure there names the task that was created:
 repeat that to the user, because the task is real and its fields are not what
 was asked for. `gh_tasks_update.sh` reports the same way when it stops part way.
 
-Not implemented, and worth saying plainly rather than working around: closing a
-task, reordering one, clearing a parent, multi-select fields, changing a body,
-and adding an existing issue to the board.
+Not implemented, and worth saying plainly rather than working around: reopening
+a closed task, clearing a parent, multi-select fields, changing a body, moving a
+task to the bottom of the order, and adding an existing issue to the board.
 
 ## Answering "where are we"
 
@@ -244,5 +267,8 @@ the session predates the install. Neither is a reason to edit a script.
 - Never rewrite a task's body; a correction is a note
 - Always repeat a partial write: the task exists and its fields are not what was
   asked for
-- Say plainly that close and reorder are not implemented yet rather than finding
-  another way
+- Always propose a close and wait; it cannot be undone, and the reason is the
+  user's to give
+- Never reorder a board unasked; board order is the user's working order
+- Say plainly what is not implemented — reopening, clearing a parent,
+  multi-select fields, rewriting a body — rather than finding another way

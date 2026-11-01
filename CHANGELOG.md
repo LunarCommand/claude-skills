@@ -32,8 +32,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   takes precedence over a link, which is what makes it able to override a
   linked board and to declare the visibility a workspace expects.
 
-  **It adds and updates. Close and reorder come next**, and the skill says so
-  rather than reaching for `gh` directly.
+  **It reads, adds, updates, closes and reorders**, and says plainly what it
+  will not do rather than reaching for `gh` directly: reopening a closed task,
+  rewriting a body, clearing a parent, multi-select fields, and moving a task to
+  the bottom of the order.
 
   `gh_tasks_add.sh` creates a task — an issue in the destination repository,
   placed on the board in the same call, with its board fields set — and
@@ -58,6 +60,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   a misspelled one refuses while there is still no issue to delete. Where a write
   does stop part way, it names what already landed instead of leaving it to be
   discovered.
+
+  `gh_tasks_close.sh` closes a task as `completed`, `not-planned` or
+  `duplicate`, and posts its note before closing so the reason is in the task's
+  history rather than only in its state. A duplicate has to name what it
+  duplicates. An already-closed task is refused rather than closed again, and
+  there is no reopen: a close is the one write here that cannot be taken back.
+
+  `gh_tasks_move.sh` moves a task within the board's manual order — `--top`, or
+  `--after N` — which is the order the board reads as the working queue, so it
+  is how a task becomes the next one. Both tasks must be on the board. It is the
+  one writer with no `--public-ok`, because a position is board metadata and
+  reordering publishes nothing; a visibility mismatch still refuses.
 
   Two things it will tell you that are easy to get wrong. An issue is exactly as
   public as the repository it lives in, whatever the board's privacy says — a
