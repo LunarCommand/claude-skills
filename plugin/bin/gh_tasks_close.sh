@@ -207,6 +207,12 @@ if [[ -n "$DUP" ]]; then
     -f query='query($owner: String!, $name: String!, $num: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $num) { id } }
     }' --jq '.data.repository.issue.id // ""')" || DSTATUS=$?
+  # gh has already named the number it could not resolve; this says which
+  # lookup wanted it.
+  if [[ "$DSTATUS" -eq 44 ]]; then
+    echo "  $REPO has no issue #$DUP for this to duplicate." >&2
+    exit 44
+  fi
   [[ "$DSTATUS" -eq 0 ]] || exit "$DSTATUS"
   if [[ -z "$DUP_ID" ]]; then
     echo "Error: $REPO has no issue #$DUP for this to duplicate." >&2
@@ -222,6 +228,9 @@ record() {
   APPLIED="$APPLIED$1"
 }
 report_partial() {
+  # APPLIED doubles as the planned list under --dry-run, where nothing has been
+  # sent.
+  [[ "$DRY" -eq 0 ]] || return 0
   [[ -n "$APPLIED" ]] || return 0
   echo "Stopped part way. What was already applied to #$ISSUE:" >&2
   printf '      %s\n' "$APPLIED" >&2

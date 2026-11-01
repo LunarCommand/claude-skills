@@ -215,6 +215,13 @@ if [[ -n "$PARENT" ]]; then
     -f query='query($owner: String!, $name: String!, $num: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $num) { id } }
     }' --jq '.data.repository.issue.id // ""')" || PSTATUS=$?
+  # gh has already named the number it could not resolve; this says which
+  # lookup wanted it. Nothing has been created yet, so there is nothing to
+  # report as partial.
+  if [[ "$PSTATUS" -eq 44 ]]; then
+    echo "  $REPO has no issue #$PARENT to make the parent." >&2
+    exit 44
+  fi
   [[ "$PSTATUS" -eq 0 ]] || exit "$PSTATUS"
   if [[ -z "$PARENT_ID" ]]; then
     echo "Error: $REPO has no issue #$PARENT to make the parent." >&2

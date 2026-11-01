@@ -207,6 +207,9 @@ record() {
   APPLIED="$APPLIED$1"
 }
 report_partial() {
+  # APPLIED doubles as the planned list under --dry-run, where nothing has been
+  # sent.
+  [[ "$DRY" -eq 0 ]] || return 0
   [[ -n "$APPLIED" ]] || return 0
   echo "Stopped part way. What was already applied to #$ISSUE:" >&2
   printf '      %s\n' "$APPLIED" >&2
@@ -272,6 +275,13 @@ if [[ -n "$PARENT" ]]; then
     -f query='query($owner: String!, $name: String!, $num: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $num) { id } }
     }' --jq '.data.repository.issue.id // ""')" || PSTATUS=$?
+  # gh has already named the number it could not resolve; this says which
+  # lookup wanted it.
+  if [[ "$PSTATUS" -eq 44 ]]; then
+    echo "  $REPO has no issue #$PARENT to make the parent." >&2
+    report_partial
+    exit 44
+  fi
   if [[ "$PSTATUS" -ne 0 ]]; then
     report_partial
     exit "$PSTATUS"
