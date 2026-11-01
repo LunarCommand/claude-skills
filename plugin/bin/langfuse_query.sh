@@ -124,7 +124,9 @@ _require_config() {
   [[ -n "${LANGFUSE_SECRET_KEY:-}" ]] || missing="$missing LANGFUSE_SECRET_KEY"
   [[ -n "${LANGFUSE_BASE_URL:-}" ]]   || missing="$missing LANGFUSE_BASE_URL"
   if [[ -n "$missing" ]]; then
-    echo "Error: not set — add to .agent.env in the project root:$missing" >&2
+    echo "Error: missing Langfuse config:$missing" >&2
+    echo "  Add them to $AGENT_ENV, which is read from the current" >&2
+    echo "  directory and not from a parent, or export them." >&2
     exit 1
   fi
   API="${LANGFUSE_BASE_URL}/api/public"
@@ -730,8 +732,7 @@ print()
 # Router
 # ---------------------------------------------------------------------------
 # _require_config sits in each arm rather than above this case, so an unknown or
-# absent command reaches _usage. The arms are also the list of commands, so a
-# command added here cannot forget the config it needs.
+# absent command reaches _usage instead of a list of unset keys.
 case "${1:-}" in
   traces)       shift; _require_config; cmd_traces "$@" ;;
   trace)        shift; _require_config; cmd_trace "$@" ;;
