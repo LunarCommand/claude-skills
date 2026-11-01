@@ -228,6 +228,9 @@ record() {
   APPLIED="$APPLIED$1"
 }
 report_partial() {
+  # APPLIED doubles as the planned list under --dry-run, where nothing has been
+  # sent.
+  [[ "$DRY" -eq 0 ]] || return 0
   [[ -n "$APPLIED" ]] || return 0
   echo "Stopped part way. What was already applied to #$ISSUE:" >&2
   printf '      %s\n' "$APPLIED" >&2
