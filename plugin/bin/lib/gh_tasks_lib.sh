@@ -162,12 +162,17 @@ gh_tasks_need_value() {
     echo "  Nothing was applied." >&2
     exit 1
   fi
-  case " $flags " in
-    (*" $value "*)
-      echo "Error: $flag needs a value, but the next argument is $value." >&2
-      echo "  Nothing was applied. Give $flag its value, or drop $flag." >&2
-      exit 1 ;;
-  esac
+  local f
+  # shellcheck disable=SC2086
+  # Split on whitespace deliberately: $flags is a list. Compared one at a time
+  # rather than as a substring of the whole, which also matched a value that was
+  # a run of consecutive flags -- a note of "--repo --owner" was refused.
+  for f in $flags; do
+    [[ "$value" == "$f" ]] || continue
+    echo "Error: $flag needs a value, but the next argument is $value." >&2
+    echo "  Nothing was applied. Give $flag its value, or drop $flag." >&2
+    exit 1
+  done
 }
 
 # How many of a board's fields to read per item. Below GraphQL's 100 cap by

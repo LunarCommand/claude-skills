@@ -717,11 +717,13 @@ fi
 # gh_tasks_need_value refuses a value that is one of the script's own options,
 # which it can only do from the GH_TASKS_FLAGS list each script declares. A list
 # that falls behind its own case statement re-opens the swallow for the option it
-# omits, silently and only for that one flag.
+# omits, silently and only for that one flag. The guard is asserted on the
+# property rather than on an assignment shape: an arm that reads $2 at all must
+# call it. A shape-matching regex passed a canary that restored the old spelling
+# while missing the regression that would actually be written.
 if out=$(python3 - <<'FLAGS_PY' 2>&1
 import glob, re, sys
 bad = []
-VALUE_ARM = re.compile(r'^\s*\((--[a-z-]+)\)\s+(?!gh_tasks_need_value)[A-Z_]+(?:\+=\(|=)"\$\{2:-\}"', re.M)
 for path in sorted(glob.glob('plugin/bin/gh_tasks_*.sh')):
     src = open(path).read()
     loop = re.search(r'^while \[\[ \$# -gt 0 \]\]; do\n(.*?)^done', src, re.M | re.S)
@@ -738,8 +740,12 @@ for path in sorted(glob.glob('plugin/bin/gh_tasks_*.sh')):
         bad.append(f'{path}: {f} is accepted but missing from GH_TASKS_FLAGS')
     for f in sorted(declared - arms):
         bad.append(f'{path}: GH_TASKS_FLAGS names {f}, which the case statement does not accept')
-    for f in sorted(set(VALUE_ARM.findall(body))):
-        bad.append(f'{path}: {f} takes a value without gh_tasks_need_value')
+    for line in body.split('\n'):
+        arm = re.match(r'^\s*\((--[a-z-]+)\)', line)
+        if not arm:
+            continue
+        if re.search(r'\$\{?2\b', line) and 'gh_tasks_need_value' not in line:
+            bad.append(f'{path}: {arm.group(1)} reads $2 without gh_tasks_need_value')
 if bad:
     print('\n'.join(bad)); sys.exit(1)
 FLAGS_PY
