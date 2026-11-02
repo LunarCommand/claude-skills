@@ -141,6 +141,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ### Repository
 
+- The mutation-test acceptance suite keeps the stderr of its two concurrent
+  runs and prints the failing one's. That assertion failed once in CI with exit
+  42 — a status five different refusals share — and the suite had discarded the
+  only output that said which, so a failure that does not reproduce could not be
+  read after the fact either.
+
 - `scripts/validate.sh` parses each `SKILL.md`'s frontmatter as YAML, and names
   the line and column when it will not parse. Nothing here did: an unquoted
   description containing `: ` is invalid YAML, and one shipped past the name

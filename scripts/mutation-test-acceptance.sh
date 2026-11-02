@@ -416,10 +416,22 @@ fi
 
 echo
 echo "Isolation"
-"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- sleep 1 >/dev/null 2>&1 & p1=$!
-"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- sleep 1 >/dev/null 2>&1 & p2=$!
+# Both runs keep their stderr. This assertion has failed in CI once, on one
+# runner, with exit 42 -- a status five different refusals share -- and the
+# suite had discarded the one output that said which, so a failure that does
+# not reproduce could not be read afterwards either.
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- sleep 1 >/dev/null 2>"$FIXTURE/conc1.err" & p1=$!
+"$WT_SH" run --repo "$REPO" --test ./run_correct.sh -- sleep 1 >/dev/null 2>"$FIXTURE/conc2.err" & p2=$!
 wait $p1; rc1=$?; wait $p2; rc2=$?
-{ [ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ]; } && pass "two concurrent runs both succeeded" || fail "concurrent runs interfered ($rc1/$rc2)"
+if [ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ]; then
+  pass "two concurrent runs both succeeded"
+else
+  fail "concurrent runs interfered ($rc1/$rc2)"
+  # Only the run that failed: the other one's stderr is ordinary baseline
+  # chatter, and four lines of it is enough to push the refusal out of view.
+  [ "$rc1" -eq 0 ] || sed 's/^/          [run 1] /' "$FIXTURE/conc1.err" | head -4
+  [ "$rc2" -eq 0 ] || sed 's/^/          [run 2] /' "$FIXTURE/conc2.err" | head -4
+fi
 
 manifest "$REPO" > "$FIXTURE/after.manifest"
 if diff -q "$BEFORE" "$FIXTURE/after.manifest" >/dev/null; then
