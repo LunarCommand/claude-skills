@@ -310,8 +310,15 @@ report_created() {
 # projectV2Ids above does place the issue on the board, but the created issue's
 # own projectItems come back empty in that same response, so the item ID has to
 # be asked for separately. Adding an issue a board already holds answers with
-# the item it already has rather than a second one, which is what makes this
-# safe after the create has done the placing.
+# the item it already has -- but only once the placing has settled. In the window
+# right after the create it can instead answer UNPROCESSABLE, "Content already
+# exists in this project", carrying no data.
+#
+# Reading the item back from the issue recovers that, and is best effort rather
+# than a guarantee: the read sits in the same settling window as the add it
+# recovers from, so it can answer without this project for the same reason. A
+# status of 44, 77 or 127 skips it -- the question could not be asked at all, and
+# asking a different one repeats the refusal instead of answering it.
 ITEM_ID=""
 if [[ -n "$NEW_ID" ]]; then
   ITEM_STATUS=0
@@ -321,6 +328,24 @@ if [[ -n "$NEW_ID" ]]; then
         item { id }
       }
     }' --jq '.data.addProjectV2ItemById.item.id // empty')" || ITEM_STATUS=$?
+  if [[ -z "$ITEM_ID" && "$ITEM_STATUS" -ne 44 && "$ITEM_STATUS" -ne 77 && "$ITEM_STATUS" -ne 127 ]]; then
+    PLACED="$(gh_tasks_api -f content="$NEW_ID" \
+      -f query='query($content: ID!) {
+        node(id: $content) {
+          ... on Issue {
+            projectItems(first: 100) { nodes { id project { id } } }
+          }
+        }
+      }' --jq '.data.node.projectItems.nodes[]? | "\(.project.id)\t\(.id)"')" || ITEM_STATUS=$?
+    # The board is matched here rather than inside the filter so the id travels
+    # as data, the way gh_tasks_label_id passes the name it is looking for.
+    ITEM_ID="$(printf '%s\n' "$PLACED" \
+      | awk -F'\t' -v want="$PROJECT_ID" '$1 == want { print $2; exit }')"
+    if [[ -n "$ITEM_ID" ]]; then
+      ITEM_STATUS=0
+      add_warning "the add reported this task's item already present, so the item was read back; the error printed above is that report, not a failure to place it"
+    fi
+  fi
 fi
 
 if [[ -z "$ITEM_ID" ]]; then
