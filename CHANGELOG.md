@@ -133,8 +133,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   repository whose code sits there, the overview body is the only place its
   findings appear, headline sentence included. A thread list alone reported those
   pull requests as having nothing to review, and two real defects merged that
-  way. A finding with no thread is triaged the same, answered with a PR comment
-  since there is nothing to reply to or resolve, and counted separately.
+  way. A body finding links to its thread where it has one, so each is matched
+  against the threads first — including resolved ones, which the bundled `--id`
+  lookup reports as resolved — and only an unmatched finding is treated as
+  unanchored, answered with a PR comment since there is nothing to reply to or
+  resolve, and counted separately.
 
 ### Repository
 
