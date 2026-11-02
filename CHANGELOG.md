@@ -125,6 +125,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   `.agent.env` path it read — which is the one in the current directory, not a
   parent, and was the part easiest to get wrong.
 
+### pr-review
+
+- The skill reads a PR's review bodies as well as its comment threads. An inline
+  comment can only anchor to a file the reviewer may comment on, and GitHub's
+  default exclusions for Copilot code review include `**/bin/**/*` — so for a
+  repository whose code sits there, the overview body is the only place its
+  findings appear, headline sentence included. A thread list alone reported those
+  pull requests as having nothing to review, and two real defects merged that
+  way. A body finding links to its thread where it has one, so each is matched
+  against the threads first — including resolved ones, which the bundled `--id`
+  lookup reports as resolved — and only an unmatched finding is treated as
+  unanchored, answered with a PR comment since there is nothing to reply to or
+  resolve, and counted separately.
+
 ### Repository
 
 - `scripts/validate.sh` fails on two non-portable idioms it used to miss: a
