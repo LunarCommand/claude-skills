@@ -379,15 +379,24 @@ bad = []
 measured = []
 for path in sorted(glob.glob('plugin/skills/*/SKILL.md')):
     name = os.path.basename(os.path.dirname(path))
-    text = open(path).read()
-    if not text.startswith('---\n'):
+    lines = open(path).read().split('\n')
+    # A fence is a whole line. Searching for the prefix '---' instead ended the
+    # block at a line like `---extra: [unterminated`, which the loader reads as
+    # content: the slice then held only the valid keys above it and parsed
+    # cleanly, so a skill that cannot load was reported as fine. Line-exact also
+    # makes a closing fence on the last line count, with or without a trailing
+    # newline, since it is still a line equal to '---'.
+    if lines[0] != '---':
         bad.append(f'{name}: does not open with a --- frontmatter block')
         continue
-    end = text.find('\n---', 3)
-    if end == -1:
+    end = next((i for i, line in enumerate(lines[1:], 1) if line == '---'), None)
+    if end is None:
         bad.append(f'{name}: frontmatter block is never closed')
         continue
-    block = text[4:end + 1]
+    # The newline before the closing fence stays: a folded scalar written `>`
+    # rather than `>-` clips to a value ending in one, so dropping it measures a
+    # character short. Over-counting by one can only fail early.
+    block = '\n'.join(lines[1:end]) + '\n'
     try:
         fm = yaml.safe_load(block)
     except yaml.YAMLError as e:
