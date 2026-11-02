@@ -216,7 +216,7 @@ gh_tasks_cleanup() {
 # a caller searching several repositories may skip past; any other non-zero
 # means the question could not be asked and must not be read as an answer.
 gh_tasks_api() {
-  local status=0
+  local status=0 out
   GH_TASKS_ERR="$(mktemp "${TMPDIR:-/tmp}/gh-tasks-err.XXXXXX")" || {
     echo "Error: cannot create a temporary file." >&2
     exit 1
@@ -224,8 +224,16 @@ gh_tasks_api() {
   # The status is captured on the command itself: a failed `if cmd; then ...;
   # fi` has its own exit status of 0, so reading $? below one reported success
   # for every failure and handed the caller GitHub's error body as data.
-  gh api graphql "$@" 2>"$GH_TASKS_ERR" || status=$?
+  #
+  # Stdout is held back until the status is known, because a GraphQL request that
+  # answers with an errors array gets that body printed to stdout -- the --jq
+  # filter is not applied to it. A caller reading the result of a failed call
+  # therefore received `{"errors":[...]}` as the value, and one that treats a
+  # non-empty answer as success carried it onward: a node id of that blob was
+  # sent back to GitHub as the item to write fields to.
+  out="$(gh api graphql "$@" 2>"$GH_TASKS_ERR")" || status=$?
   if [[ "$status" -eq 0 ]]; then
+    printf '%s' "$out"
     gh_tasks_cleanup
     return 0
   fi

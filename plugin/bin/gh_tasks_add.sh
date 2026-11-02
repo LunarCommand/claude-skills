@@ -310,8 +310,10 @@ report_created() {
 # projectV2Ids above does place the issue on the board, but the created issue's
 # own projectItems come back empty in that same response, so the item ID has to
 # be asked for separately. Adding an issue a board already holds answers with
-# the item it already has rather than a second one, which is what makes this
-# safe after the create has done the placing.
+# the item it already has -- but only once the placing has settled. In the window
+# right after the create it can instead answer UNPROCESSABLE, "Content already
+# exists in this project", carrying no data, so the item is read back rather than
+# added again.
 ITEM_ID=""
 if [[ -n "$NEW_ID" ]]; then
   ITEM_STATUS=0
@@ -321,6 +323,17 @@ if [[ -n "$NEW_ID" ]]; then
         item { id }
       }
     }' --jq '.data.addProjectV2ItemById.item.id // empty')" || ITEM_STATUS=$?
+  if [[ -z "$ITEM_ID" ]]; then
+    ITEM_ID="$(gh_tasks_api -f content="$NEW_ID" \
+      -f query='query($content: ID!) {
+        node(id: $content) {
+          ... on Issue {
+            projectItems(first: 100) { nodes { id project { id } } }
+          }
+        }
+      }' --jq "[.data.node.projectItems.nodes[]? | select(.project.id == \"$PROJECT_ID\") | .id][0] // empty")" || ITEM_STATUS=$?
+    [[ -z "$ITEM_ID" ]] || ITEM_STATUS=0
+  fi
 fi
 
 if [[ -z "$ITEM_ID" ]]; then
