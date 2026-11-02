@@ -127,6 +127,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ### Repository
 
+- `scripts/validate.sh` parses each `SKILL.md`'s frontmatter as YAML, and names
+  the line and column when it will not parse. Nothing here did: an unquoted
+  description containing `: ` is invalid YAML, and one shipped past the name
+  check, the description check, the length check, `claude plugin validate` and
+  CI — a reviewer reading the diff was the only thing that caught it, and a
+  skill whose frontmatter will not parse does not load at all. The parsed
+  description length is reported beside the awk measurement, which over-counts
+  slightly because it joins folded lines with a space. A missing pyyaml fails
+  the run rather than warning, on the same reasoning as a missing shellcheck;
+  `YAML_OPTIONAL=1` skips it deliberately, and CI installs it explicitly rather
+  than trusting the runner images.
+
 - `scripts/validate.sh` fails on two non-portable idioms it used to miss: a
   `mktemp` with no template, which is a GNU default that BSD rejects outright,
   and `\|` alternation in a basic regular expression, which is a GNU extension

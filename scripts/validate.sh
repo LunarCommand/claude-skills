@@ -28,6 +28,8 @@
 #   SHELLCHECK_OPTIONAL=1       tolerate shellcheck being absent (normally fatal)
 #   SKIP_VERSION_CHECK=1        bypass the plugin version-bump check; for a clone
 #                               with no tags, not for skipping a real bump
+#   YAML_OPTIONAL=1             tolerate pyyaml being absent, which means the
+#                               SKILL.md frontmatter is never parsed (normally fatal)
 #
 # Exit code is non-zero if any check FAILS. Warnings do not fail the run.
 set -uo pipefail
@@ -357,6 +359,80 @@ for d in plugin/skills/*/; do
     fail "$name — has .claude-plugin/; there is one manifest, at the plugin root"
   fi
 done
+
+# Everything above reads the frontmatter with awk, which is not a YAML parser.
+# An unquoted description containing ": " is invalid YAML, and one shipped: the
+# name check, the description check, the length check, `claude plugin validate`
+# and CI all passed it, and the only thing that caught it was a reviewer reading
+# the diff. A skill whose frontmatter will not parse does not load at all, so
+# this is the one property here worth more than its spelling.
+#
+# pyyaml is a real dependency and a missing one FAILS rather than warns, on the
+# same reasoning as shellcheck: a machine that cannot parse the frontmatter
+# should not report that the frontmatter is fine. YAML_OPTIONAL=1 skips it on
+# purpose.
+if python3 -c 'import yaml' 2>/dev/null; then
+  if out=$(python3 - <<'YAML_PY' 2>&1
+import glob, os, sys
+import yaml
+bad = []
+measured = []
+for path in sorted(glob.glob('plugin/skills/*/SKILL.md')):
+    name = os.path.basename(os.path.dirname(path))
+    text = open(path).read()
+    if not text.startswith('---\n'):
+        bad.append(f'{name}: does not open with a --- frontmatter block')
+        continue
+    end = text.find('\n---', 3)
+    if end == -1:
+        bad.append(f'{name}: frontmatter block is never closed')
+        continue
+    block = text[4:end + 1]
+    try:
+        fm = yaml.safe_load(block)
+    except yaml.YAMLError as e:
+        mark = getattr(e, 'problem_mark', None)
+        where = f' at line {mark.line + 2}, column {mark.column + 1}' if mark else ''
+        bad.append(f'{name}: frontmatter is not valid YAML{where} -- {getattr(e, "problem", e)}')
+        continue
+    if not isinstance(fm, dict):
+        bad.append(f'{name}: frontmatter parses as {type(fm).__name__}, not a mapping')
+        continue
+    for key in ('name', 'description'):
+        if key not in fm:
+            bad.append(f'{name}: frontmatter has no {key}')
+        elif not isinstance(fm[key], str):
+            bad.append(f'{name}: frontmatter {key} parses as {type(fm[key]).__name__}, not a string')
+    if isinstance(fm.get('name'), str) and fm['name'] != name:
+        bad.append(f'{name}: frontmatter name is {fm["name"]!r}, not the directory name')
+    desc = fm.get('description')
+    if isinstance(desc, str):
+        # The loader sees this value, not the awk reconstruction above, which
+        # joins folded lines with a space where YAML may fold to a newline and
+        # so reads a few characters long. Over-counting can only fail early.
+        if len(desc) > 1024:
+            bad.append(f'{name}: description parses to {len(desc)} characters, over the 1024 cap')
+        else:
+            measured.append(f'{name}, {len(desc)}/1024 as the loader parses it')
+# Only the failures on a failing run: a refusal that opens with six passing
+# measurements buries the one line that says what is wrong.
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+print('\n'.join(measured))
+YAML_PY
+  ); then
+    pass "frontmatter YAML parses for every skill:"; printf '%s\n' "$out" | sed 's/^/          /'
+  else
+    fail "frontmatter a SKILL.md will not load:"; printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+elif [[ -n "${YAML_OPTIONAL:-}" ]]; then
+  warn "frontmatter pyyaml not installed — YAML parse skipped (YAML_OPTIONAL is set)"
+else
+  fail "frontmatter pyyaml is not installed, so the frontmatter was never parsed"
+  echo "        Install it:            python3 -m pip install pyyaml" >&2
+  echo "        Or on Debian/Ubuntu:   sudo apt-get install -y python3-yaml" >&2
+  echo "        Or skip deliberately:  YAML_OPTIONAL=1 scripts/validate.sh" >&2
+fi
 
 # CLAUDE.md promises every bundled script is self-documenting via `--help`. That
 # was true of four of the eight: one rejected the flag as an unknown option, one

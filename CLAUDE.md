@@ -318,7 +318,10 @@ node). Hard constraints, stated in their headers and enforced by the runtime:
 There is no unit-test suite — the artifacts are Markdown contracts and bash
 scripts. What exists instead is `scripts/validate.sh`, which enforces the
 mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
-SKILL.md frontmatter (`name` matching its directory, `description` present),
+SKILL.md frontmatter (`name` matching its directory, `description` present, and
+the block parsing as YAML at all -- an unquoted `: ` in a description shipped
+past every other check here, `claude plugin validate` included, and a skill whose
+frontmatter will not parse does not load),
 the plugin and marketplace manifests (valid JSON, the marketplace entry's name
 agreeing with the manifest it points at, every `SKILL.md` inside the plugin root
 where it can actually load, plus `claude plugin validate` when the CLI is on
@@ -361,10 +364,11 @@ artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
 pre-commit hook uses it, so a clean commit hook is not evidence the scripts
 work. CI runs the full suite.
 
-Three environment variables loosen it, each a deliberate bypass rather than a
-normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`, and
-`SKIP_VERSION_CHECK=1`. The version check needs tags, so CI checks out with
-`fetch-depth: 0`; without that it would pass vacuously.
+Four environment variables loosen it, each a deliberate bypass rather than a
+normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`,
+`SKIP_VERSION_CHECK=1`, and `YAML_OPTIONAL=1`. The version check needs tags, so
+CI checks out with `fetch-depth: 0`; without that it would pass vacuously. CI
+installs pyyaml explicitly rather than trusting a runner image to carry it.
 
 One bash 3.2 hazard is worth knowing because nothing local catches it: **a
 `case` statement inside a `$( )` command substitution needs a leading `(` on
