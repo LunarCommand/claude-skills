@@ -714,6 +714,47 @@ else
   fail "allowlist   inconsistent with the shipped scripts:"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
+# gh_tasks_need_value refuses a value that is one of the script's own options,
+# which it can only do from the GH_TASKS_FLAGS list each script declares. A list
+# that falls behind its own case statement re-opens the swallow for the option it
+# omits, silently and only for that one flag. The guard is asserted on the
+# property rather than on an assignment shape: an arm that reads $2 at all must
+# call it. A shape-matching regex passed a canary that restored the old spelling
+# while missing the regression that would actually be written.
+if out=$(python3 - <<'FLAGS_PY' 2>&1
+import glob, re, sys
+bad = []
+for path in sorted(glob.glob('plugin/bin/gh_tasks_*.sh')):
+    src = open(path).read()
+    loop = re.search(r'^while \[\[ \$# -gt 0 \]\]; do\n(.*?)^done', src, re.M | re.S)
+    if not loop:
+        continue
+    body = loop.group(1)
+    arms = set(re.findall(r'^\s*\((--[a-z-]+)\)', body, re.M))
+    m = re.search(r'^GH_TASKS_FLAGS="([^"]*)"', src, re.M)
+    if not m:
+        bad.append(f'{path}: parses options but declares no GH_TASKS_FLAGS')
+        continue
+    declared = set(m.group(1).split())
+    for f in sorted(arms - declared):
+        bad.append(f'{path}: {f} is accepted but missing from GH_TASKS_FLAGS')
+    for f in sorted(declared - arms):
+        bad.append(f'{path}: GH_TASKS_FLAGS names {f}, which the case statement does not accept')
+    for line in body.split('\n'):
+        arm = re.match(r'^\s*\((--[a-z-]+)\)', line)
+        if not arm:
+            continue
+        if re.search(r'\$\{?2\b', line) and 'gh_tasks_need_value' not in line:
+            bad.append(f'{path}: {arm.group(1)} reads $2 without gh_tasks_need_value')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+FLAGS_PY
+); then
+  pass "option flags  every value-taking option is guarded and declared"
+else
+  fail "option flags  a script's GH_TASKS_FLAGS disagrees with its own options:"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
 # The central invariant of the plugin layout: a SKILL.md must name its scripts
 # by bare name only. `bin/` is on the Bash tool's PATH, so the bare name is what
 # runs and what the permission rules approve; a path-qualified call prompts even

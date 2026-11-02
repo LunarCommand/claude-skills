@@ -71,14 +71,18 @@ DUP=""
 DRY=0
 PUBLIC_OK=0
 
+# Read by gh_tasks_need_value: a flag written where a value belongs is refused
+# rather than consumed as that value.
+GH_TASKS_FLAGS="--reason --duplicate-of --note --repo --owner --number --dry-run --public-ok"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    (--reason)       REASON="${2:-}"; shift 2 ;;
-    (--duplicate-of) DUP="${2:-}"; shift 2 ;;
-    (--note)         NOTE="${2:-}"; shift 2 ;;
-    (--repo)         REPO="${2:-}"; shift 2 ;;
-    (--owner)        LOGIN="${2:-}"; shift 2 ;;
-    (--number)       NUMBER="${2:-}"; shift 2 ;;
+    (--reason)       gh_tasks_need_value --reason $# "${2:-}" "$GH_TASKS_FLAGS"; REASON="$2"; shift 2 ;;
+    (--duplicate-of) gh_tasks_need_value --duplicate-of $# "${2:-}" "$GH_TASKS_FLAGS"; DUP="$2"; shift 2 ;;
+    (--note)         gh_tasks_need_value --note $# "${2:-}" "$GH_TASKS_FLAGS"; NOTE="$2"; shift 2 ;;
+    (--repo)         gh_tasks_need_value --repo $# "${2:-}" "$GH_TASKS_FLAGS"; REPO="$2"; shift 2 ;;
+    (--owner)        gh_tasks_need_value --owner $# "${2:-}" "$GH_TASKS_FLAGS"; LOGIN="$2"; shift 2 ;;
+    (--number)       gh_tasks_need_value --number $# "${2:-}" "$GH_TASKS_FLAGS"; NUMBER="$2"; shift 2 ;;
     (--dry-run)      DRY=1; shift ;;
     (--public-ok)    PUBLIC_OK=1; shift ;;
     (-*) echo "Error: unrecognised argument '$1'" >&2; usage >&2; exit 1 ;;
@@ -95,8 +99,8 @@ if [[ -z "$ISSUE" ]]; then
   usage >&2
   exit 1
 fi
-if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
-  echo "Error: issue number must be numeric, got: $ISSUE" >&2
+if ! [[ "$ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: issue number must be a number with no leading zeros, got: $ISSUE" >&2
   exit 1
 fi
 
@@ -121,8 +125,8 @@ case "$REASON" in
     echo "Error: --reason must be completed, not-planned or duplicate, got: $REASON" >&2
     exit 1 ;;
 esac
-if [[ -n "$DUP" ]] && ! [[ "$DUP" =~ ^[0-9]+$ ]]; then
-  echo "Error: --duplicate-of must be an issue number, got: $DUP" >&2
+if [[ -n "$DUP" ]] && ! [[ "$DUP" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --duplicate-of must be an issue number with no leading zeros, got: $DUP" >&2
   exit 1
 fi
 if [[ -n "$DUP" && "$DUP" == "$ISSUE" ]]; then
@@ -148,8 +152,8 @@ if [[ -z "$LOGIN" ]]; then
   DISCOVERED="$(gh_tasks_discover "$REPO")" || exit $?
   IFS=$'\t' read -r LOGIN NUMBER DECLARED SOURCE <<<"$DISCOVERED"
 fi
-if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Error: board number must be numeric, got: $NUMBER" >&2
+if ! [[ "$NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: board number must be a number with no leading zeros, got: $NUMBER" >&2
   exit 1
 fi
 if ! [[ "$LOGIN" =~ ^[A-Za-z0-9-]{1,39}$ ]]; then

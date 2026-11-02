@@ -148,13 +148,40 @@ gh_tasks_preflight() {
   require_cmd gh "Install the GitHub CLI and authenticate: https://cli.github.com then run 'gh auth login'."
 }
 
+# An option's value is whatever argument follows it, so a flag written where a
+# value belongs is consumed as that value and lost: `--note --dry-run` sets the
+# note to "--dry-run" and leaves the dry run off, turning a preview into a real
+# write. The fourth argument is the calling script's own option names, and a
+# value matching one of them is refused instead of consumed. Anything else is
+# still accepted, so a value that legitimately begins with a dash keeps working
+# -- these scripts have no --option=value form to fall back on.
+gh_tasks_need_value() {
+  local flag="$1" left="$2" value="$3" flags="$4"
+  if [[ "$left" -lt 2 ]]; then
+    echo "Error: $flag needs a value and nothing followed it." >&2
+    echo "  Nothing was applied." >&2
+    exit 1
+  fi
+  local f
+  # shellcheck disable=SC2086
+  # Split on whitespace deliberately: $flags is a list. Compared one at a time
+  # rather than as a substring of the whole, which also matched a value that was
+  # a run of consecutive flags -- a note of "--repo --owner" was refused.
+  for f in $flags; do
+    [[ "$value" == "$f" ]] || continue
+    echo "Error: $flag needs a value, but the next argument is $value." >&2
+    echo "  Nothing was applied. Give $flag its value, or drop $flag." >&2
+    exit 1
+  done
+}
+
 # How many of a board's fields to read per item. Below GraphQL's 100 cap by
 # default so an ordinary board costs less, and raisable because a board wider
 # than the page would otherwise show partial field values.
 gh_tasks_field_page() {
   local n="${GH_TASKS_FIELD_PAGE:-50}"
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -lt 1 ]] || [[ "$n" -gt 100 ]]; then
-    echo "Error: GH_TASKS_FIELD_PAGE must be 1-100, got: $n" >&2
+  if ! [[ "$n" =~ ^[1-9][0-9]*$ ]] || [[ "$n" -lt 1 ]] || [[ "$n" -gt 100 ]]; then
+    echo "Error: GH_TASKS_FIELD_PAGE must be 1-100 with no leading zeros, got: $n" >&2
     exit 1
   fi
   printf '%s' "$n"
@@ -247,15 +274,20 @@ gh_tasks_config_path() {
 # Prints "login<TAB>number<TAB>visibility" for a matching remote, nothing if the
 # file has no row for it.
 gh_tasks_config_lookup() {
-  local repo="$1" path line key login num vis
+  local repo="$1" path line key login num vis want
   path="$(gh_tasks_config_path)"
   [[ -r "$path" ]] || return 0
+  # Matched ignoring case, as GitHub treats owner and repository names. The
+  # remote reports the canonical spelling, so a row differing only in case is a
+  # typo -- and the miss is silent, falling through to a link that a row exists
+  # precisely because it cannot be made.
+  want="$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')"
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in (\#*|'') continue ;; esac
     # shellcheck disable=SC2086
     set -- $line
     key="${1:-}"; login="${2:-}"; num="${3:-}"; vis="${4:-unspecified}"
-    [[ "$key" == "$repo" ]] || continue
+    [[ "$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" == "$want" ]] || continue
     if [[ -z "$login" || -z "$num" ]]; then
       echo "Error: malformed row for $repo in $path" >&2
       echo "  Expected: <owner/repo> <board owner> <board number> [private|public]" >&2
@@ -385,8 +417,8 @@ GH_TASKS_LOCATE_QUERY='query($login: String!, $num: Int!, $first: Int!, $after: 
 
 gh_tasks_locate_pages() {
   local n="${GH_TASKS_LOCATE_PAGES:-10}"
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -lt 1 ]] || [[ "$n" -gt 100 ]]; then
-    echo "Error: GH_TASKS_LOCATE_PAGES must be 1-100, got: $n" >&2
+  if ! [[ "$n" =~ ^[1-9][0-9]*$ ]] || [[ "$n" -lt 1 ]] || [[ "$n" -gt 100 ]]; then
+    echo "Error: GH_TASKS_LOCATE_PAGES must be 1-100 with no leading zeros, got: $n" >&2
     exit 1
   fi
   printf '%s' "$n"
