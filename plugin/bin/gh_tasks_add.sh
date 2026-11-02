@@ -73,16 +73,20 @@ PUBLIC_OK=0
 SETS=()
 LABELS=()
 
+# Read by gh_tasks_need_value: a flag written where a value belongs is refused
+# rather than consumed as that value.
+GH_TASKS_FLAGS="--title --body --field --label --parent --repo --owner --number --dry-run --public-ok"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    (--title)     TITLE="${2:-}"; shift 2 ;;
-    (--body)      BODY="${2:-}"; shift 2 ;;
-    (--field)     SETS+=("${2:-}"); shift 2 ;;
-    (--label)     LABELS+=("${2:-}"); shift 2 ;;
-    (--parent)    PARENT="${2:-}"; shift 2 ;;
-    (--repo)      REPO="${2:-}"; shift 2 ;;
-    (--owner)     LOGIN="${2:-}"; shift 2 ;;
-    (--number)    NUMBER="${2:-}"; shift 2 ;;
+    (--title)     gh_tasks_need_value --title $# "${2:-}" "$GH_TASKS_FLAGS"; TITLE="$2"; shift 2 ;;
+    (--body)      gh_tasks_need_value --body $# "${2:-}" "$GH_TASKS_FLAGS"; BODY="$2"; shift 2 ;;
+    (--field)     gh_tasks_need_value --field $# "${2:-}" "$GH_TASKS_FLAGS"; SETS+=("$2"); shift 2 ;;
+    (--label)     gh_tasks_need_value --label $# "${2:-}" "$GH_TASKS_FLAGS"; LABELS+=("$2"); shift 2 ;;
+    (--parent)    gh_tasks_need_value --parent $# "${2:-}" "$GH_TASKS_FLAGS"; PARENT="$2"; shift 2 ;;
+    (--repo)      gh_tasks_need_value --repo $# "${2:-}" "$GH_TASKS_FLAGS"; REPO="$2"; shift 2 ;;
+    (--owner)     gh_tasks_need_value --owner $# "${2:-}" "$GH_TASKS_FLAGS"; LOGIN="$2"; shift 2 ;;
+    (--number)    gh_tasks_need_value --number $# "${2:-}" "$GH_TASKS_FLAGS"; NUMBER="$2"; shift 2 ;;
     (--dry-run)   DRY=1; shift ;;
     (--public-ok) PUBLIC_OK=1; shift ;;
     (*) echo "Error: unrecognised argument '$1'" >&2; usage >&2; exit 1 ;;
@@ -98,8 +102,8 @@ if [[ "${#TITLE}" -gt 256 ]]; then
   echo "Error: --title is ${#TITLE} characters; GitHub's limit is 256." >&2
   exit 1
 fi
-if [[ -n "$PARENT" ]] && ! [[ "$PARENT" =~ ^[0-9]+$ ]]; then
-  echo "Error: --parent must be an issue number, got: $PARENT" >&2
+if [[ -n "$PARENT" ]] && ! [[ "$PARENT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --parent must be an issue number with no leading zeros, got: $PARENT" >&2
   exit 1
 fi
 if { [[ -n "$LOGIN" ]] && [[ -z "$NUMBER" ]]; } || { [[ -z "$LOGIN" ]] && [[ -n "$NUMBER" ]]; }; then
@@ -127,8 +131,8 @@ if [[ -z "$LOGIN" ]]; then
   DISCOVERED="$(gh_tasks_discover "$REPO")" || exit $?
   IFS=$'\t' read -r LOGIN NUMBER DECLARED SOURCE <<<"$DISCOVERED"
 fi
-if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Error: board number must be numeric, got: $NUMBER" >&2
+if ! [[ "$NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: board number must be a number with no leading zeros, got: $NUMBER" >&2
   exit 1
 fi
 if ! [[ "$LOGIN" =~ ^[A-Za-z0-9-]{1,39}$ ]]; then

@@ -59,12 +59,16 @@ LOGIN=""
 NUMBER=""
 COMMENTS=50
 
+# Read by gh_tasks_need_value: a flag written where a value belongs is refused
+# rather than consumed as that value.
+GH_TASKS_FLAGS="--repo --owner --number --comments"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    (--repo)     REPO="${2:-}"; shift 2 ;;
-    (--owner)    LOGIN="${2:-}"; shift 2 ;;
-    (--number)   NUMBER="${2:-}"; shift 2 ;;
-    (--comments) COMMENTS="${2:-}"; shift 2 ;;
+    (--repo)     gh_tasks_need_value --repo $# "${2:-}" "$GH_TASKS_FLAGS"; REPO="$2"; shift 2 ;;
+    (--owner)    gh_tasks_need_value --owner $# "${2:-}" "$GH_TASKS_FLAGS"; LOGIN="$2"; shift 2 ;;
+    (--number)   gh_tasks_need_value --number $# "${2:-}" "$GH_TASKS_FLAGS"; NUMBER="$2"; shift 2 ;;
+    (--comments) gh_tasks_need_value --comments $# "${2:-}" "$GH_TASKS_FLAGS"; COMMENTS="$2"; shift 2 ;;
     (-*) echo "Error: unrecognised argument '$1'" >&2; usage >&2; exit 1 ;;
     (*)
       if [[ -n "$ISSUE" ]]; then
@@ -79,12 +83,12 @@ if [[ -z "$ISSUE" ]]; then
   usage >&2
   exit 1
 fi
-if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
-  echo "Error: issue number must be numeric, got: $ISSUE" >&2
+if ! [[ "$ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: issue number must be a number with no leading zeros, got: $ISSUE" >&2
   exit 1
 fi
-if ! [[ "$COMMENTS" =~ ^[0-9]+$ ]] || [[ "$COMMENTS" -lt 1 ]] || [[ "$COMMENTS" -gt 100 ]]; then
-  echo "Error: --comments must be 1-100, got: $COMMENTS" >&2
+if ! [[ "$COMMENTS" =~ ^[1-9][0-9]*$ ]] || [[ "$COMMENTS" -lt 1 ]] || [[ "$COMMENTS" -gt 100 ]]; then
+  echo "Error: --comments must be 1-100 with no leading zeros, got: $COMMENTS" >&2
   exit 1
 fi
 if { [[ -n "$LOGIN" ]] && [[ -z "$NUMBER" ]]; } || { [[ -z "$LOGIN" ]] && [[ -n "$NUMBER" ]]; }; then
@@ -112,8 +116,8 @@ if [[ -z "$REPO" ]]; then
     DISCOVERED="$(gh_tasks_discover "$CURRENT")" || exit $?
     IFS=$'\t' read -r LOGIN NUMBER _DECLARED SOURCE <<<"$DISCOVERED"
   fi
-  if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
-    echo "Error: board number must be numeric, got: $NUMBER" >&2
+  if ! [[ "$NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: board number must be a number with no leading zeros, got: $NUMBER" >&2
     exit 1
   fi
   if ! [[ "$LOGIN" =~ ^[A-Za-z0-9-]{1,39}$ ]]; then

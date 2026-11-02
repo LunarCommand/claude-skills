@@ -62,15 +62,19 @@ REPO=""
 LOGIN=""
 NUMBER=""
 
+# Read by gh_tasks_need_value: a flag written where a value belongs is refused
+# rather than consumed as that value.
+GH_TASKS_FLAGS="--state --order --all --limit --repo --owner --number"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    (--state)  STATE="${2:-}"; shift 2 ;;
-    (--order)  ORDER="${2:-}"; shift 2 ;;
+    (--state)  gh_tasks_need_value --state $# "${2:-}" "$GH_TASKS_FLAGS"; STATE="$2"; shift 2 ;;
+    (--order)  gh_tasks_need_value --order $# "${2:-}" "$GH_TASKS_FLAGS"; ORDER="$2"; shift 2 ;;
     (--all)    FETCH_ALL=1; shift ;;
-    (--limit)  LIMIT="${2:-}"; shift 2 ;;
-    (--repo)   REPO="${2:-}"; shift 2 ;;
-    (--owner)  LOGIN="${2:-}"; shift 2 ;;
-    (--number) NUMBER="${2:-}"; shift 2 ;;
+    (--limit)  gh_tasks_need_value --limit $# "${2:-}" "$GH_TASKS_FLAGS"; LIMIT="$2"; shift 2 ;;
+    (--repo)   gh_tasks_need_value --repo $# "${2:-}" "$GH_TASKS_FLAGS"; REPO="$2"; shift 2 ;;
+    (--owner)  gh_tasks_need_value --owner $# "${2:-}" "$GH_TASKS_FLAGS"; LOGIN="$2"; shift 2 ;;
+    (--number) gh_tasks_need_value --number $# "${2:-}" "$GH_TASKS_FLAGS"; NUMBER="$2"; shift 2 ;;
     (*) echo "Error: unrecognised argument '$1'" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -100,8 +104,8 @@ if [[ "$ORDER" == "closed" && "$STATE" != "closed" ]]; then
   echo "  where board order means what to do next." >&2
   exit 1
 fi
-if ! [[ "$LIMIT" =~ ^[0-9]+$ ]] || [[ "$LIMIT" -lt 1 ]] || [[ "$LIMIT" -gt 100 ]]; then
-  echo "Error: --limit must be 1-100, got: $LIMIT" >&2
+if ! [[ "$LIMIT" =~ ^[1-9][0-9]*$ ]] || [[ "$LIMIT" -lt 1 ]] || [[ "$LIMIT" -gt 100 ]]; then
+  echo "Error: --limit must be 1-100 with no leading zeros, got: $LIMIT" >&2
   exit 1
 fi
 if { [[ -n "$LOGIN" ]] && [[ -z "$NUMBER" ]]; } || { [[ -z "$LOGIN" ]] && [[ -n "$NUMBER" ]]; }; then
@@ -127,8 +131,8 @@ if [[ -z "$LOGIN" ]]; then
   DISCOVERED="$(gh_tasks_discover "$REPO")" || exit $?
   IFS=$'\t' read -r LOGIN NUMBER DECLARED SOURCE <<<"$DISCOVERED"
 fi
-if ! [[ "$NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Error: board number must be numeric, got: $NUMBER" >&2
+if ! [[ "$NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: board number must be a number with no leading zeros, got: $NUMBER" >&2
   exit 1
 fi
 

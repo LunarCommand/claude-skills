@@ -135,6 +135,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   found one in `validate.sh` itself, now fixed. Both are proven against a
   canary, so a grep lacking the feature cannot report a vacuous pass.
 
+- `scripts/validate.sh` checks that every `gh_tasks_*` option that takes a value
+  is guarded against being handed another option as that value, and that each
+  script's list of its own options matches the options it actually accepts. A
+  list that falls behind re-opens the swallow for the one option it omits, which
+  is invisible in review. Proven against three canaries: a dropped entry, a
+  spurious one, and an unguarded arm.
+
 - `docs/RELEASING.md` says which date the `CHANGELOG` heading means. It held two
   rules that disagreed: the version bump is the release and a tag is only a
   bookmark, but the heading must be the day you tag. Those diverge whenever the
