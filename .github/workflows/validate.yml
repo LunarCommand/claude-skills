@@ -33,6 +33,21 @@ jobs:
       # was flagged by the macOS job and by nothing else, after the commit had
       # already landed. Two of the three lint runs in the project were blind to
       # a whole class of check, and no output said so. Bump this deliberately.
+      # The SKILL.md frontmatter check parses YAML, and a missing parser is a
+      # failure rather than a warning -- a machine that cannot parse the
+      # frontmatter should not report that the frontmatter is fine. Installed
+      # explicitly because the runner images do not promise it, and the two
+      # runners would otherwise differ the way shellcheck once did.
+      - name: Ensure pyyaml
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --break-system-packages pyyaml \
+              || python3 -m pip install pyyaml
+          fi
+          python3 -c 'import yaml; print("pyyaml", yaml.__version__)'
+
       - name: Install shellcheck (pinned)
         shell: bash
         run: |
