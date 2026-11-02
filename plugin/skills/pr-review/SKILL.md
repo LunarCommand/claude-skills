@@ -70,8 +70,31 @@ Collect every top-level comment, noting for each:
 - File and line
 - Full comment body
 
+Then read the review bodies, which are not threads and are not listed above:
+
+```bash
+gh pr view $PR --json reviews --jq '.reviews[] | "--- \(.author.login) [\(.state)] \(.submittedAt)\n\(.body)"'
+```
+
+**A review body carries findings no thread can hold.** An inline comment can only
+anchor to a file the reviewer is allowed to comment on, and GitHub's default
+exclusions for Copilot code review include `**/bin/**/*`. For a repository whose
+code sits in such a path, the overview body is the *only* place its findings
+appear — and that includes the headline sentence above the issue list, which
+names defects that are not in the list. Treat each finding there as a thread for
+Step 2, and say how many you found alongside the thread count.
+
+Two bodies mean something specific:
+
+- *"Copilot wasn't able to review any files in this pull request"* — nothing was
+  reviewed. Report that as an absent review, never as a clean one. One
+  non-excluded file in the diff is enough to get a real review of the rest.
+- *"No open issues"* beside a headline describing a defect — the headline covers
+  issues from earlier pushes too. Check whether each one is still true at the
+  head rather than assuming the list is complete.
+
 Do not evaluate or act on any comment yet. Tell the user:
-**"Found N unresolved threads on PR #$PR in $REPO. I'll go through them one at a time for your approval."**
+**"Found N unresolved threads and M unanchored review findings on PR #$PR in $REPO. I'll go through them one at a time for your approval."**
 
 ---
 
@@ -135,6 +158,19 @@ Confirm: **"Done — thread resolved. Moving to next comment."**
 
 Combining any of these into a single command is a violation of this skill, even after approval.
 
+**For a finding that came from a review body, there is no thread.** No comment ID
+exists to reply to and no node ID exists to resolve, so `pr_review_post_reply.sh`
+and `pr_review_resolve_thread.sh` do not apply. Post the approved reply as a PR
+comment instead:
+
+```bash
+gh pr comment $PR --body "<approved reply text>"
+```
+
+That write is not pre-approved and will prompt — correct, because nothing in the
+allowlist covers it. Apply the code change as usual, and record the finding as
+answered in Step 3 rather than resolved, since there is nothing to resolve.
+
 Then loop back to 2a for the next thread.
 
 ---
@@ -156,12 +192,18 @@ PR #$PR Review Summary
 ⏭️ Skipped (N):
   • auth.ts:88 — skipped at your request
 
+📄 Answered without a thread (N):
+  • lib/payments.ts — review-body finding, replied as a PR comment
+
 Total threads resolved: N
 ```
 
 ## Rules
 
 - ALWAYS detect `$REPO` from `gh repo view` — never hardcode or guess the org/repo
+- ALWAYS read the review bodies as well as the threads. A thread list alone is a
+  partial review of any repository whose code sits under an excluded path, and
+  reporting it as complete has already let a defect merge
 - ALWAYS use the bundled scripts for all GitHub API calls — never call `gh api` directly, never use shell pipes or redirects
 - To read a specific comment in full use `pr_review_parse_comments.sh $REPO $PR <index>` or `pr_review_parse_comments.sh $REPO $PR --id <comment_id>` — NEVER call `gh api` directly to look up a comment body, NEVER pipe or grep the output of pr_review_parse_comments.sh
 - Never post a reply, make a code change, or resolve a thread without explicit user approval
