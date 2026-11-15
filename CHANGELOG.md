@@ -188,6 +188,70 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   used, and it pointed the long-form at `_docs/`, which nothing uses. Merge it
   again if you took the old one.
 
+- Two optional config templates, kept apart from the ones the skills need, so the
+  line between a requirement and a preference stays visible.
+  `install/user/settings.optional.json` is the rest of one
+  `~/.claude/settings.json` — empty commit and PR attribution, which is the
+  setting behind what `install/user/CLAUDE.md` asks for in prose, notification
+  preferences, and two that cost money on the account that adopts them. It
+  carries no `permissions` key and `scripts/validate.sh` asserts that, so the
+  permission template stays the only file here that grants anything.
+  `install/project/settings.json` is project-scope permissions: tool grants, a
+  project's test and lint commands, and a `deny` block. It repeats the user
+  file's `ask` and `deny` lists deliberately, because it is checked in and the
+  user file is not, so on a clone where nobody merged the user file it is the
+  whole policy — and it grants `Read`, `Edit` and `Write` wholesale, which is
+  what makes the `deny` block load-bearing rather than belt-and-braces.
+
+- The permission template's `ask` list covers the class rather than the subset
+  these skills happen to call, going from ten rules to twenty-nine: `switch`,
+  `pull`, `apply`, `am`, `rm`, `mv`, `tag`, `rebase`, `merge`, `revert`,
+  `cherry-pick`, deleting, renaming and forcing a branch, `gh repo create` and
+  `gh release create`. An `allow` rule has to trace to a command a shipped skill
+  runs, because a grant nobody needed is a grant nobody wanted. An `ask` rule
+  grants nothing, so leaving one out costs nothing right up until a broad
+  `allow` rule or auto mode would have let the command through unasked — which
+  is the moment it was for. Every entry traces to `install/user/CLAUDE.md`'s
+  never-without-an-ack list, its Releases section, or the commands
+  adversarial-review's own instructions forbid. `git switch` is the gap worth
+  naming: `git checkout` was already listed, and `switch` is the same hazard in
+  the newer spelling.
+
+- `scripts/validate.sh` asserts that `install/project/settings.json` restates
+  every `ask` and `deny` rule the user template holds. The project file is
+  checked in where the user file is not, so on a clone where nobody merged the
+  user file it is the whole policy, and drift between the two is invisible in
+  either file on its own. The drift was real before the check existed: the first
+  hand comparison of the two lists found `gh pr create` missing.
+
+- The permission template gains a `deny` list, and it is the environment and
+  nothing else: `env`, `printenv`, `set`, `export`, `export -p`, `declare -p`,
+  `declare -x`. These scripts take their API keys from the environment —
+  `.agent.env` is loaded into the script's own process, but an exported
+  `LANGFUSE_SECRET_KEY` works too — so `env` prints a live key into the
+  transcript, and a transcript is not somewhere a key can be withdrawn from.
+  Denying `export` also makes the langfuse skill's "never export env vars
+  manually" something an agent cannot quietly skip. Credential directories and
+  shell histories are deliberately absent: denying a path at user scope asserts
+  a filesystem policy over every repository you open and no shipped skill traces
+  to one, so those stay examples in the project template.
+
+- `rm`, `git worktree remove`, `git worktree prune`, `curl` and `wget` join the
+  `ask` list. The first three rest on something worth stating once: a rule
+  matches what the agent types into the Bash tool, not what an approved script
+  runs inside itself. These scripts call `rm` in six places and tear down their
+  own worktrees, and no rule here touches any of it; what matters is that no
+  `SKILL.md` asks the agent to run either command, so the rules cost the toolkit
+  nothing and cover what adversarial-review's Step 0 exists to prevent. `prune`
+  is listed for the reason the worktree runner gives for never calling it — it
+  is repo-wide and would deregister an unrelated worktree whose directory is
+  merely unavailable. `curl` and `wget` are a trade:
+  the hyperdx and langfuse skills forbid reaching past their scripts for data
+  and tell the agent that doing so triggers a permission prompt, which was only
+  true while nothing had widened `curl`. The cost is a prompt on the langfuse
+  skill's documented fallback for fetching public docs, a path that section
+  already says to prefer `WebFetch` over.
+
 ## v1.0.1 — 2026-10-13
 
 ### All skills

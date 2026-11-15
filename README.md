@@ -279,6 +279,12 @@ Installing the plugin does not write it for you, and cannot — see
 **Use them for:** stopping every script call from asking permission, and pointing
 the observability skills at your stack.
 
+Three of these the skills need. Two are one person's opinion, kept in their own
+files so the line stays visible — nothing in those two is required to use
+anything here.
+
+**What the skills need:**
+
 - **`install/user/settings.json`** — the permission rules, merged into
   `~/.claude/settings.json` once per machine. The plugin installs at user scope,
   so its permissions belong there too; a per-project copy would mean re-approving
@@ -292,6 +298,26 @@ the observability skills at your stack.
 - **`install/project/.agent.env`** — the one genuinely per-project file: the
   endpoints and API keys `hdx_query.sh` and `langfuse_query.sh` read, loaded from
   the project root.
+
+**Opinion, and safe to skip entirely:**
+
+- **`install/user/settings.optional.json`** — the rest of one
+  `~/.claude/settings.json`: empty commit and PR attribution, which is the
+  setting behind what `install/user/CLAUDE.md` asks for in prose; notification
+  preferences; and two that cost money on the account that adopts them. It
+  carries no `permissions` key, and `validate.sh` asserts that, so the file
+  above stays the only one here that grants anything.
+- **`install/project/settings.json`** — project-scope permissions, for
+  `<project>/.claude/settings.json`: the tool grants, two example stacks' test
+  and lint commands, and a `deny` block. The stack commands and the `deny` paths
+  are examples the file tells you to replace with your own. It repeats the user
+  file's `ask` and `deny` lists deliberately, and `validate.sh` asserts it stays
+  in step. This file is checked in and the user file is not, so on a clone where
+  nobody merged the user file it is the whole policy — and it grants `Read`,
+  `Edit` and `Write` wholesale. Grant `Read` with no `deny` and an agent reads
+  `~/.ssh` and your shell history with nothing in the way. `defaultMode` is
+  absent for the same reason: set it to `auto` and that `ask` list stops being a
+  second record of a decision and becomes the only thing that asks.
 
 ## Prerequisites
 
@@ -459,22 +485,55 @@ point of keeping it minimal:
   `tar czf` rather than `tar`, so the rule covers writing an archive and not
   unpacking one
 
-The `ask` list is the other half, and is deliberate rather than leftover. It
-covers the operations the recommended workflow says to confirm — `git add`,
-`git commit`, `git push`, `gh pr create` — and the destructive git commands
-adversarial-review's own instructions forbid: `checkout`, `reset`, `restore`,
-`stash`, `clean`. Those are prose in the skill and a prompt here, which is the
-difference between an instruction an agent should follow and one it cannot
-quietly skip. `git submodule foreach` is there too — the snapshot genuinely runs
-it, but it takes an arbitrary command string, so it asks rather than being waved
-through.
+The `ask` list is the other half, and it is deliberately broader than the rule
+above. An `allow` rule has to trace to a command a shipped skill runs, because a
+grant you did not need is a grant you did not want. An `ask` rule grants
+nothing: listing one costs a prompt, and leaving one out costs nothing right up
+until a broad `allow` rule of your own or auto mode would have let the command
+through unasked — which is the moment it was for. So it covers the class, not
+the subset these skills happen to call.
 
-Nothing else is in the file. No `defaultMode`, no tool-level grants like `Write`
+What it holds: the operations the recommended workflow's never-without-an-ack
+rule names, the two its Releases section says to confirm before, and the tree-
+or history-mutating git commands adversarial-review's own instructions forbid.
+Prose in a skill is an instruction an agent should follow; a prompt here is one
+it cannot quietly skip.
+
+Four entries carry their own reason. `git submodule foreach` takes an arbitrary
+command string, so it asks even though the snapshot genuinely runs it. `rm`,
+`git worktree remove` and `git worktree prune` rest on a point worth stating
+once: **a rule matches what the agent types into the Bash tool, not what an
+approved script runs inside itself** — so the `rm` calls and worktree teardowns
+inside these scripts are untouched, and what matters is that no `SKILL.md` asks
+the agent to run either. `prune` is listed for the reason the runner itself
+gives for never calling it: it is repo-wide, and would deregister an unrelated
+worktree of yours whose directory is merely unavailable.
+
+`curl` and `wget` are a deliberate trade. The hyperdx and langfuse skills forbid
+reaching past their scripts for data and tell the agent that doing so *triggers
+a permission prompt* — only true while something makes it true. The cost is a
+prompt on langfuse's documented fallback for fetching public docs, which that
+same section already says to prefer `WebFetch` over.
+
+The `deny` list is the environment, and only the environment: `env`, `printenv`,
+`set`, `export`, `export -p`, `declare -p`, `declare -x`. These scripts read
+their API keys from the environment, so `env` prints a live key into the
+transcript — and a transcript is not somewhere a key can be withdrawn from.
+`env`, `set` and `export -p` are matched *exactly*, because the bare form is the
+one that dumps everything while `env FOO=bar cmd` is ordinary use a prefix rule
+would refuse.
+
+Credential directories and shell histories are deliberately **not** denied.
+Denying a path at user scope asserts a filesystem policy over every repository
+you open, and no shipped skill traces to one. That decision belongs at the
+project scope, in the template described [above](#3-the-config-templates).
+
+Nothing else is **granted**. No `defaultMode`, no tool-level grants like `Write`
 or `Edit`, no rules for tooling this repo does not ship — those are yours to
 decide, and a toolkit has no business asserting them on your behalf.
 
 A rule approves the command **name**, matching whatever `PATH` resolves it to
-rather than a specific file — which is why the shipped names are distinctive
+rather than a specific file, which is why the shipped names are distinctive
 enough not to collide with anything you are likely to already have.
 
 ## What an adversarial review costs
