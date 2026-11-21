@@ -243,7 +243,7 @@ One-paragraph overview of what will be built and why.
 - <what this feature must achieve>
 
 ### Non-Goals
-- <what this feature explicitly will NOT do, even though it might seem related>
+- <what this feature will never do, by decision — "not this feature", not "not yet">
 
 ## Invariants
 Properties that must hold true at ALL times, across every state and input — the design contract. An invariant is a standing safety property ("X is always true"), NOT a one-time outcome ("we achieved X" — that's Success Criteria) and NOT a risk. If it can ever be false without the feature being broken, it isn't an invariant.
@@ -365,7 +365,10 @@ Traceability rollup so nothing planned goes unverified. Every invariant, success
 How this ships safely — feature flags, backfills, deprecation steps, rollback plan if needed. Write "N/A — greenfield" if there's nothing to migrate.
 
 ## Out of Scope
-What explicitly will NOT be addressed in this implementation.
+Deferred, not declined — what a later change could reasonably add that this one does not,
+including any Opportunity the user turned down at Gate 1. Something the feature will *never* do
+belongs in **Non-Goals** instead. The test: would revisiting it be a change of mind, or just the
+next piece of work?
 
 ## Open Questions
 Any unresolved questions to revisit later.
