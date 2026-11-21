@@ -139,6 +139,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   unanchored, answered with a PR comment since there is nothing to reply to or
   resolve, and counted separately.
 
+- The skill names the review-body blocks that hide findings. Copilot's body is
+  collapsed `<details>` sections, and `Open (N)` is not the only one that holds
+  defects: `Previously missed (N)` carries findings in code unchanged since the
+  last review, which usually have no thread and so appear in no count. One
+  observed body read `Findings: None` with no `Open` block beside a
+  `Previously missed (2)` holding two real defects — every numeric signal said
+  zero and `Unresolved: 0` agreed. The skill now reads every block and treats
+  "nothing to review" as a conclusion from having read the body rather than one
+  read off a count.
+
 - `pr_review_parse_comments.sh` prints the commit each thread was reviewed
   against and whether GitHub still anchors it to live code, in all three modes:
   `Reviewed at: ffdc0f4 (head is 56fcbb4)` and `Outdated: yes`, collapsing to
