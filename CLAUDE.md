@@ -69,10 +69,11 @@ Each top-level directory has one role:
     anything under `plugin/`; `validate.sh` fails otherwise. See
     `docs/RELEASING.md`.
   - `skills/` — one directory per skill (`adversarial-review/`,
-    `feature-planning/`, `hyperdx/`, `langfuse/`, `mutation-test/`,
-    `pr-review/`). Each is a `SKILL.md` plus, for `adversarial-review`, its
-    `*.workflow.js` engines. Skills carry no manifest and no `bin/` of their own —
-    both live at the plugin root. `validate.sh` rejects either reappearing.
+    `feature-planning/`, `gh-tasks/`, `hyperdx/`, `langfuse/`,
+    `mutation-test/`, `pr-review/`). Each is a `SKILL.md` plus, for
+    `adversarial-review`, its `*.workflow.js` engines. Skills carry no manifest
+    and no `bin/` of their own — both live at the plugin root. `validate.sh`
+    rejects either reappearing.
   - `bin/` — every bundled script, for all skills together. Claude Code adds this
     one directory to the Bash tool's `PATH`. Basenames must therefore be unique
     across the whole toolkit, which the `pr_review_` and `mutation_test_`
@@ -112,14 +113,25 @@ Each top-level directory has one role:
 - `CHANGELOG.md` — one section per release of the `lunar` plugin. Keep the
   `Unreleased` section current as work lands.
 - `install/user/` — **templates the user merges into `~/.claude/`**, once, for
-  every project: `settings.json` (the permissions allowlist that pre-approves the
-  bundled scripts) and `CLAUDE.md` (the recommended global user-level CLAUDE.md —
-  the plan→implement→test→handoff workflow the skills and settings are tuned to).
-  User scope, not project scope: the plugin installs once per machine, so its
-  permissions belong at the same scope, and a per-project copy would mean
-  re-approving the same toolkit in every repository.
-- `install/project/.agent.env` — the one genuinely per-project template.
-  Endpoints and API keys differ per repo.
+  every project. User scope, not project scope: the plugin installs once per
+  machine, so its permissions belong at the same scope, and a per-project copy
+  would mean re-approving the same toolkit in every repository.
+  - `settings.json` — the permissions allowlist that pre-approves the bundled
+    scripts, and the one file here that the skills actually need.
+  - `settings.optional.json` — preferences, carrying **no `permissions` key**.
+    `validate.sh` asserts that: the allowlist's claim to cover this toolkit and
+    nothing else stays checkable only while opinion cannot accumulate in a
+    second file that also grants things.
+  - `CLAUDE.md` — the recommended global user-level CLAUDE.md, carrying the
+    plan→implement→test→handoff workflow the skills and settings are tuned to.
+  - `gh-tasks.conf` — board rows for the `gh-tasks` skill, and optional. A
+    Project linked to the repository is found without it; a row is for the case
+    a link cannot express, which the file's own header documents.
+- `install/project/` — the genuinely per-project templates: `.agent.env`, whose
+  endpoints and API keys differ per repo, and `settings.json`, an optional
+  project-scope permissions example. Read that file's `_comment` before changing
+  a rule in it — it records which of its lists are deliberately duplicated from
+  the user template, and why `defaultMode` is absent.
 - `scripts/validate.sh` — **the checks** (see Testing / validation below). One
   script, called by both CI and the optional pre-commit hook so they can't drift.
 - `.github/workflows/validate.yml` — runs `scripts/validate.sh` on push and PR.
@@ -271,6 +283,15 @@ pr_review_parse_comments.sh <owner/repo> <pr>          # list unresolved
 pr_review_parse_comments.sh <owner/repo> <pr> <index>  # detail by index
 pr_review_post_reply.sh <owner/repo> <pr> <comment_id> "<text>"
 pr_review_resolve_thread.sh <thread_node_id>
+
+# GitHub Project task board. Every one prints JSON and finds the board from the
+# current repository; the six share plugin/bin/lib/gh_tasks_lib.sh.
+gh_tasks_board.sh                       # the queue, in board order
+gh_tasks_show.sh <issue>                # one task, with its history
+gh_tasks_add.sh --title "..." --field "Area=..."
+gh_tasks_update.sh <issue> --field "Status=In progress"
+gh_tasks_move.sh <issue> --top          # make it the next one
+gh_tasks_close.sh <issue> --reason not-planned
 ```
 
 To run one *in this repo* while developing it, use its real path
@@ -326,10 +347,14 @@ the plugin and marketplace manifests (valid JSON, the marketplace entry's name
 agreeing with the manifest it points at, every `SKILL.md` inside the plugin root
 where it can actually load, plus `claude plugin validate` when the CLI is on
 hand),
-config-template JSON validity, that the settings allowlist and the shipped
-`plugin/bin/` scripts name each other exactly, that `plugin/` holds only tracked
-files so a local install cannot copy scratch directories to users, that every
-script answers `--help` with usage before preflighting its dependencies,
+config-template JSON validity, that `install/user/settings.optional.json`
+carries no `permissions` key and that `install/project/settings.json` restates
+every `ask` and `deny` rule the user template holds (one-way — the project
+template adds stack rules of its own), that the settings allowlist and the
+shipped `plugin/bin/` scripts name each other exactly, that `plugin/` holds
+only tracked files so a local install cannot copy scratch directories to users,
+that every script answers `--help` with usage before preflighting its
+dependencies,
 non-portable shell idioms in every shell
 artifact — GNU-only tool flags and bash 4 syntax alike, since macOS is stuck on
 bash 3.2 (this workstation is Linux, so a `find -printf` or a `mapfile` passes
