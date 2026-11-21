@@ -370,9 +370,21 @@ What explicitly will NOT be addressed in this implementation.
 ## Open Questions
 Any unresolved questions to revisit later.
 
+## Amendments
+_(Omit until the plan is first amended. Add it then, and keep it directly above `## Status`.)_
+
+### Amendment <n> — <YYYY-MM-DD> — <what changed, in a phrase>
+<Why the plan was wrong, what replaces it, and what that costs. Then, explicitly:>
+
+**Supersedes <section / INV-\<n\> / T-\<n\>>.** <What the old text claimed and why it no longer holds.>
+**Adds T-\<n\> / INV-\<n\>.** <Any new test or invariant this requires. Add it to Test Definitions
+and to `## Coverage` as well, or the rollup is stale from here on.>
+**Re-baselined `## Status`:** plan <old-short-sha> → <new-short-sha>.
+
 ## Status
 `Drafted` — set at Gate 2 to `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`,
-and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. One line, always last, never duplicated.
+and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha here.
+One line, always last, never duplicated.
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
@@ -437,7 +449,22 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
 1. Implement the phase's tasks, checking them off as you go.
 2. Write and run that phase's `Verified by:` tests (the `T-<n>` cases from Test Definitions).
 3. Confirm they pass **and** that the invariants (`INV-<n>`) the phase touches still hold.
-4. **Do not advance to the next phase past red tests.** If a test fails, fix it (or, if the plan itself was wrong, stop and revise the plan with the user rather than improvising).
+4. **Do not advance to the next phase past red tests.** If a test fails, fix it — or, if the plan itself was wrong, amend it as below rather than improvising.
+
+**When the plan itself turns out wrong, amend it — never edit it silently.** A plan revised in
+place loses the reasoning that was superseded, and it invalidates the sha in `## Status` that the
+Gate 2 re-entry check compares against. So:
+
+1. Stop and agree the change with the user. A plan is amended with their say-so, not on your
+   judgement that it was wrong.
+2. Edit the affected sections, then append an `### Amendment <n>` entry saying what it supersedes
+   and why. Add any new `T-<n>` or `INV-<n>` to Test Definitions **and** to `## Coverage` — the
+   coverage self-check ran once, at Gate 2, and an amendment is how its result goes stale.
+3. Re-baseline: strip the `## Status` line, run `git hash-object` on the rest, write the new sha
+   into `## Status`, and record `plan <old> → <new>` in the amendment.
+
+Skip step 3 and the next session's re-entry check reports a plan that changed behind its back,
+and re-presents Gate 2 for work already under way.
 
 **After the final phase:**
 - Run the **full test suite** and confirm every `T-<n>` and every `INV-<n>` in the plan is covered and green.
@@ -462,6 +489,11 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
   write time, `Accepted — not yet implemented` with a date and a plan sha at Gate 2, `Implemented`
   when Step 5 finishes. The state has to survive the session, the sha is what makes "has this
   changed" answerable, and a stale Status is worse than none because it is believed.
+- **A plan that turns out wrong is amended, not edited.** Append an `### Amendment <n>` saying
+  what it supersedes and why, add any new `T-<n>` or `INV-<n>` to Test Definitions and
+  `## Coverage`, and re-baseline the sha in `## Status`. Editing in place loses the superseded
+  reasoning and silently breaks the Gate 2 re-entry check, which is the one guard designed to
+  span days.
 - "done" does not open either gate.
 - Re-reading the file after answers is mandatory — do not rely on memory of the blank questions, and watch for user edits to the analysis.
 - Writing the plan to disk is mandatory — chat output does not count.
