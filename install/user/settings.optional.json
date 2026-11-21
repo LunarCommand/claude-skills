@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Optional user-scope settings, for ~/.claude/settings.json.",
+    "Nothing here is needed to use the skills. install/user/settings.json is the file that",
+    "matters, and it holds the permission rules and nothing else; this one is one person's",
+    "preferences. Take what you want and ignore the rest.",
+    "",
+    "It carries no permissions key on purpose, and scripts/validate.sh asserts that. The",
+    "permission template's claim to cover this toolkit and nothing else has to stay",
+    "checkable, which it would not be if opinion could accumulate in a second file that",
+    "also grants things.",
+    "",
+    "attribution empties the trailers Claude Code would otherwise append to a commit message",
+    "and a PR body. install/user/CLAUDE.md asks for that in prose, which an agent can",
+    "forget; this is the setting that enforces it.",
+    "",
+    "Two of these cost money on the account that adopts them, and are here because they are",
+    "what the review skills are actually used with rather than because they are safe",
+    "defaults. effortLevel raises the reasoning budget on every turn. skipWorkflowUsageWarning",
+    "removes the prompt that warns a multi-agent workflow is about to spend a lot -- see",
+    "'What an adversarial review costs' in the README for what that is, and leave this one",
+    "out until you have paid for a few runs knowingly."
+  ],
+
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+
+  "effortLevel": "xhigh",
+  "skipWorkflowUsageWarning": true,
+
+  "autoCompactEnabled": true,
+  "autoupdates": false,
+
+  "inputNeededNotifEnabled": false,
+  "agentPushNotifEnabled": true
+}

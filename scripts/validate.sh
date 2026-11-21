@@ -745,10 +745,50 @@ fi
 # --------------------------------------------------------------------------
 section "Config templates"
 # --------------------------------------------------------------------------
-if python3 -c "import json,sys; json.load(open('install/user/settings.json'))" 2>/dev/null; then
-  pass "valid JSON  install/user/settings.json"
+for cfg in install/user/settings.json \
+           install/user/settings.optional.json \
+           install/project/settings.json; do
+  if python3 -c "import json,sys; json.load(open('$cfg'))" 2>/dev/null; then
+    pass "valid JSON  $cfg"
+  else
+    fail "invalid JSON $cfg"
+  fi
+done
+
+# The optional template is preference, and the permission template's claim to
+# cover this toolkit and nothing else is only checkable while preference cannot
+# grant anything. A permissions key here would move rules out of the one file
+# the allowlist check below reads.
+if python3 -c "import json; cfg = json.load(open('install/user/settings.optional.json')); raise SystemExit(1 if 'permissions' in cfg else 0)" 2>/dev/null; then
+  pass "optional    settings.optional.json grants nothing"
 else
-  fail "invalid JSON install/user/settings.json"
+  fail "optional    settings.optional.json carries a permissions key — rules belong in install/user/settings.json, which is the file the allowlist check reads"
+fi
+
+# install/project/settings.json restates the user template's ask and deny rules,
+# because it is checked in where the user file is not: on a clone where nobody
+# merged the user file it is the whole policy, and it grants Read, Edit and Write
+# wholesale. A rule added to the user file and not there is a rule that clone
+# does not have, and the drift is invisible in either file on its own. The
+# direction is one-way -- the project template adds stack rules of its own.
+if out=$(python3 - <<'PY' 2>&1
+import json, sys
+user = json.load(open('install/user/settings.json'))['permissions']
+proj = json.load(open('install/project/settings.json'))['permissions']
+bad = []
+for bucket in ('ask', 'deny'):
+    have = set(proj.get(bucket, []))
+    for rule in user.get(bucket, []):
+        if rule not in have:
+            bad.append(f'{bucket}: {rule} is in the user template, not in the project one')
+if bad:
+    print('\n'.join(bad)); sys.exit(1)
+PY
+); then
+  pass "templates   the project template restates every user ask/deny rule"
+else
+  fail "templates   project template has fallen behind the user template:"
+  printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
 # The allowlist approves skill scripts by bare name, because bin/ is on the
