@@ -92,16 +92,27 @@ The sections MUST use this exact format:
 - <point>
 
 ### Concerns & risks
+
+**Open**
 - <concern> — why it matters
 - <concern> — why it matters
 
+**Addressed**
+<Empty when first written. A concern moves here when an answer or a decision settles it:>
+- <concern> — settled by <the question it answered, or the Direction entry>
+
 ### Gaps & holes in the requirements
 Poke holes in the requirements *as written* — this is about defects in the spec, not risks in the approach. Look for:
+
+**Open**
 - <ambiguity or under-specified behavior> — what's unclear and why it will bite
 - <unstated assumption the reqs depend on> — what happens if it's false
 - <missing edge case / failure mode not addressed>
 - <internal contradiction or requirement that conflicts with another>
 - <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>
+
+**Addressed**
+<as above — what settled it, not just that it is settled>
 
 ### Opportunities worth considering
 Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope (the user decides at Gate 1).
@@ -111,6 +122,10 @@ Things the user did NOT ask for but should see — adjacent wins, low-cost addit
 ### Alternative approaches worth considering
 - **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 - **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
+
+### Direction taken at Gate 1
+<Decisions the user made in chat that answer no single question. Empty until there is one.>
+- <ISO date> — <the decision, in the user's terms> — <what it changes>
 
 ### My recommendation
 <One paragraph. Be opinionated — pick one approach and defend it. If the proposed approach is the right one, say so and explain why the alternatives lose. If a different approach is better, say so directly.>
@@ -166,6 +181,25 @@ After writing to the file, tell the user:
 ⛔ **GATE 1 — STOP. Do not continue until the user replies with "answered".**
 "done", "ready", "continue" do NOT open this gate. Only "answered" does.
 
+#### While Gate 1 is open
+
+**Gate 1 is usually a conversation, and the file has to keep up with it.** Answers arrive in
+chat at least as often as in the file, each one opens new ground, and an analysis left as first
+written ends up with half its concerns settled while still reading as live. Whenever the user
+answers or decides something in chat:
+
+- Fill the `A:` line it answers, in the user's words.
+- Move each concern or gap it settles under **Addressed**, naming what settled it. Keep
+  **Open** first in both sections, and write `None open.` when nothing is left, so the file
+  reads top-down and can be put down at the first Addressed item.
+- Record under `### Direction taken at Gate 1` any decision that answers no single question.
+- Append a question the answer raised to Clarifying Questions, with a blank `A:`.
+- Update the requirements file's Goals, Constraints and Non-Goals to what the user has said
+  since the description — still writing only what they said, never what you inferred.
+- Rewrite a claim the user corrected, and anything that rested on it.
+
+None of this opens the gate, and none of it is Step 3. Only "answered" moves on.
+
 ---
 
 ### Step 3 — Re-read the File and Verify
@@ -173,6 +207,10 @@ After writing to the file, tell the user:
 Re-read `$REQUIREMENTS_FILE` in full. Check that:
 - Every `A:` line has been filled in
 - Any edits the user made to the Approach Analysis section — these are direction changes you must respect when writing the plan
+- **Concerns & risks** and **Gaps & holes** each read `None open.` or list what is genuinely
+  still open. A concern left under **Open** that an answer settled is a stale file, and the plan
+  will be written against it
+- `### Direction taken at Gate 1` carries every decision that answered no single question
 
 If any `A:` lines are still blank, list the unanswered questions and wait for the user to complete them. Do not proceed until all are answered.
 
@@ -412,6 +450,9 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
 - **Right-size the plan.** The templates are the maximum shape. Keep every heading, but scale each section's depth to the feature — a trivial change gets terse or `None — <reason>` sections, not fabricated ceremony. See "Right-sizing the plan".
 - **Either input works**, but a requirements file on disk is the source of truth from Step 2 onward. If the user gave a prose description, write it to `/_reqs/<slug>.md` in Step 1 before doing anything else.
 - **Analysis and questions go in the file. Always. No exceptions.** Never discuss approach or ask questions in chat.
+- **Keep the file current while Gate 1 is open.** Answers arrive in chat; a concern an answer
+  settled still sitting under **Open** is a stale file, and the plan gets written against it.
+  Move it to **Addressed** with what settled it. None of that opens the gate.
 - **Be opinionated in the Approach Analysis.** "It depends" is not a recommendation. Pick one and defend it.
 - **Poke holes in the requirements and surface missed opportunities.** The analysis must critique the reqs *as written* (gaps, ambiguities, unstated assumptions, contradictions) and flag opportunities the user didn't ask for — not just evaluate the proposed approach. If there are genuinely none, say so explicitly. Opportunities are flagged, not assumed into scope; the user decides at Gate 1.
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
