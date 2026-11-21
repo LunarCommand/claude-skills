@@ -14,7 +14,28 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Repository
+
+- `docs/RELEASING.md` says what a release section has to disclose and how to
+  check that a release landed. Two gaps it had: the version can move more than
+  once between tags, and each intermediate version was offered to anyone who
+  updated while it sat on `main` — so it shipped untagged, and a user running it
+  finds its number nowhere in the changelog. `1.1.0` did exactly that. The
+  verifying section also told you how to update without saying how to confirm
+  the update took; it now names the install record, a capability check, the
+  resolver that says which of the two copies on disk actually loaded, and the
+  one check that covers `install/`, which no version field records. The
+  `v1.2.0` section now discloses the 1.1.0 it covers.
+
 ## v1.2.0 — 2026-11-21
+
+This section covers **1.1.0** as well. The version moved twice since `v1.0.1`:
+1.1.0 landed on `main` on 2026-10-29 with the gh-tasks read path, and 1.2.0 two
+days later with the write path. Only the second was tagged, so anyone who ran
+`/plugin marketplace update` in that window was offered a 1.1.0 that has no tag
+and no section of its own. The gh-tasks entry below describes both halves.
 
 ### gh-tasks (new)
 

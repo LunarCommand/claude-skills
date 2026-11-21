@@ -67,6 +67,14 @@ numbers for one thing is a drift waiting to happen.
    and the published notes stay identical by construction rather than by
    remembering to copy one into the other.
 
+   **If the version moved more than once since the last tag, say so in the
+   section.** The bump is what ships, so every intermediate version was offered
+   to anyone who updated while it sat on `main` — it reached users without ever
+   being tagged. Name it and the day it landed, or someone running that version
+   goes looking for its section and finds the number nowhere in the file. `1.1.0`
+   is the worked example: it shipped on 2026-10-29 and is covered by the
+   `v1.2.0` section.
+
 3. **Sweep the docs for stale wording.** For each behaviour change, grep for the
    old spelling — command names, flags, file paths, prerequisites — across
    `README.md`, `CLAUDE.md`, `docs/`, `install/`, and every `SKILL.md`.
@@ -123,6 +131,14 @@ numbers for one thing is a drift waiting to happen.
    default branch either way. It exists so people can see what the project is at
    and what changed.
 
+   Editing the CHANGELOG section after the Release is published leaves the two
+   out of step, which the verbatim rule above exists to prevent. Re-run the same
+   extraction and push it:
+
+   ```bash
+   gh release edit v1.1.0 --notes-file /tmp/notes.md
+   ```
+
 ## Verifying a release reached users
 
 The honest check is to install as a stranger would. These are Claude Code
@@ -135,6 +151,56 @@ commands, typed in a session — not shell:
 
 Third-party marketplaces have auto-update **off** by default, so an existing user
 sees a new version after `/plugin marketplace update`, not automatically.
+
+That updates. It does not confirm. Three checks, in the order worth running
+them:
+
+1. **The install record**, which Claude Code writes and is the authoritative
+   answer:
+
+   ```bash
+   jq '.plugins["lunar@lunar-skills"]' ~/.claude/plugins/installed_plugins.json
+   ```
+
+   `version` should be the new one, `installPath` should end in that version, and
+   `gitCommitSha` should be the commit the tag points at or a later one. The sha
+   is the strongest of the three: `version` is only what `plugin.json` claimed,
+   where the sha is what was actually fetched. `installedAt` keeps the date of
+   the first install, so `lastUpdated` is the field that moves on an update.
+
+2. **A capability the release added**, from the shell — a `--help` on a new
+   script is enough, and it proves the loaded copy is the new one without
+   reading any metadata. Skills and `PATH` load at startup, so restart the
+   session after installing or this answers for the old copy.
+
+3. **Which copy loaded**, when the first two disagree:
+
+   ```bash
+   adversarial_review_path.sh adversarial-review.workflow.js
+   ```
+
+   It resolves from its own `BASH_SOURCE[0]`, so it answers for whichever copy
+   actually ran. A path under `~/.claude/plugins/cache/` is the installed one; a
+   path inside a checkout means a `directory` marketplace is winning.
+
+**Check 1 is meaningless on a machine that develops this repo.** A `directory`
+marketplace loads the working tree, while `/plugin install` also leaves an inert
+snapshot in the cache — so `installed_plugins.json` reports whatever was last
+installed from GitHub, which can be several versions behind what is running.
+Check 3 is what tells them apart.
+
+**None of the three covers `install/`.** Nothing installs those templates and no
+version field records them, so a current plugin alongside a year-old
+`~/.claude/settings.json` looks identical to every check above. What settles it
+is whether the allowlist names this release's scripts:
+
+```bash
+grep -c gh_tasks_ ~/.claude/settings.json
+```
+
+A zero means every call to those scripts prompts, which is unfinished setup
+rather than a broken skill — and it is the failure a user is most likely to
+report as a bug.
 
 ## Developing against a local clone
 
