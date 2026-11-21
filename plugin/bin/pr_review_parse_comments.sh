@@ -74,10 +74,12 @@ NAME="${REPO#*/}"
 QUERY='query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      headRefOid
       reviewThreads(first: 100) {
         nodes {
           id
           isResolved
+          isOutdated
           comments(first: 10) {
             nodes {
               id
@@ -85,6 +87,8 @@ QUERY='query($owner: String!, $name: String!, $number: Int!) {
               path
               line
               originalLine
+              originalCommit { oid }
+              commit { oid }
               body
               author { login }
             }
@@ -95,6 +99,39 @@ QUERY='query($owner: String!, $name: String!, $number: Int!) {
   }
 }'
 
+# Prepended to every mode's program below, so the commit lines are written once
+# instead of in all three. A comment's originalCommit is the commit the review
+# was made against; commit is where GitHub currently anchors it, and either can
+# be null, which is why both have a fallback.
+JQ_HELPERS='
+def short: if . == null or . == "" then "?" else .[0:7] end;
+def reviewed_at($head):
+  (.comments.nodes[0].originalCommit.oid // .comments.nodes[0].commit.oid) as $c
+  | if $c == null then "     Reviewed at:    ?\n"
+    elif $c == $head then "     Reviewed at:    \($c | short) (head)\n"
+    else "     Reviewed at:    \($c | short) (head is \($head | short))\n"
+    end;
+def outdated: "     Outdated:       \(if .isOutdated then "yes" else "no" end)\n";
+def thread($label; $head; $detail):
+  .comments.nodes as $c
+  | "[\($label)] Thread Node ID: \(.id)\n"
+  + "     Comment ID:     \($c[0].databaseId)\n"
+  + "     File:           \($c[0].path):\($c[0].line // $c[0].originalLine // "?")\n"
+  + reviewed_at($head)
+  + outdated
+  + "     Author:         \($c[0].author.login)\n"
+  + if $detail then
+      "     Body:\n\($c[0].body)"
+      + (if ($c | length) > 1 then
+          "\n\n     Replies (\($c | length - 1)):\n"
+          + ([$c[1:][] | "       [\(.author.login)]: \(.body)"] | join("\n"))
+        else "" end)
+      + "\n"
+    else
+      "     Body:           \($c[0].body | gsub("\n"; " ") | .[:300])\n"
+    end;
+'
+
 # -F assigns typed variables ($number arrives as an Int); -f would send strings.
 gh_query() {
   gh api graphql \
@@ -102,7 +139,7 @@ gh_query() {
     -F name="$NAME" \
     -F number="$PR" \
     -f query="$QUERY" \
-    --jq "$1"
+    --jq "$JQ_HELPERS $1"
 }
 
 # --- Mode: --id <database_id> ---
@@ -118,7 +155,9 @@ if [[ "${3:-}" == "--id" ]]; then
     exit 1
   fi
   gh_query '
-    .data.repository.pullRequest.reviewThreads.nodes as $all |
+    .data.repository.pullRequest as $pr |
+    ($pr.headRefOid // "") as $head |
+    $pr.reviewThreads.nodes as $all |
     [$all[] | select(.isResolved == false)] as $unresolved |
     (
       $unresolved | to_entries[] |
@@ -129,17 +168,8 @@ if [[ "${3:-}" == "--id" ]]; then
       {"key": "?", "value": .} | . + {"resolved_note": true}
     ) |
     (if .resolved_note then "Note: this thread is already resolved\n" else "" end) +
-    "[\(if .key == "?" then "?" else (.key + 1 | tostring) end)] Thread Node ID: \(.value.id)\n" +
-    "     Comment ID:     \(.value.comments.nodes[0].databaseId)\n" +
-    "     File:           \(.value.comments.nodes[0].path):\(.value.comments.nodes[0].line // .value.comments.nodes[0].originalLine // "?")\n" +
-    "     Author:         \(.value.comments.nodes[0].author.login)\n" +
-    "     Body:\n\(.value.comments.nodes[0].body)" +
-    (if (.value.comments.nodes | length) > 1 then
-      "\n\n     Replies (\(.value.comments.nodes | length - 1)):\n" +
-      ([.value.comments.nodes[1:][] |
-        "       [\(.author.login)]: \(.body)"] | join("\n"))
-    else "" end) +
-    "\n"
+    ((if .key == "?" then "?" else (.key + 1 | tostring) end) as $label |
+     .value | thread($label; $head; true))
   '
   exit 0
 fi
@@ -152,36 +182,26 @@ if [[ $# -eq 3 ]]; then
     exit 1
   fi
   gh_query '
-    [.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] |
+    .data.repository.pullRequest as $pr |
+    ($pr.headRefOid // "") as $head |
+    [$pr.reviewThreads.nodes[] | select(.isResolved == false)] |
     if ('"$INDEX"' < 1) or ('"$INDEX"' > length) then
       "Error: index '"$INDEX"' out of range (1-\(length))" | halt_error(1)
     else . end |
     .['"$INDEX"' - 1] |
-    "['"$INDEX"'] Thread Node ID: \(.id)\n" +
-    "     Comment ID:     \(.comments.nodes[0].databaseId)\n" +
-    "     File:           \(.comments.nodes[0].path):\(.comments.nodes[0].line // .comments.nodes[0].originalLine // "?")\n" +
-    "     Author:         \(.comments.nodes[0].author.login)\n" +
-    "     Body:\n\(.comments.nodes[0].body)" +
-    (if (.comments.nodes | length) > 1 then
-      "\n\n     Replies (\(.comments.nodes | length - 1)):\n" +
-      ([.comments.nodes[1:][] |
-        "       [\(.author.login)]: \(.body)"] | join("\n"))
-    else "" end) +
-    "\n"
+    thread('"$INDEX"'; $head; true)
   '
   exit 0
 fi
 
 # --- Mode: list all unresolved ---
 gh_query '
-  .data.repository.pullRequest.reviewThreads.nodes as $all |
+  .data.repository.pullRequest as $pr |
+  ($pr.headRefOid // "") as $head |
+  $pr.reviewThreads.nodes as $all |
   [$all[] | select(.isResolved == false)] as $unresolved |
   "Total threads: \($all | length), Unresolved: \($unresolved | length)\n\n" +
   ([$unresolved | to_entries[] |
-    "[\(.key + 1)] Thread Node ID: \(.value.id)\n" +
-    "     Comment ID:     \(.value.comments.nodes[0].databaseId)\n" +
-    "     File:           \(.value.comments.nodes[0].path):\(.value.comments.nodes[0].line // .value.comments.nodes[0].originalLine // "?")\n" +
-    "     Author:         \(.value.comments.nodes[0].author.login)\n" +
-    "     Body:           \(.value.comments.nodes[0].body | gsub("\n"; " ") | .[:300])\n"
+    (.key + 1) as $label | .value | thread($label; $head; false)
   ] | join("\n"))
 '
