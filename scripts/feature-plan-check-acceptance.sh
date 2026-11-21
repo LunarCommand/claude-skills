@@ -150,6 +150,40 @@ mutate noheading '## Coverage' '## Covrage'
 expect "a missing required heading is reported" "$FIXTURE/m.md" 1 \
   "missing heading: ## Coverage"
 
+# --- a prose mention is not a definition ---
+# "Defined" once meant any T-<n> token inside Test Definitions, so one sentence
+# naming a test satisfied the cited-but-undefined check -- a silent pass in the
+# exact case that check exists for.
+cat > "$FIXTURE/prose.md" <<'PLAN'
+## Invariants
+- **INV-1:** one holds — because
+
+## Implementation Plan
+
+### Phase 1: build
+- [ ] **P1.1** a task
+
+**Verified by:** T-1
+
+## Test Definitions
+
+### Unit
+
+**T-1 — first**
+- **Level:** unit
+
+_(T-9 would duplicate T-1, so it is not written.)_
+
+## Coverage
+- **INV-1** → T-1
+- **Phase 1** → T-1, T-9
+
+## Status
+`Drafted`
+PLAN
+expect "a T named only in prose is not a definition" "$FIXTURE/prose.md" 1 \
+  "T-9 is cited but never defined in Test Definitions"
+
 # --- an unfilled template is not a traceability gap ---
 # T-<n> and INV-<n> are the template's own placeholders. Reporting them would
 # make the checker fire on every plan before its first real test is written.

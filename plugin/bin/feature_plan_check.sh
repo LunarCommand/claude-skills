@@ -90,7 +90,15 @@ for inv in $declared_inv; do
 done
 
 # --- Test IDs defined, cited, and matching --------------------------------
-defined_t=$(section '## Test Definitions' | ids T)
+# A test is DEFINED by a definition line -- an optional list marker, then the
+# bold ID at the start of the line, as the template writes it. Reading every
+# T-<n> token in the section instead would let one prose sentence naming a test
+# satisfy the cited-but-undefined check below, which is a silent pass in the
+# exact case that check exists for. Permissive about what follows the ID on
+# purpose: too strict reports a real test as undefined, which is noise someone
+# fixes, while too loose is the failure this replaces.
+defined_t=$(section '## Test Definitions' \
+  | { grep '^[-* ]*\*\*T-[0-9]' || true; } | ids T)
 # A citation is a Coverage row or a phase's `Verified by:` line. Both are read
 # so a test cited in only one of them still counts as referenced.
 cited_t=$( { printf '%s\n' "$coverage"; grep -F 'Verified by:' "$PLAN" || true; } | ids T)
