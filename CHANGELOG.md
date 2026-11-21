@@ -201,7 +201,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   file's `ask` and `deny` lists deliberately, because it is checked in and the
   user file is not, so on a clone where nobody merged the user file it is the
   whole policy — and it grants `Read`, `Edit` and `Write` wholesale, which is
-  what makes the `deny` block load-bearing rather than belt-and-braces.
+  what makes the `deny` block load-bearing rather than belt-and-braces. Those
+  denies bind the **file tools** and not `Bash`, so the file grants no
+  general-purpose shell reader: a single `Bash(cat:*)` rule would read past every
+  path deny in it, and no `Bash` deny can fence that in — the reader surface is
+  unbounded and a path pattern loses to `cat $HOME/.ssh/id_rsa`. `ls`, `wc`, `du`
+  and `tree` remain, leaking metadata rather than contents. `find` is absent on
+  its own grounds: `-delete` and `-exec` make it a write command that would pass
+  the `Bash(rm:*)` ask rule untouched. `Grep` is denied on the same five paths as
+  `Read`, since it is granted as a tool and a `Read` deny does not cover it.
 
 - The permission template's `ask` list covers the class rather than the subset
   these skills happen to call, going from ten rules to twenty-nine: `switch`,

@@ -27,6 +27,15 @@
     "The deny paths are examples, not a complete set. Add the credential directories and",
     "secret-manager commands your own machine actually has.",
     "",
+    "A path deny binds the FILE TOOLS -- Read, Edit, Grep -- and not Bash. A blanket",
+    "Bash(cat:*) or Bash(grep:*) grant reads ~/.ssh straight past every deny below, and no",
+    "Bash deny can fence it: the reader surface is unbounded and a path pattern loses to",
+    "cat $HOME/.ssh/id_rsa. So content reads go through Read and Grep, which the denies do",
+    "match, and no general-purpose shell reader is granted here. ls, wc, du and tree stay",
+    "because they leak metadata rather than contents. find is absent for a second reason:",
+    "-delete and -exec make it a write command, and it would pass the Bash(rm:*) ask rule",
+    "untouched.",
+    "",
     "Two example stacks below, Python on uv and TypeScript on pnpm + nx. Delete the half a",
     "project does not use, or both. Dependency installs sit in ask because they change the",
     "tree, which the recommended workflow confirms first."
@@ -49,12 +58,7 @@
       "Bash(gh run view:*)",
 
       "Bash(ls:*)",
-      "Bash(cat:*)",
-      "Bash(head:*)",
       "Bash(wc:*)",
-      "Bash(grep:*)",
-      "Bash(find:*)",
-      "Bash(comm:*)",
       "Bash(du:*)",
       "Bash(tree:*)",
 
@@ -122,14 +126,19 @@
     ],
     "deny": [
       "Read(~/.ssh/**)",
+      "Grep(~/.ssh/**)",
       "Edit(~/.ssh/**)",
       "Read(~/.aws/**)",
+      "Grep(~/.aws/**)",
       "Edit(~/.aws/**)",
       "Read(~/.config/gcloud/**)",
+      "Grep(~/.config/gcloud/**)",
       "Edit(~/.config/gcloud/**)",
 
       "Read(~/.zsh_history)",
+      "Grep(~/.zsh_history)",
       "Read(~/.bash_history)",
+      "Grep(~/.bash_history)",
 
       "Bash(env)",
       "Bash(printenv:*)",

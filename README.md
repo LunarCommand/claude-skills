@@ -315,9 +315,13 @@ anything here.
   in step. This file is checked in and the user file is not, so on a clone where
   nobody merged the user file it is the whole policy — and it grants `Read`,
   `Edit` and `Write` wholesale. Grant `Read` with no `deny` and an agent reads
-  `~/.ssh` and your shell history with nothing in the way. `defaultMode` is
-  absent for the same reason: set it to `auto` and that `ask` list stops being a
-  second record of a decision and becomes the only thing that asks.
+  `~/.ssh` and your shell history with nothing in the way. Those denies bind the
+  **file tools** — `Read`, `Edit`, `Grep` — and not `Bash`, which is why the
+  file grants no general-purpose shell reader: one `Bash(cat:*)` rule would read
+  straight past every path deny in it, and no `Bash` deny can fence that in.
+  `defaultMode` is absent for a related reason: set it to `auto` and that `ask`
+  list stops being a second record of a decision and becomes the only thing that
+  asks.
 
 ## Prerequisites
 
