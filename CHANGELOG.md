@@ -115,6 +115,40 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   because GitHub answers a deleted board, a wrong number and a board the token
   cannot see with the same message.
 
+### feature-planning
+
+- **The analysis stays current while Gate 1 is open.** Gate 1 is a
+  conversation: answers arrive in chat at least as often as in the file, and the
+  skill said nothing about the interval, so an analysis left as first written
+  ended up with half its concerns settled and still reading as live — and Step 4
+  wrote the plan against it. **Concerns & risks** and **Gaps & holes** now split
+  into **Open** and **Addressed**, so settling something is a move with a reason
+  attached rather than an edit that loses the question it answered. A decision
+  answering no single question goes under **Direction taken at Gate 1**, which
+  had nowhere to live. Step 3 verifies both. None of it opens the gate.
+
+- **A plan that turns out wrong is amended, not edited.** Step 5 already said to
+  stop and revise with the user, and said nothing about what that leaves behind.
+  The superseded reasoning vanished, and the sha recorded in `## Status` no
+  longer matched the file — so the Gate 2 re-entry check either fired on a
+  legitimate revision or had its baseline quietly rewritten, which turns the one
+  guard designed to span days into theatre. An `## Amendments` section now sits
+  directly above `## Status`, omitted until first used. Each entry says what it
+  supersedes and why, adds any new `T-<n>` or `INV-<n>` to Test Definitions *and*
+  to `## Coverage`, and records the baseline it supersedes — the new sha lives in
+  `## Status` alone, because the re-entry check strips only that line and a sha
+  written into the hashed body cannot describe the body it was taken from.
+  Coverage matters because
+  the self-check runs once, at Gate 2, and an amendment is how its result goes
+  stale.
+
+- **`### Non-Goals` and `## Out of Scope` say which is which.** Both read as
+  "what this will not do", so a planner filling both either duplicated or split
+  them arbitrarily. Non-Goals is permanent and by decision; Out of Scope is
+  deferred and could be the next piece of work. The test is whether revisiting it
+  would be a change of mind. Out of Scope also now names where an Opportunity
+  declined at Gate 1 goes.
+
 ### langfuse
 
 - `langfuse_query.sh` run with no arguments, or with a command it does not

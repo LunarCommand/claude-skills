@@ -92,16 +92,27 @@ The sections MUST use this exact format:
 - <point>
 
 ### Concerns & risks
+
+**Open**
 - <concern> — why it matters
 - <concern> — why it matters
 
+**Addressed**
+<Empty when first written. A concern moves here when an answer or a decision settles it:>
+- <concern> — settled by <the question it answered, or the Direction entry>
+
 ### Gaps & holes in the requirements
 Poke holes in the requirements *as written* — this is about defects in the spec, not risks in the approach. Look for:
+
+**Open**
 - <ambiguity or under-specified behavior> — what's unclear and why it will bite
 - <unstated assumption the reqs depend on> — what happens if it's false
 - <missing edge case / failure mode not addressed>
 - <internal contradiction or requirement that conflicts with another>
 - <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>
+
+**Addressed**
+<as above — what settled it, not just that it is settled>
 
 ### Opportunities worth considering
 Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope (the user decides at Gate 1).
@@ -111,6 +122,10 @@ Things the user did NOT ask for but should see — adjacent wins, low-cost addit
 ### Alternative approaches worth considering
 - **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 - **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
+
+### Direction taken at Gate 1
+<Decisions the user made in chat that answer no single question. Empty until there is one.>
+- <ISO date> — <the decision, in the user's terms> — <what it changes>
 
 ### My recommendation
 <One paragraph. Be opinionated — pick one approach and defend it. If the proposed approach is the right one, say so and explain why the alternatives lose. If a different approach is better, say so directly.>
@@ -166,6 +181,25 @@ After writing to the file, tell the user:
 ⛔ **GATE 1 — STOP. Do not continue until the user replies with "answered".**
 "done", "ready", "continue" do NOT open this gate. Only "answered" does.
 
+#### While Gate 1 is open
+
+**Gate 1 is usually a conversation, and the file has to keep up with it.** Answers arrive in
+chat at least as often as in the file, each one opens new ground, and an analysis left as first
+written ends up with half its concerns settled while still reading as live. Whenever the user
+answers or decides something in chat:
+
+- Fill the `A:` line it answers, in the user's words.
+- Move each concern or gap it settles under **Addressed**, naming what settled it. Keep
+  **Open** first in both sections, and write `None open.` when nothing is left, so the file
+  reads top-down and can be put down at the first Addressed item.
+- Record under `### Direction taken at Gate 1` any decision that answers no single question.
+- Append a question the answer raised to Clarifying Questions, with a blank `A:`.
+- Update the requirements file's Goals, Constraints and Non-Goals to what the user has said
+  since the description — still writing only what they said, never what you inferred.
+- Rewrite a claim the user corrected, and anything that rested on it.
+
+None of this opens the gate, and none of it is Step 3. Only "answered" moves on.
+
 ---
 
 ### Step 3 — Re-read the File and Verify
@@ -173,6 +207,10 @@ After writing to the file, tell the user:
 Re-read `$REQUIREMENTS_FILE` in full. Check that:
 - Every `A:` line has been filled in
 - Any edits the user made to the Approach Analysis section — these are direction changes you must respect when writing the plan
+- **Concerns & risks** and **Gaps & holes** each read `None open.` or list what is genuinely
+  still open. A concern left under **Open** that an answer settled is a stale file, and the plan
+  will be written against it
+- `### Direction taken at Gate 1` carries every decision that answered no single question
 
 If any `A:` lines are still blank, list the unanswered questions and wait for the user to complete them. Do not proceed until all are answered.
 
@@ -205,7 +243,7 @@ One-paragraph overview of what will be built and why.
 - <what this feature must achieve>
 
 ### Non-Goals
-- <what this feature explicitly will NOT do, even though it might seem related>
+- <what this feature will never do, by decision — "not this feature", not "not yet">
 
 ## Invariants
 Properties that must hold true at ALL times, across every state and input — the design contract. An invariant is a standing safety property ("X is always true"), NOT a one-time outcome ("we achieved X" — that's Success Criteria) and NOT a risk. If it can ever be false without the feature being broken, it isn't an invariant.
@@ -327,14 +365,31 @@ Traceability rollup so nothing planned goes unverified. Every invariant, success
 How this ships safely — feature flags, backfills, deprecation steps, rollback plan if needed. Write "N/A — greenfield" if there's nothing to migrate.
 
 ## Out of Scope
-What explicitly will NOT be addressed in this implementation.
+Deferred, not declined — what a later change could reasonably add that this one does not,
+including any Opportunity the user turned down at Gate 1. Something the feature will *never* do
+belongs in **Non-Goals** instead. The test: would revisiting it be a change of mind, or just the
+next piece of work?
 
 ## Open Questions
 Any unresolved questions to revisit later.
 
+## Amendments
+_(Omit until the plan is first amended. Add it then, and keep it directly above `## Status`.)_
+
+### Amendment <n> — <YYYY-MM-DD> — <what changed, in a phrase>
+<Why the plan was wrong, what replaces it, and what that costs. Then, explicitly:>
+
+**Supersedes <section / INV-\<n\> / T-\<n\>>.** <What the old text claimed and why it no longer holds.>
+**Adds T-\<n\> / INV-\<n\>.** <Any new test or invariant this requires. Add it to Test Definitions
+and to `## Coverage` as well, or the rollup is stale from here on.>
+**Supersedes baseline:** plan <old-short-sha>. <The new sha goes in `## Status` and nowhere
+else — see Step 5.>
+
 ## Status
 `Drafted` — set at Gate 2 to `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`,
-and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. One line, always last, never duplicated.
+and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha
+here, and only here.
+One line, always last, never duplicated.
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
@@ -399,7 +454,30 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
 1. Implement the phase's tasks, checking them off as you go.
 2. Write and run that phase's `Verified by:` tests (the `T-<n>` cases from Test Definitions).
 3. Confirm they pass **and** that the invariants (`INV-<n>`) the phase touches still hold.
-4. **Do not advance to the next phase past red tests.** If a test fails, fix it (or, if the plan itself was wrong, stop and revise the plan with the user rather than improvising).
+4. **Do not advance to the next phase past red tests.** If a test fails, fix it — or, if the plan itself was wrong, amend it as below rather than improvising.
+
+**When the plan itself turns out wrong, amend it — never edit it silently.** A plan revised in
+place loses the reasoning that was superseded, and it invalidates the sha in `## Status` that the
+Gate 2 re-entry check compares against. So:
+
+1. Stop and agree the change with the user. A plan is amended with their say-so, not on your
+   judgement that it was wrong.
+2. Edit the affected sections, then append an `### Amendment <n>` entry saying what it supersedes
+   and why. Add any new `T-<n>` or `INV-<n>` to Test Definitions **and** to `## Coverage` — the
+   coverage self-check ran once, at Gate 2, and an amendment is how its result goes stale.
+3. Record the superseded baseline in the amendment — the sha `## Status` holds *now*, before you
+   touch it. The body is then final.
+4. Re-baseline: strip the `## Status` line, run `git hash-object` on the rest, and write that sha
+   into `## Status`.
+
+**The new sha goes in `## Status` and nowhere else.** The re-entry check strips only the Status
+line, so the amendment body is inside the hashed region: write the new sha there and the hash no
+longer describes the file it was taken from, and the next comparison fails on a plan nobody
+touched. Hence the order above — the amendment records the baseline it *replaced*, which is known
+before the hash is taken.
+
+Skip the re-baseline entirely and the next session's re-entry check reports a plan that changed
+behind its back, and re-presents Gate 2 for work already under way.
 
 **After the final phase:**
 - Run the **full test suite** and confirm every `T-<n>` and every `INV-<n>` in the plan is covered and green.
@@ -412,6 +490,9 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
 - **Right-size the plan.** The templates are the maximum shape. Keep every heading, but scale each section's depth to the feature — a trivial change gets terse or `None — <reason>` sections, not fabricated ceremony. See "Right-sizing the plan".
 - **Either input works**, but a requirements file on disk is the source of truth from Step 2 onward. If the user gave a prose description, write it to `/_reqs/<slug>.md` in Step 1 before doing anything else.
 - **Analysis and questions go in the file. Always. No exceptions.** Never discuss approach or ask questions in chat.
+- **Keep the file current while Gate 1 is open.** Answers arrive in chat; a concern an answer
+  settled still sitting under **Open** is a stale file, and the plan gets written against it.
+  Move it to **Addressed** with what settled it. None of that opens the gate.
 - **Be opinionated in the Approach Analysis.** "It depends" is not a recommendation. Pick one and defend it.
 - **Poke holes in the requirements and surface missed opportunities.** The analysis must critique the reqs *as written* (gaps, ambiguities, unstated assumptions, contradictions) and flag opportunities the user didn't ask for — not just evaluate the proposed approach. If there are genuinely none, say so explicitly. Opportunities are flagged, not assumed into scope; the user decides at Gate 1.
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
@@ -421,6 +502,11 @@ started, and sends it back through the Gate 2 re-entry check for a feature alrea
   write time, `Accepted — not yet implemented` with a date and a plan sha at Gate 2, `Implemented`
   when Step 5 finishes. The state has to survive the session, the sha is what makes "has this
   changed" answerable, and a stale Status is worse than none because it is believed.
+- **A plan that turns out wrong is amended, not edited.** Append an `### Amendment <n>` saying
+  what it supersedes and why, add any new `T-<n>` or `INV-<n>` to Test Definitions and
+  `## Coverage`, and re-baseline the sha in `## Status`. Editing in place loses the superseded
+  reasoning and silently breaks the Gate 2 re-entry check, which is the one guard designed to
+  span days.
 - "done" does not open either gate.
 - Re-reading the file after answers is mandatory — do not rely on memory of the blank questions, and watch for user edits to the analysis.
 - Writing the plan to disk is mandatory — chat output does not count.

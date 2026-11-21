@@ -364,6 +364,12 @@ artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
 pre-commit hook uses it, so a clean commit hook is not evidence the scripts
 work. CI runs the full suite.
 
+**An assertion must be able to kill the check it names.** Mutate the check; if
+the suite stays green, the assertion is decoration rather than coverage. The
+suite's header records the defects that rule was paid for. It is the one test
+worth running on a new assertion before trusting it, and it is cheap: delete the
+guard, run the suite, put the guard back.
+
 Four environment variables loosen it, each a deliberate bypass rather than a
 normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`,
 `SKIP_VERSION_CHECK=1`, and `YAML_OPTIONAL=1`. The version check needs tags, so
