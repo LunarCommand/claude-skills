@@ -382,11 +382,13 @@ _(Omit until the plan is first amended. Add it then, and keep it directly above 
 **Supersedes <section / INV-\<n\> / T-\<n\>>.** <What the old text claimed and why it no longer holds.>
 **Adds T-\<n\> / INV-\<n\>.** <Any new test or invariant this requires. Add it to Test Definitions
 and to `## Coverage` as well, or the rollup is stale from here on.>
-**Re-baselined `## Status`:** plan <old-short-sha> → <new-short-sha>.
+**Supersedes baseline:** plan <old-short-sha>. <The new sha goes in `## Status` and nowhere
+else — see Step 5.>
 
 ## Status
 `Drafted` — set at Gate 2 to `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`,
-and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha here.
+and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha
+here, and only here.
 One line, always last, never duplicated.
 ```
 
@@ -471,11 +473,19 @@ Gate 2 re-entry check compares against. So:
 2. Edit the affected sections, then append an `### Amendment <n>` entry saying what it supersedes
    and why. Add any new `T-<n>` or `INV-<n>` to Test Definitions **and** to `## Coverage` — the
    coverage self-check ran once, at Gate 2, and an amendment is how its result goes stale.
-3. Re-baseline: strip the `## Status` line, run `git hash-object` on the rest, write the new sha
-   into `## Status`, and record `plan <old> → <new>` in the amendment.
+3. Record the superseded baseline in the amendment — the sha `## Status` holds *now*, before you
+   touch it. The body is then final.
+4. Re-baseline: strip the `## Status` line, run `git hash-object` on the rest, and write that sha
+   into `## Status`.
 
-Skip step 3 and the next session's re-entry check reports a plan that changed behind its back,
-and re-presents Gate 2 for work already under way.
+**The new sha goes in `## Status` and nowhere else.** The re-entry check strips only the Status
+line, so the amendment body is inside the hashed region: write the new sha there and the hash no
+longer describes the file it was taken from, and the next comparison fails on a plan nobody
+touched. Hence the order above — the amendment records the baseline it *replaced*, which is known
+before the hash is taken.
+
+Skip the re-baseline entirely and the next session's re-entry check reports a plan that changed
+behind its back, and re-presents Gate 2 for work already under way.
 
 **After the final phase:**
 - Run the **full test suite** and confirm every `T-<n>` and every `INV-<n>` in the plan is covered and green.

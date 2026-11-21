@@ -135,7 +135,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   guard designed to span days into theatre. An `## Amendments` section now sits
   directly above `## Status`, omitted until first used. Each entry says what it
   supersedes and why, adds any new `T-<n>` or `INV-<n>` to Test Definitions *and*
-  to `## Coverage`, and records the re-baselined sha. Coverage matters because
+  to `## Coverage`, and records the baseline it supersedes — the new sha lives in
+  `## Status` alone, because the re-entry check strips only that line and a sha
+  written into the hashed body cannot describe the body it was taken from.
+  Coverage matters because
   the self-check runs once, at Gate 2, and an amendment is how its result goes
   stale.
 
