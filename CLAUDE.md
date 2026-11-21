@@ -264,9 +264,6 @@ hdx_query.sh --local --table traces --query "SpanName:call_model"
 # Langfuse (auto-detects legacy v1 vs v4 API from /api/public/health)
 langfuse_query.sh apigen        # → legacy | v4
 
-# Traceability check on a feature-planning plan (exit 1 on a gap)
-feature_plan_check.sh /_plans/<feature-name>-plan.md
-
 # GitHub PR review threads (the pr_review_ prefix is deliberate — see the
 # bare-name rule above: a permission rule approves a NAME, so a generic one
 # could be satisfied by an unrelated executable earlier on PATH)
@@ -361,17 +358,11 @@ scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # syntactic checks only — see below
 ```
 
-There are two behavioural suites — the only checks here that run an artifact
-and assert on what it does. `scripts/feature-plan-check-acceptance.sh` takes
-~1s and runs under `--quick` too; `scripts/mutation-test-acceptance.sh` is ~22s
-of the ~29s full run and is what `--quick` skips. So a clean pre-commit hook now
-carries real coverage of the plan checker, and still says nothing about the
-mutation runner — the one artifact that writes to a user's tree. CI runs both.
-
-Both suites follow the same rule, and it is the one that matters: **an assertion
-must be able to kill the check it names.** Mutate the check; if the suite stays
-green, the assertion is decoration. Each suite's header records the defects that
-rule was paid for.
+`--quick` skips the mutation-test acceptance suite, ~22s of the ~29s full run.
+That matters more than it sounds: the suite is the *only* check here that runs an
+artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
+pre-commit hook uses it, so a clean commit hook is not evidence the scripts
+work. CI runs the full suite.
 
 Four environment variables loosen it, each a deliberate bypass rather than a
 normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`,

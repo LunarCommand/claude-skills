@@ -18,11 +18,10 @@
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
 #
-# --quick skips the mutation-test acceptance suite, ~22s of the ~29s full run,
-# which is why the hook does not carry it; CI does. The plan-check suite is
-# ~1s and runs either way, so a green --quick run is no longer purely
-# syntactic -- but it still says nothing about the mutation runner's behaviour,
-# which is the artifact that writes to a user's tree.
+# --quick skips the mutation-test acceptance suite. What remains is entirely
+# syntactic, so a green --quick run says the artifacts are spelled correctly and
+# nothing about whether they behave. The suite is ~22s of the ~29s full run,
+# which is why the hook does not carry it; CI does.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
@@ -1005,7 +1004,7 @@ shipped = {os.path.basename(p) for p in
            glob.glob('plugin/bin/*.sh') + glob.glob('plugin/bin/lib/*.sh')}
 # The repo's own tooling, named in docs but never on a skill's PATH.
 own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
-       'feature-plan-check-acceptance.sh', 'check-install-drift.sh'}
+       'check-install-drift.sh'}
 bad = []
 docs = (glob.glob('*.md') + glob.glob('plugin/skills/*/SKILL.md')
         + glob.glob('docs/**/*.md', recursive=True))
@@ -1134,20 +1133,6 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
     scan_file 'sk-lf-[A-Za-z0-9]{8,}|pk-lf-[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$f"
   done || true)
 [[ -z "$secrets" ]] && pass "no credential-shaped strings" || { fail "possible secret:"; printf '%s\n' "$secrets" | sed 's/^/        /'; }
-
-# --------------------------------------------------------------------------
-section "Plan-check acceptance (behaviour, not spelling)"
-# --------------------------------------------------------------------------
-# Runs under --quick as well: at ~1s it is cheap enough that the pre-commit
-# hook can carry behavioural coverage of the plan checker, where the mutation
-# suite below is too slow to.
-if out=$(./scripts/feature-plan-check-acceptance.sh 2>&1); then
-  printf '%s\n' "$out" | grep -E '^  (ok|FAIL)' | sed 's/^  /  /'
-  pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
-else
-  fail "plan-check acceptance suite failed:"
-  printf '%s\n' "$out" | sed 's/^/        /'
-fi
 
 # --------------------------------------------------------------------------
 if [[ "$QUICK" == false ]]; then
