@@ -148,6 +148,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   it can tell you `T-4` is unreferenced, not that the test is worth writing or
   the mapping honest, so the read-by-eye check stays.
 
+- **`scripts/feature-plan-check-acceptance.sh` asserts the checker's behaviour.**
+  Thirteen assertions: a complete plan passes silently, each of the six checks
+  fires on its own targeted mutant of that same fixture, an unfilled template's
+  `T-<n>` placeholders are not reported as gaps, and the usage paths exit 0 for
+  `--help`/`-h` and 2 for a bad argument. Every assertion was proven able to
+  kill the check it names by disabling that check and watching the suite go red.
+  At ~1s it runs under `--quick` as well, so the pre-commit hook now carries
+  behavioural coverage of something — previously `--quick` left nothing but
+  syntax, and `CLAUDE.md` said so.
+
 - **`### Non-Goals` and `## Out of Scope` say which is which.** Both read as
   "what this will not do", so a planner filling both either duplicated or split
   them arbitrarily. Non-Goals is permanent and by decision; Out of Scope is

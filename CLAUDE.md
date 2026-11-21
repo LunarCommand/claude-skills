@@ -361,11 +361,17 @@ scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # syntactic checks only — see below
 ```
 
-`--quick` skips the mutation-test acceptance suite, ~22s of the ~29s full run.
-That matters more than it sounds: the suite is the *only* check here that runs an
-artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
-pre-commit hook uses it, so a clean commit hook is not evidence the scripts
-work. CI runs the full suite.
+There are two behavioural suites — the only checks here that run an artifact
+and assert on what it does. `scripts/feature-plan-check-acceptance.sh` takes
+~1s and runs under `--quick` too; `scripts/mutation-test-acceptance.sh` is ~22s
+of the ~29s full run and is what `--quick` skips. So a clean pre-commit hook now
+carries real coverage of the plan checker, and still says nothing about the
+mutation runner — the one artifact that writes to a user's tree. CI runs both.
+
+Both suites follow the same rule, and it is the one that matters: **an assertion
+must be able to kill the check it names.** Mutate the check; if the suite stays
+green, the assertion is decoration. Each suite's header records the defects that
+rule was paid for.
 
 Four environment variables loosen it, each a deliberate bypass rather than a
 normal setting: `SHELLCHECK_SEVERITY=error`, `SHELLCHECK_OPTIONAL=1`,
