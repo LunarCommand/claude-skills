@@ -110,6 +110,23 @@ Two bodies mean something specific:
   issues from earlier pushes too. Check whether each one is still true at the
   head rather than assuming the list is complete.
 
+**Read every `<details>` block in the body, not only the open one.** The body is
+collapsed sections and findings live in more than one of them:
+
+- **`Open (N)`** — the current findings, each linking to its thread where it has
+  one.
+- **`Previously missed (N)`** — findings in code that has not changed since the
+  last review. These usually have no thread at all, so they are unanchored and
+  no count includes them.
+- **`Resolved since last review (N)`** — already addressed. Do not re-queue
+  these.
+
+**The counts are not a floor.** A body has been seen reading `Findings: None`
+with no `Open` block at all, beside a `Previously missed (2)` block holding two
+real defects — every numeric signal said zero and the thread list agreed. So
+"nothing to review" is a conclusion you reach by having read the whole body, and
+never one you read off a count.
+
 Do not evaluate or act on any comment yet. Tell the user:
 **"Found N unresolved threads and M findings with no thread of their own on PR #$PR in $REPO. I'll go through them one at a time for your approval."**
 
@@ -239,12 +256,11 @@ Total threads resolved: N
 ## Rules
 
 - ALWAYS detect `$REPO` from `gh repo view` — never hardcode or guess the org/repo
-- ALWAYS read the review bodies as well as the threads. A thread list alone is a
-  partial review of any repository whose code sits under an excluded path, and
-  reporting it as complete has already let a defect merge
-- ALWAYS check a thread against the head when its `Reviewed at` commit is not the
-  head, or `Outdated` says `yes`. Re-proposing a fix for something a later push
-  already fixed is how a stale comment turns into a real change
+- ALWAYS read the review bodies as well as the threads, and every `<details>`
+  block in them — Step 1 says which blocks hold what
+- NEVER conclude a PR is clean from a count — Step 1 says why none is a floor
+- ALWAYS check an outdated thread, or one not on the head, against the current
+  file before giving a verdict — Step 2a
 - ALWAYS use the bundled scripts for all GitHub API calls — never call `gh api` directly, never use shell pipes or redirects
 - To read a specific comment in full use `pr_review_parse_comments.sh $REPO $PR <index>` or `pr_review_parse_comments.sh $REPO $PR --id <comment_id>` — NEVER call `gh api` directly to look up a comment body, NEVER pipe or grep the output of pr_review_parse_comments.sh
 - Never post a reply, make a code change, or resolve a thread without explicit user approval
