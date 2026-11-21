@@ -125,8 +125,9 @@ Show the user:
 
 ```
 ── Comment N of N ──────────────────────────────
-File:    path/to/file.ts:42
-Comment: <full comment text>
+File:     path/to/file.ts:42
+Reviewed: ffdc0f4 (head is 56fcbb4), outdated: yes
+Comment:  <full comment text>
 
 My verdict: ✅ Fix / ⚠️ Partial fix / ❌ No fix
 
@@ -138,6 +139,24 @@ Proposed reply: (must not open with "Good catch", "Great point", "Real bug", or 
 Proposed code change: (if any)
 <diff or description of change>
 ```
+
+**A thread that is not on the head describes code that may no longer exist.**
+`pr_review_parse_comments.sh` prints the commit each thread was reviewed against
+and whether GitHub still anchors it to live code. When `Reviewed at` is not the
+head, or `Outdated` is `yes`, read the file at the head *before* deciding.
+
+The line number is GitHub's **current** anchor, remapped as the diff moves, so
+it stays correct for a thread from an earlier commit that is still anchored.
+Only when GitHub can no longer map the comment does the output fall back to the
+reviewed commit's line, and it says so: `path/to/file.ts:42 (line at the
+reviewed commit)`. That number is where the code *was*, so find the content by
+reading the file rather than trusting the line.
+
+A finding the later commits already fixed is ❌ No fix, and the reply is one
+line: `Fixed in <sha>.` Do not propose the change a second time and do not
+restate the original defect. This is not a rare case: on a spec PR with five
+pushes, three of Copilot's four threads described problems the later pushes had
+already fixed.
 
 **STOP. Do not post the reply, make any code changes, or resolve the thread yet.**
 
@@ -223,6 +242,9 @@ Total threads resolved: N
 - ALWAYS read the review bodies as well as the threads. A thread list alone is a
   partial review of any repository whose code sits under an excluded path, and
   reporting it as complete has already let a defect merge
+- ALWAYS check a thread against the head when its `Reviewed at` commit is not the
+  head, or `Outdated` says `yes`. Re-proposing a fix for something a later push
+  already fixed is how a stale comment turns into a real change
 - ALWAYS use the bundled scripts for all GitHub API calls — never call `gh api` directly, never use shell pipes or redirects
 - To read a specific comment in full use `pr_review_parse_comments.sh $REPO $PR <index>` or `pr_review_parse_comments.sh $REPO $PR --id <comment_id>` — NEVER call `gh api` directly to look up a comment body, NEVER pipe or grep the output of pr_review_parse_comments.sh
 - Never post a reply, make a code change, or resolve a thread without explicit user approval

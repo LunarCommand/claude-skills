@@ -315,10 +315,10 @@ anything here.
   in step. This file is checked in and the user file is not, so on a clone where
   nobody merged the user file it is the whole policy — and it grants `Read`,
   `Edit` and `Write` wholesale. Grant `Read` with no `deny` and an agent reads
-  `~/.ssh` and your shell history with nothing in the way. Those denies bind the
-  **file tools** — `Read`, `Edit`, `Grep` — and not `Bash`, which is why the
-  file grants no general-purpose shell reader: one `Bash(cat:*)` rule would read
-  straight past every path deny in it, and no `Bash` deny can fence that in.
+  `~/.ssh` and your shell history with nothing in the way. Which rules actually
+  bind what, and why the file grants no general-purpose shell reader, is in
+  [what a permission rule actually
+  matches](#what-a-permission-rule-actually-matches).
   `defaultMode` is absent for a related reason: set it to `auto` and that `ask`
   list stops being a second record of a decision and becomes the only thing that
   asks.
@@ -523,9 +523,8 @@ The `deny` list is the environment, and only the environment: `env`, `printenv`,
 `set`, `export`, `export -p`, `declare -p`, `declare -x`. These scripts read
 their API keys from the environment, so `env` prints a live key into the
 transcript — and a transcript is not somewhere a key can be withdrawn from.
-`env`, `set` and `export -p` are matched *exactly*, because the bare form is the
-one that dumps everything while `env FOO=bar cmd` is ordinary use a prefix rule
-would refuse.
+`env`, `set` and `export -p` are matched *exactly* rather than as prefixes, for
+the reason below.
 
 Credential directories and shell histories are deliberately **not** denied.
 Denying a path at user scope asserts a filesystem policy over every repository
@@ -536,9 +535,35 @@ Nothing else is **granted**. No `defaultMode`, no tool-level grants like `Write`
 or `Edit`, no rules for tooling this repo does not ship — those are yours to
 decide, and a toolkit has no business asserting them on your behalf.
 
-A rule approves the command **name**, matching whatever `PATH` resolves it to
-rather than a specific file, which is why the shipped names are distinctive
-enough not to collide with anything you are likely to already have.
+### What a permission rule actually matches
+
+Everything here and in both templates depends on these, and two of them are not
+what they look like. [Claude Code's permissions
+reference](https://code.claude.com/docs/en/permissions) is the authority; this
+is the part that governs these files.
+
+- **A Bash rule approves a command *name***, matching whatever `PATH` resolves
+  it to rather than a specific file — which is why the shipped script names are
+  distinctive enough not to collide with anything you are likely to have.
+- **`Bash(cmd:*)` is a prefix; `Bash(cmd)` is exact.** The bare form is why
+  `env`, `set` and `export -p` are denied exactly: `env` alone dumps the
+  environment, while `env FOO=bar cmd` is ordinary use a prefix rule would
+  refuse. `printenv` is the reverse — `Bash(printenv *)` requires an argument
+  and so allows bare `printenv`, the dumping form — so it is a prefix rule. Do
+  not "fix" either to match the other.
+- **Only `Read(path)` and `Edit(path)` match a file operation.**
+  `Write(path)`, `Glob(path)` and `Grep(path)` are accepted by the parser and
+  then silently never matched, so they protect nothing and their absence is not
+  a gap. `Read` is applied best-effort to `Grep` and `Glob`, and also covers
+  `Edit` and `Write` on the same path; `Edit` is listed alongside it only
+  because `NotebookEdit` is not covered by `Read`.
+- **A path deny reaches a Bash command Claude Code can analyze** — `cat`,
+  `head`, `tail`, `sed`, `tee`, redirection targets — but not a command that
+  reads without naming the file, such as `grep -r key ~`, and not a script that
+  opens files itself. That gap is the reason to grant no general-purpose shell
+  reader: whether the deny applied would depend on the shape of a command line.
+- **Precedence is `deny` > `ask` > `allow`**, so a rule in two buckets resolves
+  to the stricter one rather than conflicting.
 
 ## What an adversarial review costs
 

@@ -139,6 +139,29 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   unanchored, answered with a PR comment since there is nothing to reply to or
   resolve, and counted separately.
 
+- `pr_review_parse_comments.sh` prints the commit each thread was reviewed
+  against and whether GitHub still anchors it to live code, in all three modes:
+  `Reviewed at: ffdc0f4 (head is 56fcbb4)` and `Outdated: yes`, collapsing to
+  `(head)` when the thread sits on the tip. Without it a finding from an early
+  push looked exactly like a current one, and the skill proposed fixing it
+  again — on a spec PR with five pushes, three of Copilot's four threads
+  described problems the later pushes had already fixed, and that showed only
+  because one comment quoted text that no longer existed. The skill now reads
+  the file at the head before giving a verdict on an outdated thread, and
+  answers one already fixed there with `Fixed in <sha>.` rather than
+  re-proposing the change.
+
+  A comment's `originalCommit` is the commit it was reviewed against and
+  `commit` is where GitHub currently anchors it; either can be null, so both
+  have a fallback and an absent pair prints `?`. The line number is GitHub's
+  current anchor and stays correct for a still-anchored thread from an earlier
+  commit; the output falls back to the reviewed commit's line only when the
+  comment can no longer be mapped, and marks it `(line at the reviewed commit)`
+  when it does. The commit *distance* is
+  deliberately not shown — it is not in the thread data and would cost a
+  paginated commit list for colour, where `Outdated` plus "not the head" is what
+  the verdict actually turns on.
+
 ### Repository
 
 - The mutation-test acceptance suite keeps the stderr of its two concurrent
@@ -201,15 +224,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   file's `ask` and `deny` lists deliberately, because it is checked in and the
   user file is not, so on a clone where nobody merged the user file it is the
   whole policy — and it grants `Read`, `Edit` and `Write` wholesale, which is
-  what makes the `deny` block load-bearing rather than belt-and-braces. Those
-  denies bind the **file tools** and not `Bash`, so the file grants no
-  general-purpose shell reader: a single `Bash(cat:*)` rule would read past every
-  path deny in it, and no `Bash` deny can fence that in — the reader surface is
-  unbounded and a path pattern loses to `cat $HOME/.ssh/id_rsa`. `ls`, `wc`, `du`
-  and `tree` remain, leaking metadata rather than contents. `find` is absent on
-  its own grounds: `-delete` and `-exec` make it a write command that would pass
-  the `Bash(rm:*)` ask rule untouched. `Grep` is denied on the same five paths as
-  `Read`, since it is granted as a tool and a `Read` deny does not cover it.
+  what makes the `deny` block load-bearing rather than belt-and-braces. Each of
+  the five protected paths carries a `Read` and an `Edit` deny, which is the
+  whole set that matches anything, and the two shell histories had no `Edit`
+  rule until now. No general-purpose shell reader is granted; `ls`, `wc`, `du`
+  and `tree` remain, leaking metadata rather than contents, and `find` is absent
+  because `-delete` and `-exec` make it a write command the `Bash(rm:*)` ask
+  rule would not catch. The README's "What a permission rule actually matches"
+  is the one place the reasoning behind all of that is written down.
 
 - The permission template's `ask` list covers the class rather than the subset
   these skills happen to call, going from ten rules to twenty-nine: `switch`,
