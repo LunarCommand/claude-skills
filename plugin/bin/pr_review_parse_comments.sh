@@ -116,7 +116,10 @@ def thread($label; $head; $detail):
   .comments.nodes as $c
   | "[\($label)] Thread Node ID: \(.id)\n"
   + "     Comment ID:     \($c[0].databaseId)\n"
-  + "     File:           \($c[0].path):\($c[0].line // $c[0].originalLine // "?")\n"
+  + "     File:           \($c[0].path):\($c[0].line // $c[0].originalLine // "?")"
+  + (if $c[0].line == null and $c[0].originalLine != null
+     then " (line at the reviewed commit)" else "" end)
+  + "\n"
   + reviewed_at($head)
   + outdated
   + "     Author:         \($c[0].author.login)\n"

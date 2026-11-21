@@ -153,7 +153,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
   A comment's `originalCommit` is the commit it was reviewed against and
   `commit` is where GitHub currently anchors it; either can be null, so both
-  have a fallback and an absent pair prints `?`. The commit *distance* is
+  have a fallback and an absent pair prints `?`. The line number is GitHub's
+  current anchor and stays correct for a still-anchored thread from an earlier
+  commit; the output falls back to the reviewed commit's line only when the
+  comment can no longer be mapped, and marks it `(line at the reviewed commit)`
+  when it does. The commit *distance* is
   deliberately not shown — it is not in the thread data and would cost a
   paginated commit list for colour, where `Outdated` plus "not the head" is what
   the verdict actually turns on.

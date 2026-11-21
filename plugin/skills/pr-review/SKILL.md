@@ -143,9 +143,14 @@ Proposed code change: (if any)
 **A thread that is not on the head describes code that may no longer exist.**
 `pr_review_parse_comments.sh` prints the commit each thread was reviewed against
 and whether GitHub still anchors it to live code. When `Reviewed at` is not the
-head, or `Outdated` is `yes`, read the file at the head *before* deciding —
-`line` refers to the reviewed commit, so the number in the comment can point at
-different content now.
+head, or `Outdated` is `yes`, read the file at the head *before* deciding.
+
+The line number is GitHub's **current** anchor, remapped as the diff moves, so
+it stays correct for a thread from an earlier commit that is still anchored.
+Only when GitHub can no longer map the comment does the output fall back to the
+reviewed commit's line, and it says so: `path/to/file.ts:42 (line at the
+reviewed commit)`. That number is where the code *was*, so find the content by
+reading the file rather than trusting the line.
 
 A finding the later commits already fixed is ❌ No fix, and the reply is one
 line: `Fixed in <sha>.` Do not propose the change a second time and do not
