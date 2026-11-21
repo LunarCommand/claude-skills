@@ -60,6 +60,7 @@
   "permissions": {
     "allow": [
       "Bash(adversarial_review_path.sh:*)",
+      "Bash(feature_plan_check.sh:*)",
       "Bash(gh_tasks_add.sh:*)",
       "Bash(gh_tasks_board.sh:*)",
       "Bash(gh_tasks_close.sh:*)",

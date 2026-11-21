@@ -390,7 +390,15 @@ and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baseli
 One line, always last, never duplicated.
 ```
 
-**Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
+**Before presenting the plan, run the coverage check:**
+
+```bash
+feature_plan_check.sh /_plans/<feature-name>-plan.md
+```
+
+It reports an `INV-<n>` missing from Coverage, a `T-<n>` defined but never cited, a `T-<n>` cited but never defined, a phase with no `Verified by:` line, and a missing or duplicated heading. Close every gap it finds — add the missing test, or mark the row "judgment — not automatable" — before presenting. If the command is not found the plugin is not on `PATH`; say so once and do the same check by eye rather than skipping it.
+
+**The script is textual, so it is the floor and not the ceiling.** It can tell you `T-4` is unreferenced; it cannot tell you the test is worth writing or that the mapping is honest. Still confirm by reading that every Success Criteria behavior and every measurable NFR has a test that would actually catch its failure. Do not present a plan with silent coverage gaps.
 
 After writing the file, tell the user:
 

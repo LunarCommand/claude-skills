@@ -474,11 +474,11 @@ at the same scope, and copying it per project means re-approving the same toolki
 in every repository. That is only safe because the file is narrow, which is the
 point of keeping it minimal:
 
-- **the bundled scripts**, by bare name. Seven of the eight;
-  `mutation_test_worktree.sh` is left out on purpose, because it takes a command
-  string that reaches `bash -c` verbatim, so any rule approving it would approve
-  the wrapper rather than what it runs. It runs once per session, so the prompt
-  is cheap and shows you the exact command.
+- **the bundled scripts**, by bare name — every one of them except
+  `mutation_test_worktree.sh`, which is left out on purpose because it takes a
+  command string that reaches `bash -c` verbatim, so any rule approving it
+  would approve the wrapper rather than what it runs. It runs once per session,
+  so the prompt is cheap and shows you the exact command.
 - **`gh repo view` / `gh pr view`** — pr-review reads the repo and PR in Step 1
 - **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`,
   `merge-base`, `branch -a --contains`, `submodule status`: what

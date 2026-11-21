@@ -264,6 +264,9 @@ hdx_query.sh --local --table traces --query "SpanName:call_model"
 # Langfuse (auto-detects legacy v1 vs v4 API from /api/public/health)
 langfuse_query.sh apigen        # → legacy | v4
 
+# Traceability check on a feature-planning plan (exit 1 on a gap)
+feature_plan_check.sh /_plans/<feature-name>-plan.md
+
 # GitHub PR review threads (the pr_review_ prefix is deliberate — see the
 # bare-name rule above: a permission rule approves a NAME, so a generic one
 # could be satisfied by an unrelated executable earlier on PATH)
