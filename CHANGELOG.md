@@ -18,6 +18,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ### Repository
 
+- The config templates ship **inside the plugin**, at `install/` within
+  whichever copy you installed, rather than only in the repository. Nothing
+  applies them and nothing reads them automatically — `plugin.json` still has no
+  `permissions` field and no settings layer — but a tool running from the
+  installed copy can now read them, which it could not before: outside the
+  plugin root, nothing exists. The practical gain today is that merging no
+  longer means fetching the file from GitHub first. Repository paths move from
+  `install/` to `plugin/install/`; the paths the skills name were always meant
+  as plugin-relative and are unchanged.
+
 - `docs/RELEASING.md` says what a release section has to disclose and how to
   check that a release landed. Two gaps it had: the version can move more than
   once between tags, and each intermediate version was offered to anyone who

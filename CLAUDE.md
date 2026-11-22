@@ -26,8 +26,13 @@ This repository publishes a single Claude Code plugin named `lunar`, and
 Skills are invoked as `/lunar:<name>`.
 
 Everything outside `plugin/` is repository material a user never receives: the
-methodology docs, the checks, the templates they merge by hand, this file. That
-split is deliberate and it is enforced — see the payload check below.
+methodology docs, the checks, this file. That split is deliberate and it is
+enforced — see the payload check below.
+
+The config templates sit **inside** `plugin/`, at `plugin/install/`, which looks
+like an exception and is not. A tool that reads or merges them runs from the
+installed copy, where nothing outside the plugin root exists — so a template the
+user never receives is a template no script can compare against.
 
 There is exactly one install route: the marketplace. Two ways to point at it —
 
@@ -112,7 +117,7 @@ Each top-level directory has one role:
   users — read it before proposing a tag.
 - `CHANGELOG.md` — one section per release of the `lunar` plugin. Keep the
   `Unreleased` section current as work lands.
-- `install/user/` — **templates the user merges into `~/.claude/`**, once, for
+- `plugin/install/user/` — **templates the user merges into `~/.claude/`**, once, for
   every project. User scope, not project scope: the plugin installs once per
   machine, so its permissions belong at the same scope, and a per-project copy
   would mean re-approving the same toolkit in every repository.
@@ -127,7 +132,7 @@ Each top-level directory has one role:
   - `gh-tasks.conf` — board rows for the `gh-tasks` skill, and optional. A
     Project linked to the repository is found without it; a row is for the case
     a link cannot express, which the file's own header documents.
-- `install/project/` — the genuinely per-project templates: `.agent.env`, whose
+- `plugin/install/project/` — the genuinely per-project templates: `.agent.env`, whose
   endpoints and API keys differ per repo, and `settings.json`, an optional
   project-scope permissions example. Read that file's `_comment` before changing
   a rule in it — it records which of its lists are deliberately duplicated from
@@ -139,9 +144,12 @@ Each top-level directory has one role:
   .githooks`) running the fast subset.
 - `LICENSE`, `README.md` — MIT license and the public-facing overview.
 
-Nothing under `install/` is installed by anything. Plugins cannot ship a
-permissions layer or an auto-loading CLAUDE.md, so merging by hand is the only
-route there is — see the bundled-script invariant below.
+**Shipping those templates is not applying them.** Nothing under
+`plugin/install/` is read by Claude Code: `plugin.json` has no `permissions`
+field, there is no plugin-shipped settings layer, and nothing auto-loads a
+CLAUDE.md. They travel with the plugin so that a tool running from the installed
+copy can read them, and merging into `~/.claude/` stays a separate, deliberate
+act — see the bundled-script invariant below.
 
 ## Skill anatomy
 
@@ -220,7 +228,7 @@ Two consequences, both load-bearing when adding a script:
 
 `hdx_query.sh` and `langfuse_query.sh` auto-load `.agent.env` from the **current
 project root** (`$(pwd)/.agent.env`). It holds per-project config/secrets and
-accepts both `KEY: VALUE` and `KEY=VALUE` lines. `install/project/.agent.env` is
+accepts both `KEY: VALUE` and `KEY=VALUE` lines. `plugin/install/project/.agent.env` is
 the template. Scripts validate required keys and tell the user what's missing
 rather than guessing.
 
@@ -347,8 +355,8 @@ the plugin and marketplace manifests (valid JSON, the marketplace entry's name
 agreeing with the manifest it points at, every `SKILL.md` inside the plugin root
 where it can actually load, plus `claude plugin validate` when the CLI is on
 hand),
-config-template JSON validity, that `install/user/settings.optional.json`
-carries no `permissions` key and that `install/project/settings.json` restates
+config-template JSON validity, that `plugin/install/user/settings.optional.json`
+carries no `permissions` key and that `plugin/install/project/settings.json` restates
 every `ask` and `deny` rule the user template holds (one-way — the project
 template adds stack rules of its own), that the settings allowlist and the
 shipped `plugin/bin/` scripts name each other exactly, that `plugin/` holds

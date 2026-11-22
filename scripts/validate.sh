@@ -745,9 +745,9 @@ fi
 # --------------------------------------------------------------------------
 section "Config templates"
 # --------------------------------------------------------------------------
-for cfg in install/user/settings.json \
-           install/user/settings.optional.json \
-           install/project/settings.json; do
+for cfg in plugin/install/user/settings.json \
+           plugin/install/user/settings.optional.json \
+           plugin/install/project/settings.json; do
   if python3 -c "import json,sys; json.load(open('$cfg'))" 2>/dev/null; then
     pass "valid JSON  $cfg"
   else
@@ -759,13 +759,13 @@ done
 # cover this toolkit and nothing else is only checkable while preference cannot
 # grant anything. A permissions key here would move rules out of the one file
 # the allowlist check below reads.
-if python3 -c "import json; cfg = json.load(open('install/user/settings.optional.json')); raise SystemExit(1 if 'permissions' in cfg else 0)" 2>/dev/null; then
+if python3 -c "import json; cfg = json.load(open('plugin/install/user/settings.optional.json')); raise SystemExit(1 if 'permissions' in cfg else 0)" 2>/dev/null; then
   pass "optional    settings.optional.json grants nothing"
 else
-  fail "optional    settings.optional.json carries a permissions key — rules belong in install/user/settings.json, which is the file the allowlist check reads"
+  fail "optional    settings.optional.json carries a permissions key — rules belong in plugin/install/user/settings.json, which is the file the allowlist check reads"
 fi
 
-# install/project/settings.json restates the user template's ask and deny rules,
+# plugin/install/project/settings.json restates the user template's ask and deny rules,
 # because it is checked in where the user file is not: on a clone where nobody
 # merged the user file it is the whole policy, and it grants Read, Edit and Write
 # wholesale. A rule added to the user file and not there is a rule that clone
@@ -773,8 +773,8 @@ fi
 # direction is one-way -- the project template adds stack rules of its own.
 if out=$(python3 - <<'PY' 2>&1
 import json, sys
-user = json.load(open('install/user/settings.json'))['permissions']
-proj = json.load(open('install/project/settings.json'))['permissions']
+user = json.load(open('plugin/install/user/settings.json'))['permissions']
+proj = json.load(open('plugin/install/project/settings.json'))['permissions']
 bad = []
 for bucket in ('ask', 'deny'):
     have = set(proj.get(bucket, []))
@@ -800,7 +800,7 @@ if out=$(python3 - <<'PY' 2>&1
 import glob, json, os, re, sys
 bad = []
 try:
-    cfg = json.load(open('install/user/settings.json'))
+    cfg = json.load(open('plugin/install/user/settings.json'))
 except Exception as e:
     print(f'could not parse settings.json: {e}'); sys.exit(1)
 shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
