@@ -163,10 +163,10 @@ elif [ ! -r "$LIVE" ]; then
 elif ! have python3; then
   say warn "settings" "python3 absent, cannot compare against the template"
 else
-  python3 - "$TEMPLATE" "$LIVE" "$PLUGIN_ROOT/bin" <<'PY'
+  python3 - "$TEMPLATE" "$LIVE" "$PLUGIN_ROOT/bin" "$REDACT" <<'PY'
 import glob, json, os, sys
 
-tmpl_path, live_path, bin_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+tmpl_path, live_path, bin_dir, redact = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 def say(status, label, detail):
     print('  %-6s %-14s %s' % (status, label, detail))
@@ -202,14 +202,20 @@ def unruled(path):
     return False
 
 scripts = sorted(glob.glob(os.path.join(bin_dir, '*.sh')))
-missing_scripts, by_design = [], []
+missing_scripts, by_design, wrongly_ruled = [], [], []
 for path in scripts:
     name = os.path.basename(path)
-    if 'Bash(%s:*)' % name in live_allow:
-        continue
-    (by_design if unruled(path) else missing_scripts).append(name)
+    ruled = 'Bash(%s:*)' % name in live_allow
+    # The marker is consulted BEFORE the rule. Checking the rule first and
+    # skipping meant an approved script never reached the marker, so a rule
+    # defeating a deliberate exemption read as healthy -- while validate.sh
+    # calls that same state an error. Two readers of one marker, disagreeing.
+    if unruled(path):
+        (wrongly_ruled if ruled else by_design).append(name)
+    elif not ruled:
+        missing_scripts.append(name)
 
-want = len(scripts) - len(by_design)
+want = len(scripts) - len(by_design) - len(wrongly_ruled)
 if missing_scripts:
     say('FAIL', 'script rules', '%d of %d present -- these prompt on every call:'
         % (want - len(missing_scripts), want))
@@ -219,6 +225,9 @@ else:
     say('ok', 'script rules', '%d of %d present' % (want, want))
 for name in by_design:
     say('ok', 'by design', '%s prompts on purpose' % name)
+for name in wrongly_ruled:
+    say('warn', 'over-approved', '%s is approved but ships unruled on purpose' % name)
+    say('warn', '', '  the rule approves the bash -c wrapper, not the payload -- remove it')
 
 for bucket in ('ask', 'deny'):
     want = tmpl.get(bucket, [])
@@ -234,6 +243,22 @@ for bucket in ('ask', 'deny'):
     else:
         say('ok', bucket, '%d of %d template rules present' % (len(want), len(want)))
 
+# A rule from the shipped template is public text. A rule the user wrote is
+# theirs, and can carry a hostname, a path outside $HOME, a URL or a token
+# inside a command string -- and this report is documented as safe to paste into
+# a public issue, so the default cannot print one whole.
+template_rules = set()
+for bucket in ('allow', 'ask', 'deny'):
+    template_rules.update(tmpl.get(bucket, []))
+
+def abbreviate(rule):
+    # Keep the tool and the command name, drop every argument: enough to find
+    # the rule in your own settings file, not enough to disclose what it names.
+    head, sep, rest = rule.partition('(')
+    if not sep or ' ' not in rest:
+        return rule
+    return '%s(%s ...)' % (head, rest.split()[0])
+
 # Precedence is deny > ask > allow, so a rule in two buckets silently resolves to
 # the stricter one. That is a behaviour change the file itself does not show.
 buckets = {b: set(live.get(b, [])) for b in ('allow', 'ask', 'deny')}
@@ -243,8 +268,18 @@ for a, b in (('allow', 'ask'), ('allow', 'deny'), ('ask', 'deny')):
         collisions.append((rule, a, b, b))
 if collisions:
     say('warn', 'collisions', '%d rule(s) in two buckets -- the stricter wins:' % len(collisions))
+    hidden = 0
     for rule, a, b, wins in collisions:
-        say('warn', '', '  %s  (%s + %s -> %s)' % (rule, a, b, wins))
+        if rule in template_rules or redact == 'no':
+            shown = rule
+        else:
+            shown = abbreviate(rule)
+            if shown != rule:
+                hidden += 1
+        say('warn', '', '  %s  (%s + %s -> %s)' % (shown, a, b, wins))
+    if hidden:
+        say('warn', '', '  %d rule(s) abbreviated: not from the shipped template, so the'
+                        ' arguments are yours -- --raw prints them whole' % hidden)
 else:
     say('ok', 'collisions', 'no rule sits in two buckets')
 PY

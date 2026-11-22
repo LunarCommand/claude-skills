@@ -53,6 +53,8 @@ plugin that never loaded, and they are fixed in opposite places.
 | `deny: N of 7` | The environment deny block is incomplete | Real exposure: these scripts take API keys from the environment, so `env` prints a live key into the transcript |
 | `collisions` | A rule sits in two buckets | Precedence is `deny > ask > allow`, so the stricter wins and the file does not show it. Decide which the user meant; do not silently delete one |
 | `gh scope` warn | `gh` lacks the `project` scope | `gh auth refresh -s project`. Without it gh-tasks exits 77 |
+| `over-approved` | A rule approves a script that ships unruled on purpose | Tell the user to remove it. The rule approves the `bash -c` wrapper rather than the payload, which is why the exemption exists |
+| `N rule(s) abbreviated` | A colliding rule the user wrote, not from the template | Its arguments are withheld because this output is meant for a public issue. `--raw` prints them, for reading yourself |
 | `sections the template has and this file does not` | The user CLAUDE.md is missing whole sections the shipped template carries | What a copy merged from an older version looks like. Offer to merge the missing sections; it compares headings, not content, so an edited file is not flagged |
 
 ### A partially merged template is worse than none
@@ -76,9 +78,14 @@ Tell the user to merge `install/user/settings.json`, from the plugin copy the
 report names, into `~/.claude/settings.json`. Merge, never replace: that file
 holds their own settings too.
 
-**Permissions load at startup.** A merged file does nothing until the session is
-restarted, so a re-run of the report in the same session still shows the old
-state. Say so rather than letting it read as a failed merge.
+**Permissions load at startup, and the report reads the file.** Those are
+different things, and conflating them misreads both. The report opens
+`~/.claude/settings.json` on every run, so a re-run right after a merge shows the
+new rules at once — a clean report confirms the merge landed on disk and says
+nothing about whether this session applies it. The running session loaded its
+rules at startup and keeps them until restarted, so calls can still prompt while
+the report reads clean. Tell the user to restart; do not let the clean report be
+read as proof the prompting has stopped.
 
 ## Reporting a bug
 
