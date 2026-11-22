@@ -77,7 +77,7 @@ numbers for one thing is a drift waiting to happen.
 
 3. **Sweep the docs for stale wording.** For each behaviour change, grep for the
    old spelling — command names, flags, file paths, prerequisites — across
-   `README.md`, `CLAUDE.md`, `docs/`, `install/`, and every `SKILL.md`.
+   `README.md`, `CLAUDE.md`, `docs/`, `plugin/install/`, and every `SKILL.md`.
    `validate.sh` catches a `*.sh` name that no longer ships and a `SKILL.md` that
    names a script by path; it cannot catch a stale sentence.
 
@@ -206,10 +206,13 @@ snapshot in the cache — so `installed_plugins.json` reports whatever was last
 installed from GitHub, which can be several versions behind what is running.
 Check 3 is what tells them apart.
 
-**None of the three covers `install/`.** Nothing installs those templates and no
-version field records them, so a current plugin alongside a year-old
-`~/.claude/settings.json` looks identical to every check above. What settles it
-is whether the allowlist names this release's scripts:
+**The plugin's version does not cover your merged settings.** The templates ship
+inside `plugin/`, so the version gates them like any other payload file — a
+changed template forces a bump and an update delivers it. What no version field
+records is the copy you merged into `~/.claude/settings.json`: a separate file
+that nothing updates. So a current plugin carrying a current template, beside a
+year-old settings file, looks identical to every check above. What settles it is
+whether the allowlist names this release's scripts:
 
 ```bash
 jq '[.permissions.allow[] | select(startswith("Bash(gh_tasks_"))] | length' \

@@ -36,8 +36,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   verifying section also told you how to update without saying how to confirm
   the update took; it now names the install record, a capability check, the
   resolver that says which of the two copies on disk actually loaded, and the
-  one check that covers `install/`, which no version field records. The
-  `v1.2.0` section now discloses the 1.1.0 it covers.
+  one check that covers the settings you merged into `~/.claude/`, which no
+  version field records. The `v1.2.0` section now discloses the 1.1.0 it covers.
 
 ## v1.2.0 — 2026-11-21
 

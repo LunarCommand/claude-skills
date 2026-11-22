@@ -619,11 +619,12 @@ fi
 # update only when `version` changes. Nothing else surfaces that, so it is a
 # check rather than a convention. See docs/RELEASING.md.
 #
-# Scoped to `plugin/`, which is exactly what a user receives. Everything else in
-# the repository — `docs/`, `scripts/`, `install/`, the README — is outside the
-# plugin root and reaches nobody through an update, so requiring a version bump
-# for a typo in a methodology doc would train the bump into a reflex, which is
-# how it stops being a signal.
+# Scoped to `plugin/`, which is exactly what a user receives -- the config
+# templates included, since they ship inside it. Everything else in the
+# repository — `docs/`, `scripts/`, the README — is outside the plugin root and
+# reaches nobody through an update, so requiring a version bump for a typo in a
+# methodology doc would train the bump into a reflex, which is how it stops
+# being a signal.
 # The baseline is the highest v<number> tag in the REPOSITORY, not the nearest
 # one reachable from HEAD. `git describe` walks ancestry, so on a branch cut
 # before the tag — or with the release tag on a sibling — it reports an older tag
