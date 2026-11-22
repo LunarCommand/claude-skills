@@ -112,8 +112,8 @@ numbers for one thing is a drift waiting to happen.
 6. **Tag and push.**
 
    ```bash
-   git tag -a v1.1.0 -m "v1.1.0"
-   git push origin v1.1.0
+   git tag -a v1.2.0 -m "v1.2.0"
+   git push origin v1.2.0
    ```
 
 7. **Publish the GitHub Release.** A pushed tag does *not* create one — they are
@@ -123,8 +123,8 @@ numbers for one thing is a drift waiting to happen.
 
    ```bash
    # strip the heading; the release title carries the version
-   awk '/^## v1\.1\.0/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/notes.md
-   gh release create v1.1.0 --title "v1.1.0" --notes-file /tmp/notes.md --latest
+   awk '/^## v1\.2\.0/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/notes.md
+   gh release create v1.2.0 --title "v1.2.0" --notes-file /tmp/notes.md --latest
    ```
 
    Nothing in the install path depends on this — the marketplace serves from the
@@ -132,12 +132,18 @@ numbers for one thing is a drift waiting to happen.
    and what changed.
 
    Editing the CHANGELOG section after the Release is published leaves the two
-   out of step, which the verbatim rule above exists to prevent. Re-run the same
-   extraction and push it:
+   out of step, which the verbatim rule above exists to prevent. Re-extract and
+   push it — both halves, because the extraction is what makes the notes match
+   the file again:
 
    ```bash
-   gh release edit v1.1.0 --notes-file /tmp/notes.md
+   awk '/^## v1\.2\.0/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/notes.md
+   gh release edit v1.2.0 --notes-file /tmp/notes.md
    ```
+
+   The version in both commands has to be one that exists as a heading. An
+   `awk` pattern that matches nothing writes an empty file, and
+   `gh release edit` accepts it — replacing the published notes with nothing.
 
 ## Verifying a release reached users
 
@@ -162,11 +168,22 @@ them:
    jq '.plugins["lunar@lunar-skills"]' ~/.claude/plugins/installed_plugins.json
    ```
 
-   `version` should be the new one, `installPath` should end in that version, and
-   `gitCommitSha` should be the commit the tag points at or a later one. The sha
-   is the strongest of the three: `version` is only what `plugin.json` claimed,
-   where the sha is what was actually fetched. `installedAt` keeps the date of
-   the first install, so `lastUpdated` is the field that moves on an update.
+   `version` should be the new one and `installPath` should end in that version.
+   `gitCommitSha` is the strongest of the three, because `version` is only what
+   `plugin.json` claimed where the sha is what was actually fetched — but read it
+   as an identifier, not as a threshold.
+
+   **`version` does not identify a payload here.** The bump lands on `main`
+   before the tag is cut, so an install made between the two carries the new
+   version against an earlier commit: not the pre-bump tree, and not the tagged
+   one either. Requiring a sha at or after the tag would call that stale when it
+   is simply a different payload under the same version string, and the sha is
+   the only field that says which one. Resolve it against the repository rather
+   than against the tag — `git log --oneline <sha>..v<version>` names what the
+   install is missing, and nothing means it has the tagged tree.
+
+   `installedAt` keeps the date of the first install, so `lastUpdated` is the
+   field that moves on an update.
 
 2. **A capability the release added**, from the shell — a `--help` on a new
    script is enough, and it proves the loaded copy is the new one without
@@ -195,12 +212,20 @@ version field records them, so a current plugin alongside a year-old
 is whether the allowlist names this release's scripts:
 
 ```bash
-grep -c gh_tasks_ ~/.claude/settings.json
+jq '[.permissions.allow[] | select(startswith("Bash(gh_tasks_"))] | length' \
+  ~/.claude/settings.json
 ```
 
-A zero means every call to those scripts prompts, which is unfinished setup
-rather than a broken skill — and it is the failure a user is most likely to
-report as a bug.
+Six is the whole set, and anything less is a partially merged template — which
+is worse than an unmerged one, because it reads as working until it reaches the
+rules that are missing. `1.1.0`'s template carried two of these, the read path,
+so a plain `grep -c` over the file answers with a reassuring non-zero while all
+four write scripts still prompt. Count the rules inside `permissions.allow`
+rather than matches anywhere in the file: the same text in `ask`, in `deny` or
+in a hook command is not a grant.
+
+Either way it is unfinished setup rather than a broken skill, and it is the
+failure a user is most likely to report as a bug.
 
 ## Developing against a local clone
 
