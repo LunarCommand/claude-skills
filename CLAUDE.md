@@ -75,7 +75,7 @@ Each top-level directory has one role:
     `docs/RELEASING.md`.
   - `skills/` — one directory per skill (`adversarial-review/`,
     `feature-planning/`, `gh-tasks/`, `hyperdx/`, `langfuse/`,
-    `mutation-test/`, `pr-review/`). Each is a `SKILL.md` plus, for
+    `mutation-test/`, `pr-review/`, `setup/`). Each is a `SKILL.md` plus, for
     `adversarial-review`, its `*.workflow.js` engines. Skills carry no manifest
     and no `bin/` of their own — both live at the plugin root. `validate.sh`
     rejects either reappearing.
@@ -300,6 +300,11 @@ gh_tasks_add.sh --title "..." --field "Area=..."
 gh_tasks_update.sh <issue> --field "Status=In progress"
 gh_tasks_move.sh <issue> --top          # make it the next one
 gh_tasks_close.sh <issue> --reason not-planned
+
+# Is the toolkit installed and configured? Read-only, exits 0 whatever it finds,
+# and reports rather than refuses when a dependency is missing -- see the
+# deliberate divergence in its header.
+lunar_doctor.sh
 ```
 
 To run one *in this repo* while developing it, use its real path

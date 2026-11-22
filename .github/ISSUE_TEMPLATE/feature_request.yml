@@ -1,0 +1,39 @@
+name: Feature or change request
+description: Propose something the toolkit should do differently
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What goes wrong today, concretely. A proposal is easier to judge against
+        a failure that actually happened than against a capability in the
+        abstract.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you are proposing
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - a skill's instructions
+        - a bundled script
+        - the config templates
+        - the docs
+        - something else / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you considered instead
+      description: Optional, but it is usually the most useful part.
+    validations:
+      required: false

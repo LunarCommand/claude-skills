@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# lunar:unruled --setup and --test reach `bash -c` verbatim, so a rule that let
+# lunar:unruled this run unprompted would approve the wrapper rather than the
+# lunar:unruled payload. It runs once per mutation session, so the prompt is
+# lunar:unruled cheap and shows the exact command.
+#
 # mutation_test_worktree.sh — hand a caller a throwaway checkout whose test
 # suite is known to be green, then tear it down.
 #

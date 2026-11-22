@@ -16,7 +16,56 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 ## Unreleased
 
+### setup (new)
+
+- A new skill that answers whether the toolkit is installed and configured, and
+  turns what it cannot explain into a filable issue. `lunar_doctor.sh` reports
+  the loaded plugin copy and its version, the install record, your permission
+  rules against the shipped template, the user CLAUDE.md, the current project's
+  `.agent.env`, and every command the skills shell out to.
+
+  It counts permission rules rather than matching a pattern, because a template
+  merged at an older version is worse than one never merged: the read-only half
+  of a skill works and the write half prompts, which reads as the skill
+  misbehaving. It also reports a rule sitting in two buckets — precedence is
+  `deny > ask > allow`, so the stricter silently wins and the file does not show
+  it — and refuses to pick one for you.
+
+  **It does not refuse when a dependency is missing**, which every other script
+  here does. A diagnostic that exits 127 because `python3` is absent has refused
+  to answer at the moment it was most needed, so each absence is a finding and
+  the run continues. It is read-only and exits 0 whenever it ran: the findings
+  are the result, not the exit code.
+
+  **Output is redacted by default** — `$HOME` prints as `~`, `.agent.env` is
+  reported by key name with no values, permission rules are read as strings —
+  so it can be pasted into a public issue. `--raw` turns that off for reading it
+  yourself.
+
+  The user CLAUDE.md is checked by **section heading, not content**. That file
+  exists to be edited, so a diff would warn forever and mean nothing; a heading
+  the template carries and the file does not is the case worth reporting,
+  because it is what a copy merged from an older version looks like — the whole
+  section absent rather than a stale sentence inside one.
+
+  A script that ships without a permission rule on purpose now says so in its
+  own header, as `# lunar:unruled <why>`. `scripts/validate.sh` and the report
+  read the same marker, so they cannot disagree about which absence is
+  deliberate; `mutation_test_worktree.sh` is the one that carries it.
+
 ### Repository
+
+- `install/user/settings.json` says to edit it as text. One pass through a JSON
+  serialiser to add a single rule re-sorted the allow list, flattened every
+  group in `ask`, and escaped the em-dashes in its own header comment: the blank
+  lines inside those arrays are whitespace a serialiser drops, and they are what
+  makes a list that long navigable. The JSON was identical and the file was no
+  longer readable.
+
+- The repository has issue templates. The bug form asks for the
+  `lunar_doctor.sh` report first, because most reports of a broken skill are
+  unfinished setup, and asks which copy ran — a defect in a local checkout that
+  does not reproduce from a released version is a different report.
 
 - The config templates ship **inside the plugin**, at `install/` within
   whichever copy you installed, rather than only in the repository. Nothing
