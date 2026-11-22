@@ -55,7 +55,13 @@
     "",
     "Everything else from one ~/.claude/settings.json -- attribution, notifications, effort",
     "-- sits in settings.optional.json beside this file, which carries no permissions key so",
-    "this stays the only file here that grants anything."
+    "this stays the only file here that grants anything.",
+    "",
+    "EDIT THIS FILE AS TEXT. Do not round-trip it through a JSON serialiser to add a rule:",
+    "the blank lines inside these arrays group them into blocks a reader navigates by, and",
+    "they are whitespace a serialiser drops. One such pass re-sorted the allow list, flattened",
+    "every group in ask, and escaped the em-dashes above. The JSON is identical and the file",
+    "is no longer readable, which is the whole value of a list this long."
   ],
   "permissions": {
     "allow": [
@@ -68,6 +74,7 @@
       "Bash(gh_tasks_update.sh:*)",
       "Bash(hdx_query.sh:*)",
       "Bash(langfuse_query.sh:*)",
+      "Bash(lunar_doctor.sh:*)",
       "Bash(mutation_test_changed_lines.sh:*)",
       "Bash(pr_review_parse_comments.sh:*)",
       "Bash(pr_review_post_reply.sh:*)",

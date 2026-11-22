@@ -234,6 +234,34 @@ usually nothing to configure. **It reads, adds, updates, closes and reorders**,
 and says plainly what it will not do — reopen a closed task, rewrite a body,
 clear a parent — rather than improvising.
 
+#### `/lunar:setup` — is this thing on?
+
+**Use it for:** "why does it ask permission every time", "command not found",
+"did the update work", "the skill is broken". Most of those are an unmerged
+permission template or a session older than the install, and one pass separates
+them.
+
+```
+/lunar:setup check my install
+/lunar:setup why does gh-tasks keep prompting
+```
+
+```bash
+lunar_doctor.sh          # the report
+lunar_doctor.sh --raw    # without redacting $HOME to ~
+```
+
+It is read-only and always exits 0 when it ran — the findings are the result,
+not the exit code. It reports the loaded copy and its version, the install
+record, your permission rules against the shipped template, the user CLAUDE.md,
+this project's `.agent.env`, and every command the skills shell out to.
+
+Two things it does differently on purpose. It **does not refuse when a
+dependency is missing**, because a diagnostic that exits 127 has refused to
+answer at the moment it was most needed; it reports the absence and carries on.
+And it **redacts `$HOME` by default**, with `.agent.env` reported by key name
+and no values, so the output can be pasted straight into an issue.
+
 A write into a public repository refuses unless you pass `--public-ok`, since an
 issue is exactly as public as the repository holding it. The exception is a
 move, which has no such flag: a position is board metadata, so reordering
@@ -326,7 +354,7 @@ anything here.
 ## Prerequisites
 
 Claude Code, plus whatever the skills you actually use shell out to. You get all
-seven either way — nothing here is installed piecemeal — so a missing dependency
+eight either way — nothing here is installed piecemeal — so a missing dependency
 only matters when you reach for that skill:
 
 | Skill | Needs |
@@ -335,6 +363,7 @@ only matters when you reach for that skill:
 | **langfuse** | `curl`, `python3` |
 | **pr-review** | `gh`, authenticated via `gh auth login` (no `jq` — gh has its own) |
 | **gh-tasks** | `gh`, plus the `project` token scope: `gh auth refresh -s project` |
+| **setup** | nothing required; reports whatever of `jq`, `curl`, `python3`, `docker` and `gh` is absent |
 | **adversarial-review** | nothing beyond Claude Code |
 | **feature-planning** | nothing beyond Claude Code |
 | **mutation-test** | nothing beyond Claude Code |
@@ -344,7 +373,7 @@ than failing partway through a query.
 
 ## Install
 
-Everything here is one plugin, `lunar`. Installing it gets all seven skills,
+Everything here is one plugin, `lunar`. Installing it gets all eight skills,
 and each is invoked as `/lunar:<name>`.
 
 There are two ways to point Claude Code at it, and **you can only have one at a
@@ -420,7 +449,7 @@ Per-project config is separate again — see [Per-project setup](#per-project-se
 
 ### Checking it worked
 
-Type `/lunar:` in a session; the seven skills should complete. If they do not, the
+Type `/lunar:` in a session; the eight skills should complete. If they do not, the
 plugin is not loaded, and no amount of permission tinkering will help.
 
 `which hdx_query.sh` is **not** a useful test. Claude Code puts the plugin's `bin/`

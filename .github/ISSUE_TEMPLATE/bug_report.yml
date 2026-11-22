@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in the toolkit does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Run `lunar_doctor.sh` first.** Most reports of a broken skill turn out
+        to be an unmerged permission template or a session that predates the
+        install, and the report separates those in one pass. Its output is
+        redacted by default — `$HOME` prints as `~`, `.agent.env` is reported by
+        key name with no values — so it is safe to paste here.
+
+        If you ran it with `--raw`, please re-run without that flag first.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: lunar_doctor.sh output
+      description: Paste the whole report, not just the failing lines.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: loaded-from
+    attributes:
+      label: Which copy ran
+      description: >
+        The report's `loaded from` line. A defect in a local checkout that does
+        not reproduce from a released version is a different report.
+      placeholder: ~/.claude/plugins/cache/lunar-skills/lunar/1.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: >
+        Include the command you ran by its bare name, and the exact error text
+        if it is short. A bundled script's own error message is usually the
+        most useful line in the report.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that shows it.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before filing
+      options:
+        - label: I restarted the session after merging any settings (permissions load at startup)
+          required: false
+        - label: The report above is from the same session the problem occurred in
+          required: false

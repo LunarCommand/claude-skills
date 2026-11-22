@@ -807,14 +807,21 @@ except Exception as e:
 shipped = {os.path.basename(p) for p in glob.glob('plugin/bin/*.sh')}
 # Scripts that ship WITHOUT a rule on purpose. The invariant exists so a script
 # does not prompt because someone forgot a rule; a deliberate absence, named
-# here with its reason, serves that purpose and stays visible in review.
-# Anything not ruled AND not listed here still fails.
-deliberately_unruled = {
-    # --setup and --test reach `bash -c` verbatim, so any rule that lets this
-    # run unprompted approves the wrapper rather than the payload. It runs once
-    # per mutation session, so the prompt is cheap and shows the exact command.
-    'mutation_test_worktree.sh',
-}
+# with its reason, serves that purpose and stays visible in review.
+# Anything not ruled AND not declared still fails.
+#
+# The declaration lives in the script's own header, as `# lunar:unruled <why>`,
+# because lunar_doctor.sh reports the same thing to a user and ships without
+# this file beside it. One source of truth; a list here would drift silently.
+deliberately_unruled = set()
+for path in glob.glob('plugin/bin/*.sh'):
+    with open(path) as fh:
+        for line in fh:
+            if not line.startswith('#'):
+                break
+            if line.startswith('# lunar:unruled'):
+                deliberately_unruled.add(os.path.basename(path))
+                break
 ruled = set()
 for rule in cfg.get('permissions', {}).get('allow', []):
     m = re.fullmatch(r'Bash\(([A-Za-z0-9_.-]+\.sh):\*\)', rule)
