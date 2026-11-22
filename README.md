@@ -264,7 +264,7 @@ exact command if it is missing.
 **Use it for:** making Claude stop and wait at the points you would want to be
 asked, instead of discovering afterwards that it committed.
 
-`install/user/CLAUDE.md` is the plan → implement → test → hand-off loop the
+`plugin/install/user/CLAUDE.md` is the plan → implement → test → hand-off loop the
 skills assume, with gates where you review before anything is committed or
 pushed. It carries the house style they are tuned to as well: how replies are
 written, commit messages, branch naming, PR summaries, releases, and code
@@ -285,29 +285,29 @@ anything here.
 
 **What the skills need:**
 
-- **`install/user/settings.json`** — the permission rules, merged into
+- **`plugin/install/user/settings.json`** — the permission rules, merged into
   `~/.claude/settings.json` once per machine. The plugin installs at user scope,
   so its permissions belong there too; a per-project copy would mean re-approving
   the same toolkit in every repository. It is scoped to this toolkit and nothing
   else, which is what makes that safe.
-- **`install/user/gh-tasks.conf`** — optional, and most projects need none of
+- **`plugin/install/user/gh-tasks.conf`** — optional, and most projects need none of
   it. `gh-tasks` finds a board through the link between it and your repository;
   this names one for the case GitHub will not let you link, where the board and
   the code live under different owners. A row here wins over a link, so it also
   overrides a board that was found that way.
-- **`install/project/.agent.env`** — the one genuinely per-project file: the
+- **`plugin/install/project/.agent.env`** — the one genuinely per-project file: the
   endpoints and API keys `hdx_query.sh` and `langfuse_query.sh` read, loaded from
   the project root.
 
 **Opinion, and safe to skip entirely:**
 
-- **`install/user/settings.optional.json`** — the rest of one
+- **`plugin/install/user/settings.optional.json`** — the rest of one
   `~/.claude/settings.json`: empty commit and PR attribution, which is the
-  setting behind what `install/user/CLAUDE.md` asks for in prose; notification
+  setting behind what `plugin/install/user/CLAUDE.md` asks for in prose; notification
   preferences; and two that cost money on the account that adopts them. It
   carries no `permissions` key, and `validate.sh` asserts that, so the file
   above stays the only one here that grants anything.
-- **`install/project/settings.json`** — project-scope permissions, for
+- **`plugin/install/project/settings.json`** — project-scope permissions, for
   `<project>/.claude/settings.json`: the tool grants, two example stacks' test
   and lint commands, and a `deny` block. The stack commands and the `deny` paths
   are examples the file tells you to replace with your own. It repeats the user
@@ -404,14 +404,17 @@ adversarial_review_path.sh adversarial-review.workflow.js
 
 It reports for whichever copy contains it, which is the whole reason it exists.
 
-### What neither route installs
+### What neither route applies
 
-The permission rules and the recommended user CLAUDE.md, because a plugin cannot
-install either one. `plugin.json` has no permissions field, there is no
-plugin-shipped settings layer, and nothing auto-loads a CLAUDE.md — so merging
-them by hand is the only route there is. See
+Both routes put the permission rules and the recommended user CLAUDE.md on your
+machine — they ship inside the plugin, under `install/` in whichever copy you
+installed. Neither route *applies* them. `plugin.json` has no permissions field,
+there is no plugin-shipped settings layer, and nothing auto-loads a CLAUDE.md, so
+merging them into `~/.claude/` by hand is still the only route there is. What
+shipping them changes is that you no longer have to fetch them from GitHub to do
+it. See
 [Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
-and [`install/user/CLAUDE.md`](install/user/CLAUDE.md).
+and [`plugin/install/user/CLAUDE.md`](plugin/install/user/CLAUDE.md).
 
 Per-project config is separate again — see [Per-project setup](#per-project-setup).
 
@@ -432,7 +435,7 @@ Each project that uses the **hyperdx** or **langfuse** skills needs an
 `.agent.env` in its root. If you cloned the repo, copy the template:
 
 ```bash
-cp path/to/claude-skills/install/project/.agent.env <your-project>/.agent.env
+cp path/to/claude-skills/plugin/install/project/.agent.env <your-project>/.agent.env
 ```
 
 If you installed from GitHub you have no clone, so fetch it directly — or just
@@ -440,7 +443,7 @@ create the file by hand, since it is only these keys:
 
 ```bash
 curl -o <your-project>/.agent.env \
-  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/install/project/.agent.env
+  https://raw.githubusercontent.com/LunarCommand/claude-skills/main/plugin/install/project/.agent.env
 ```
 
 ```
@@ -462,12 +465,13 @@ The bundled scripts are on the Bash tool's `PATH`, so the permission rules
 approve them by bare name. Without those rules every script call prompts — which
 reads as the skill being broken when it is only unapproved.
 
-**Nothing can install them for you.** `plugin.json` has no permissions field and
+**Nothing applies them for you.** `plugin.json` has no permissions field and
 plugins cannot ship a settings layer, so merging by hand is the only route there
 is. A plugin that could pre-approve its own scripts would be granting itself the
-consent the prompt exists to collect.
+consent the prompt exists to collect. The file ships with the plugin, so it is
+already on your machine — that is a copy to read, not a rule in force.
 
-[`install/user/settings.json`](install/user/settings.json) is the whole set, and
+[`plugin/install/user/settings.json`](plugin/install/user/settings.json) is the whole set, and
 nothing beyond it. Merge it into `~/.claude/settings.json`. User scope, not a
 per-project copy: the plugin installs once per machine, so its permissions belong
 at the same scope, and copying it per project means re-approving the same toolkit
