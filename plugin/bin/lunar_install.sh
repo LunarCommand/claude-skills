@@ -53,6 +53,12 @@ removed, reordered or reformatted. Rules are inserted as text to preserve your
 formatting, then the result is parsed and checked against the original; if it
 differs anywhere but the planned additions, nothing is written.
 
+The file is read before the plan is built and checked again before anything is
+written, so an edit made to it while this runs is refused rather than silently
+overwritten. That narrows the window; it does not close it. If the file is a
+symlink, the file it points at is what changes, not the link, and the backup is
+written beside the link.
+
 A rule the template wants in one list while your file has it in another is
 reported and skipped. Precedence is deny > ask > allow, so adding it would
 silently change which one wins, and the file would not show why. That decision
@@ -60,11 +66,12 @@ is yours.
 
 Exit status:
   0   the file now holds every template rule
-  1   it does not, and the output says what is left -- either a shape this
-      script will not edit, or a rule whose placement is yours to decide. A
-      run that adds most of the rules and skips a colliding one exits 1 too:
-      the status describes the file, not whether the script did something.
-      Neither case is a bug in the script; do not go looking for one
+  1   it does not, and the output says what is left -- most often that you have
+      not passed --apply yet, otherwise a shape this script will not edit or a
+      rule whose placement is yours to decide. A run that adds most of the
+      rules and skips a colliding one exits 1 too: the status describes the
+      file, not whether the script did something. None of these is a bug in
+      the script; do not go looking for one
   2   usage error
 
 Its output is NOT redacted -- the diff shows part of your own settings file.
@@ -136,6 +143,12 @@ import sys
 import time
 
 TMPL, LIVE, MODE = sys.argv[1], sys.argv[2], sys.argv[3]
+# Written through a symlink rather than over it. ~/.claude/settings.json is
+# commonly a link into a dotfiles repo, and renaming onto the link replaces the
+# link itself: the real file never gets the rules, the repo shows no change, and
+# the run reports success. Reading already followed the link; this makes writing
+# agree with it.
+TARGET = os.path.realpath(LIVE)
 BUCKETS = ('allow', 'ask', 'deny')
 
 
@@ -167,6 +180,25 @@ def paste_instead(rules_by_bucket):
 def read(path):
     with open(path) as fh:
         return fh.read()
+
+
+def write_new(path, text, mode):
+    # Created at its final mode instead of chmod'd into it afterwards: between
+    # the two the file already holds the settings at whatever the umask gave,
+    # and a copy of a 0600 file has no business being readable in that window.
+    # O_EXCL also means a symlink sitting at this path is an error rather than
+    # something written through.
+    #
+    # mode None is a file that did not exist, where the umask decides as it
+    # would for any new file. A mode is one copied from the file being replaced,
+    # and is then set exactly: the umask can only clear bits, and a backup that
+    # is tighter than its original is as wrong as one that is looser.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                 0o666 if mode is None else mode)
+    with os.fdopen(fd, 'w') as fh:
+        fh.write(text)
+    if mode is not None:
+        os.chmod(path, mode)
 
 
 def unique(text, needle, what):
@@ -311,6 +343,8 @@ total = sum(len(v) for v in plan.values())
 
 out('template  %s' % TMPL)
 out('settings  %s%s' % (LIVE, '' if live_text is not None else '  (does not exist yet)'))
+if TARGET != LIVE:
+    out('          -> %s  (a symlink; the file it points at is what changes)' % TARGET)
 out()
 
 if collisions:
@@ -346,7 +380,8 @@ if live_text is None or not live_obj:
     tmpl_text = read(TMPL)
     key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{')
     new_text = '{\n  %s\n}\n' % tmpl_text[key_at:close_at]
-    note = 'creating the file with only a permissions block'
+    note = ('creating the file with only a permissions block' if live_text is None
+            else 'replacing an empty object with a permissions block')
 else:
     indent = detect_indent(live_text)
     edits = []
@@ -453,16 +488,43 @@ if MODE != 'apply':
     sys.stdout.writelines(diff)
     out()
     out('Nothing has been written. Re-run with --apply to commit this.')
-    raise SystemExit(0)
+    out('(Exit 1: the file does not hold every template rule yet.)')
+    raise SystemExit(1)
 
-directory = os.path.dirname(LIVE)
-try:
-    os.makedirs(directory, exist_ok=True)
-except OSError as exc:
-    decline('cannot create %s: %s' % (directory, exc))
+for directory in {os.path.dirname(TARGET), os.path.dirname(LIVE)}:
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        decline('cannot create %s: %s' % (directory, exc))
+
+# Both new files inherit the mode of the file being replaced, so neither the
+# backup nor the half-written replacement is readable to anyone the original
+# was not.
+mode = os.stat(TARGET).st_mode & 0o7777 if live_text is not None else None
+
+# The file was read before the plan was built, and what is about to be written
+# is that text plus the planned rules. An edit landing in between would be
+# overwritten without trace, so the file is read again and the run declines if
+# it moved. The window between this check and the rename below stays open --
+# narrowing it is worth five lines, closing it would mean locking a file
+# nothing else locks.
+if live_text is not None:
+    try:
+        if read(TARGET) != live_text:
+            decline('%s changed while this was running' % LIVE,
+                    'Nothing was written. Re-run to see a diff of the file as it',
+                    'stands now.')
+    except OSError as exc:
+        decline('cannot re-read %s: %s' % (LIVE, exc),
+                'Nothing was written. The settings file is untouched.')
 
 backup = None
 if live_text is not None:
+    # Beside the path the user named, not beside the resolved target: when that
+    # target is a file in a dotfiles repo, a backup written next to it lands in
+    # their working tree as an untracked file, and a version-controlled file is
+    # the one case that already has a history.
+    #
     # Numbered off the timestamp rather than overwriting it: a backup is only
     # worth making if a second run in the same second cannot take the first
     # one's place.
@@ -470,8 +532,7 @@ if live_text is not None:
     for attempt in range(1, 100):
         backup = stem if attempt == 1 else '%s-%d' % (stem, attempt)
         try:
-            with open(backup, 'x') as fh:
-                fh.write(live_text)
+            write_new(backup, live_text, mode)
             break
         except FileExistsError:
             continue
@@ -483,14 +544,13 @@ if live_text is not None:
                 'Nothing was written. The settings file is untouched.')
 
 # Written beside the target and renamed over it, so an interrupted write cannot
-# leave a half-file where the permissions live.
-tmp = '%s.lunar-new-%d' % (LIVE, os.getpid())
+# leave a half-file where the permissions live. This one must sit on the
+# target's filesystem for the rename to be atomic, so it goes beside the
+# resolved path even when the backup does not.
+tmp = '%s.lunar-new-%d' % (TARGET, os.getpid())
 try:
-    with open(tmp, 'w') as fh:
-        fh.write(new_text)
-    if live_text is not None:
-        os.chmod(tmp, os.stat(LIVE).st_mode & 0o7777)
-    os.replace(tmp, LIVE)
+    write_new(tmp, new_text, mode)
+    os.replace(tmp, TARGET)
 except OSError as exc:
     try:
         os.unlink(tmp)

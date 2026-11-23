@@ -100,6 +100,12 @@ unchanged() {
 # Counted with a glob rather than `ls | grep`, which cannot be trusted with an
 # arbitrary filename. A glob that matches nothing stays literal, so the -e test
 # is what tells none from one.
+# stat(1) spells this differently on macOS and Linux, and python3 is already a
+# hard requirement of the script under test.
+file_mode() {
+  python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"
+}
+
 backup_count() {
   local n=0
   local f
@@ -137,10 +143,34 @@ setup report <<'JSON'
 }
 JSON
 invoke report
-if [ "$RC" -eq 0 ] && unchanged report; then
-  ok "the default mode writes nothing"
+# rc=1, not 0. The documented contract is that 0 means the file holds every
+# template rule, and a report-mode run leaves it holding none of them. This
+# assertion read -eq 0 when the suite was written, which is what let the script
+# contradict its own header all the way into a PR.
+if [ "$RC" -eq 1 ] && unchanged report; then
+  ok "the default mode writes nothing and exits 1"
 else
   bad "default mode" "rc=$RC, file changed"
+fi
+
+# The other direction, and the reason the one above is not satisfied by a script
+# that simply always exits 1 in report mode: with nothing left to add, the same
+# mode exits 0.
+setup report-complete <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+invoke report-complete --apply
+invoke report-complete-again
+if [ "$RC" -eq 0 ] && grep -q 'Nothing to add' "$WORK/report-complete-again.out"; then
+  ok "report mode exits 0 once the file holds every rule"
+else
+  bad "report-complete" "rc=$RC"
 fi
 
 setup append <<'JSON'
@@ -308,6 +338,73 @@ else
   bad "malformed" "rc=$RC"
 fi
 
+# ~/.claude/settings.json is commonly a link into a dotfiles repo. Renaming onto
+# the link replaces the link with a regular file: the real file never gets the
+# rules, the repo shows no change, and the run still exits 0. Killed by reverting
+# TARGET to LIVE in the write path.
+setup symlink </dev/null
+mkdir -p "$HOMEDIR/dotfiles"
+cat > "$HOMEDIR/dotfiles/settings.json" <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+ln -s "$HOMEDIR/dotfiles/settings.json" "$HOMEDIR/.claude/settings.json"
+invoke symlink --apply
+if [ "$RC" -eq 0 ] && [ -L "$HOMEDIR/.claude/settings.json" ] \
+  && grep -q 'Bash(gh_tasks_add.sh:\*)' "$HOMEDIR/dotfiles/settings.json"; then
+  ok "a symlinked settings file is followed, not replaced"
+elif [ -L "$HOMEDIR/.claude/settings.json" ]; then
+  bad "symlink" "rc=$RC, the link survived but the file it points at did not change"
+else
+  bad "symlink" "rc=$RC, the link was replaced by a regular file"
+fi
+
+# The backup belongs beside the link, not beside the resolved file: that file is
+# typically in a version-controlled dotfiles repo, where a .bak- lands as an
+# untracked file in the user's working tree.
+if [ "$(backup_count "$HOMEDIR/.claude")" -eq 1 ] \
+  && [ "$(backup_count "$HOMEDIR/dotfiles")" -eq 0 ]; then
+  ok "the backup stays beside the link, not in the dotfiles directory"
+else
+  bad "symlink" "backup landed in the wrong directory"
+fi
+
+# The backup is a verbatim copy of the settings file, so it must carry the same
+# mode. It was being created at the umask default, which widens a 0600 file to
+# 0644 on a stock umask. Killed by dropping the mode argument in write_new.
+setup backup-mode <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+chmod 600 "$HOMEDIR/.claude/settings.json"
+# An explicit permissive umask: under umask 077 the unfixed code produced 0600
+# by accident and this assertion would pass for the wrong reason.
+OLD_UMASK=$(umask)
+umask 022
+invoke backup-mode --apply
+umask "$OLD_UMASK"
+BAK=""
+for f in "$HOMEDIR/.claude/"settings.json.bak-*; do
+  if [ -e "$f" ]; then BAK="$f"; fi
+done
+if [ "$RC" -eq 0 ] && [ -n "$BAK" ] \
+  && [ "$(file_mode "$HOMEDIR/.claude/settings.json")" = "600" ] \
+  && [ "$(file_mode "$BAK")" = "600" ]; then
+  ok "the backup and the replacement keep the file's mode"
+else
+  bad "backup-mode" "rc=$RC, settings=$(file_mode "$HOMEDIR/.claude/settings.json"), backup=${BAK:+$(file_mode "$BAK")}"
+fi
+
 setup collide <<'JSON'
 {
   "permissions": {
@@ -407,6 +504,36 @@ JSON
     bad "guard/$label" "rc=$rc, the file may have been written"
   fi
 }
+
+# The concurrent-edit check has no positive case that is not a race, so its
+# liveness is established the other way round: inverting the comparison must
+# make every apply refuse. A check that had been deleted would survive the
+# inversion with nothing to show for it, and this case would go red.
+STALE="$WORK/root/bin/stale.sh"
+sed 's/if read(TARGET) != live_text:/if read(TARGET) == live_text:/' "$SCRIPT" > "$STALE.tmp" \
+  && mv "$STALE.tmp" "$STALE"
+chmod +x "$STALE"
+setup stale <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+if cmp -s "$STALE" "$SCRIPT"; then
+  bad "stale-check" "the mutation changed nothing, so this asserts nothing"
+else
+  HOME="$HOMEDIR" "$STALE" --apply > "$WORK/stale.out" 2>&1
+  RC=$?
+  if [ "$RC" -eq 1 ] && grep -q 'changed while this was running' "$WORK/stale.out" \
+    && unchanged stale; then
+    ok "every apply reaches the concurrent-edit check"
+  else
+    bad "stale-check" "rc=$RC"
+  fi
+fi
 
 guard wrong-bucket "s/for r in plan\[bucket\]\]/for r in plan['allow']]/"
 guard dropped-rule "s/for r in plan\[bucket\]\]/for r in plan[bucket][:-1]]/"

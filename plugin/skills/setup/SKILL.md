@@ -6,7 +6,9 @@ description: Always use this skill when the user asks whether this toolkit is in
 # Setup and support skill
 
 Diagnoses an installation, explains what the findings mean, and turns what
-cannot be fixed locally into a filable issue. It reads; it changes nothing.
+cannot be fixed locally into a filable issue. The diagnosis reads and changes
+nothing. Merging the permission template is the one thing here that writes, and
+it asks twice before it does — `--apply`, then the permission prompt.
 
 ## The bundled scripts
 
@@ -27,9 +29,9 @@ section says why.
 unmerged permission template or a session that predates the install, and the
 report separates those in one pass.
 
-It is **read-only** and always exits 0 when it ran. A non-zero status means a
-usage error, not a bad installation — the findings are the result, not the exit
-code. Unlike every other script here it does **not** refuse when a dependency is
+`lunar_doctor.sh` is **read-only** and always exits 0 when it ran. A non-zero
+status means a usage error, not a bad installation — the findings are the
+result, not the exit code. Unlike every other script here it does **not** refuse when a dependency is
 missing: it reports the absence and carries on, because a diagnostic that exits
 127 has refused to answer at the moment it was most needed.
 
@@ -90,22 +92,25 @@ the rule would sit in the file it writes. Approve it once you have read what it
 is about to do — the prompt shows whether `--apply` was passed, which is the
 only argument that changes anything.
 
-Three things it hands back rather than deciding:
+Four things it hands back rather than deciding:
 
 | It says | Why it stopped | What to tell the user |
 | --- | --- | --- |
 | `already has them in another list` | The template wants a rule in one list, their file has it in another | Their placement is the only one in force today. Adding the template's beside it would hand the stricter list the decision — `deny > ask > allow` — and the file would not show that it had. Theirs to move or keep |
 | `not one rule per line` | An inline array, which it will not reflow | It prints the rules to paste. Reformatting someone's file to make room for a rule is not a thing a merge should do |
 | `does not start its own line` | The file is written on one line | Same: the rules are printed to paste |
+| `changed while this was running` | Something edited the settings file after the script read it | Nothing was written, and nothing is wrong. Run it again — the next run reads the file as it now stands |
 
 Only `permissions` is touched. The user CLAUDE.md, the optional settings and the
 per-project templates are merged by hand or with the Edit tool, where the diff
 is visible before it lands.
 
 **Exit 1 describes the file, not the run.** It means the settings file still
-differs from the template — whether because nothing was written, or because most
-of it was written and a collision was skipped. Neither is a bug in the script,
-and neither is a reason to edit it.
+differs from the template — most often because this was the report and `--apply`
+has not been run yet, otherwise because a shape was declined or a collision was
+skipped. **A report exiting 1 is the normal case**, not a failure, and not a
+reason to re-run it or to edit the script. Exit 0 from a report means there was
+nothing to add.
 
 **Permissions load at startup, and the report reads the file.** Those are
 different things, and conflating them misreads both. The report opens

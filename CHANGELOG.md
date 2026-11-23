@@ -61,7 +61,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   and a diff — and `--apply` is what commits it. That is the opposite of the
   `gh_tasks_` scripts' `--dry-run`, deliberately: a mis-closed task can be
   reopened, where a mangled settings file can withdraw the agent's ability to
-  fix it.
+  fix it. The default exits 1, because the status describes the file rather
+  than the run — after a report the file still does not hold every template
+  rule. A report exits 0 when there is nothing left to add.
 
   It edits as text and verifies as JSON. Rules are inserted textually so the
   file keeps the formatting and grouping its author gave it, since a serialiser
@@ -82,6 +84,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   the decision without the file showing it), an inline array, and a file written
   on one line. Each is named, and the rules are printed to paste.
 
+  **A symlinked settings file is followed, not replaced.**
+  `~/.claude/settings.json` is commonly a link into a dotfiles repo, and
+  renaming onto the link would swap it for a regular file — leaving the real
+  file without the rules and the repo showing no change. The file the link
+  points at is what changes; the backup stays beside the link, since the file it
+  points at is usually in a version-controlled dotfiles repo and already has a
+  history. Both the backup and the replacement are created at the mode of the
+  file they came from, rather than at whatever the umask gives.
+
+  The file is read before the plan is built and checked again before anything is
+  written, so an edit landing in between is refused rather than silently
+  overwritten. That narrows the window; closing it would mean locking a file
+  nothing else locks.
+
   Its output is **not** redacted, unlike the report's — the diff is a slice of
   your own settings file, so it stays in the terminal rather than going into an
   issue.
@@ -89,9 +105,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 ### Repository
 
 - `scripts/install-acceptance.sh` is a second behavioural suite, for
-  `lunar_install.sh`, and `scripts/validate.sh` runs it. 23 assertions covering
-  each file shape it edits, each shape it declines, the collision path, and the
-  backup. Its last four cases break the insertion on a copy of the script and
+  `lunar_install.sh`, and `scripts/validate.sh` runs it. 28 assertions covering
+  each file shape it edits, each shape it declines, the collision path, the
+  backup and where it lands, a symlinked settings file, and the mode both new
+  files are created at. Its last four cases break the insertion on a copy of the script and
   require that nothing is written, so the verification step is held to the
   repo's rule that an assertion must be able to kill the check it names — and
   each mutation is checked for having changed the script at all, since a `sed`

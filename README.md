@@ -511,9 +511,13 @@ It appends to `permissions` and touches nothing else, keeps your formatting by
 editing as text, and verifies the result against the original before it replaces
 anything — a merge that did not come out as planned writes nothing. It skips a
 rule your file already has in a different list, because `deny > ask > allow`
-means adding it would quietly change which one applies. And it prompts every
-time, because it ships with no rule of its own: the rule would live in the file
-it writes. `/lunar:setup` drives it and reads the result.
+means adding it would quietly change which one applies. If your settings file is
+a symlink into a dotfiles repo, the file it points at is what changes. And it
+prompts every time, because it ships with no rule of its own: the rule would live
+in the file it writes. `/lunar:setup` drives it and reads the result.
+
+The first command exits 1 whenever there is still something to add, which after
+a report there always is. That is the report working, not failing.
 
 [`plugin/install/user/settings.json`](plugin/install/user/settings.json) is the whole set, and
 nothing beyond it. It merges into `~/.claude/settings.json`. User scope, not a
