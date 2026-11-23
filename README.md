@@ -527,9 +527,13 @@ in the file it writes. `/lunar:setup` drives it and reads the result.
 **A permission classifier may stop the agent running `--apply` at all**, on the
 grounds that a change to the permission file is a change to the agent's own
 oversight. That has happened, and it is the same reasoning that keeps the script
-off the allowlist. Run it yourself — `! lunar_install.sh --apply` from inside a
-session, or the bare command in a terminal — and restart afterwards. The skill
-tells the agent to hand it over rather than find another way in.
+off the allowlist. Run it yourself with `! lunar_install.sh --apply` from inside
+the session, and restart afterwards. The `!` prefix matters: `plugin/bin` is on
+the Bash tool's `PATH`, not your shell's, so the bare name in an ordinary
+terminal is `command not found` — which in this toolkit means "the plugin is not
+loaded" and would send you after the wrong problem. From a real terminal, use the
+absolute path that `lunar_doctor.sh` prints on its `loaded from` line. The skill
+tells the agent to hand the command over rather than find another way in.
 
 The first command exits 1 when there is still something to add and 0 when there
 is not, so a report on an unmerged file exits 1. That is the report working, not

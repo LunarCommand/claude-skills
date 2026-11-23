@@ -110,7 +110,7 @@ the rule would sit in the file it writes. Approve it once you have read what it
 is about to do — the prompt shows whether `--apply` was passed, which is the
 only argument that changes anything.
 
-Six of the things it hands back rather than deciding — not the whole list:
+Some of the things it hands back rather than deciding — not the whole list:
 
 | It says | Why it stopped | What to tell the user |
 | --- | --- | --- |
@@ -131,9 +131,9 @@ been run, or because a collision was skipped. **A report exiting 1 is the normal
 case**, not a failure. Exit 0 means there is nothing left to add.
 
 **Exit 3 is a refusal, and it is the one to read.** Nothing was written, and
-stderr names what stopped it. The table above covers four; the script has more,
-and the right move for any of them is the same: relay the message verbatim and
-stop. Do not re-run an unchanged file — it will refuse identically — and do not
+stderr names what stopped it. The table above covers the common ones and the
+script has more, but the right move for any of them is the same: relay the
+message verbatim and stop. Do not re-run an unchanged file — it will refuse identically — and do not
 edit the script. If the message says it is a defect in the script, that is the
 one case where filing an issue is the next step.
 
