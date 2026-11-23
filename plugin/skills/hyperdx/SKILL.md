@@ -96,9 +96,10 @@ This script is meant to be pre-approved, via this rule:
 Bash(hdx_query.sh:*)
 ```
 
-**Nothing installs that rule** — a plugin cannot ship a permissions layer. It
-lives in the toolkit's `install/user/settings.json` template and the user merges
-it into `~/.claude/settings.json` themselves. So:
+**Nothing applies that rule on its own** — a plugin cannot ship a permissions
+layer. It lives in the toolkit's `install/user/settings.json` template, and
+`lunar_install.sh` merges the template into `~/.claude/settings.json` when the
+user asks for it (`/lunar:setup` drives that). So:
 
 - If the rule is present, run the script directly and do not ask for approval.
 - If every call prompts, the rule is simply absent. Say so once and continue —

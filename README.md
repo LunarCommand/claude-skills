@@ -439,9 +439,9 @@ Both routes put the permission rules and the recommended user CLAUDE.md on your
 machine — they ship inside the plugin, under `install/` in whichever copy you
 installed. Neither route *applies* them. `plugin.json` has no permissions field,
 there is no plugin-shipped settings layer, and nothing auto-loads a CLAUDE.md, so
-merging them into `~/.claude/` by hand is still the only route there is. What
-shipping them changes is that you no longer have to fetch them from GitHub to do
-it. See
+applying them stays a separate, deliberate act. For the permission rules,
+`lunar_install.sh` is that act: it shows what merging the template would change
+and writes only when you pass `--apply`. The CLAUDE.md is yours to merge. See
 [Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
 and [`plugin/install/user/CLAUDE.md`](plugin/install/user/CLAUDE.md).
 
@@ -494,24 +494,41 @@ The bundled scripts are on the Bash tool's `PATH`, so the permission rules
 approve them by bare name. Without those rules every script call prompts — which
 reads as the skill being broken when it is only unapproved.
 
-**Nothing applies them for you.** `plugin.json` has no permissions field and
-plugins cannot ship a settings layer, so merging by hand is the only route there
-is. A plugin that could pre-approve its own scripts would be granting itself the
-consent the prompt exists to collect. The file ships with the plugin, so it is
-already on your machine — that is a copy to read, not a rule in force.
+**Nothing applies them on its own.** `plugin.json` has no permissions field and
+plugins cannot ship a settings layer. A plugin that could pre-approve its own
+scripts would be granting itself the consent the prompt exists to collect. The
+file ships with the plugin, so it is already on your machine — that is a copy to
+read, not a rule in force.
+
+Applying it is one command, and it is deliberately not a quiet one:
+
+```bash
+lunar_install.sh            # what it would change, as a diff; writes nothing
+lunar_install.sh --apply    # merge it, after backing the file up
+```
+
+It appends to `permissions` and touches nothing else, keeps your formatting by
+editing as text, and verifies the result against the original before it replaces
+anything — a merge that did not come out as planned writes nothing. It skips a
+rule your file already has in a different list, because `deny > ask > allow`
+means adding it would quietly change which one applies. And it prompts every
+time, because it ships with no rule of its own: the rule would live in the file
+it writes. `/lunar:setup` drives it and reads the result.
 
 [`plugin/install/user/settings.json`](plugin/install/user/settings.json) is the whole set, and
-nothing beyond it. Merge it into `~/.claude/settings.json`. User scope, not a
+nothing beyond it. It merges into `~/.claude/settings.json`. User scope, not a
 per-project copy: the plugin installs once per machine, so its permissions belong
 at the same scope, and copying it per project means re-approving the same toolkit
 in every repository. That is only safe because the file is narrow, which is the
 point of keeping it minimal:
 
-- **the bundled scripts**, by bare name — every one of them except
-  `mutation_test_worktree.sh`, which is left out on purpose because it takes a
-  command string that reaches `bash -c` verbatim, so any rule approving it
-  would approve the wrapper rather than what it runs. It runs once per session,
-  so the prompt is cheap and shows you the exact command.
+- **the bundled scripts**, by bare name — every one except two, each left out on
+  purpose. `mutation_test_worktree.sh` takes a command string that reaches
+  `bash -c` verbatim, so any rule approving it would approve the wrapper rather
+  than what it runs; it runs once per session, so the prompt is cheap and shows
+  you the exact command. `lunar_install.sh` writes this very file, so a rule
+  approving it would be the toolkit pre-approving the one script that grants the
+  toolkit its permissions.
 - **`gh repo view` / `gh pr view`** — pr-review reads the repo and PR in Step 1
 - **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`,
   `merge-base`, `branch -a --contains`, `submodule status`: what

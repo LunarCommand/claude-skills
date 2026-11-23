@@ -18,10 +18,13 @@
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
 #
-# --quick skips the mutation-test acceptance suite. What remains is entirely
-# syntactic, so a green --quick run says the artifacts are spelled correctly and
-# nothing about whether they behave. The suite is ~22s of the ~29s full run,
-# which is why the hook does not carry it; CI does.
+# --quick skips both acceptance suites. What remains is entirely syntactic, so a
+# green --quick run says the artifacts are spelled correctly and nothing about
+# whether they behave. The suites are about half the full run between them, the
+# mutation-test one being most of that, which is why the pre-commit hook does
+# not carry them: a hook earns its place by being fast and dependable, and a
+# behavioural failure belongs where it gets investigated rather than bypassed.
+# CI runs both.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
@@ -1012,7 +1015,7 @@ shipped = {os.path.basename(p) for p in
            glob.glob('plugin/bin/*.sh') + glob.glob('plugin/bin/lib/*.sh')}
 # The repo's own tooling, named in docs but never on a skill's PATH.
 own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
-       'check-install-drift.sh'}
+       'install-acceptance.sh', 'check-install-drift.sh'}
 bad = []
 docs = (glob.glob('*.md') + glob.glob('plugin/skills/*/SKILL.md')
         + glob.glob('docs/**/*.md', recursive=True))
@@ -1146,8 +1149,9 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
 if [[ "$QUICK" == false ]]; then
 section "Mutation-test acceptance (behaviour, not spelling)"
 # --------------------------------------------------------------------------
-  # Everything above this line is syntactic. This is the one suite that runs an
-  # artifact and asserts on what it does: it builds a repository designed to
+  # Everything above this line is syntactic. This and the install suite below
+  # are the only checks that run an artifact and assert on what it does, rather
+  # than on how it is spelled. This one builds a repository designed to
   # break a mutation runner -- colliding paths, a space, a symlink, and a test
   # command wired to an absolute path the way an editable install is -- and
   # checks the worktree foundation refuses each one.
@@ -1156,6 +1160,23 @@ section "Mutation-test acceptance (behaviour, not spelling)"
     pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
   else
     fail "mutation-test acceptance suite failed:"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+
+# --------------------------------------------------------------------------
+section "Install acceptance (behaviour, not spelling)"
+# --------------------------------------------------------------------------
+  # lunar_install.sh writes ~/.claude/settings.json, so a wrong insertion costs
+  # the user the file that governs what the agent may run. Its own answer to
+  # that is to verify its edit against the original before replacing anything,
+  # and the last four cases here break the insertion to prove that check fires
+  # rather than decorating the script. Every case runs against a throwaway
+  # HOME, which is what lets it run unguarded here and in CI.
+  if out=$(./scripts/install-acceptance.sh 2>&1); then
+    printf '%s\n' "$out" | grep -E '^  (ok|FAIL)' | sed 's/^  /  /'
+    pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
+  else
+    fail "install acceptance suite failed:"
     printf '%s\n' "$out" | sed 's/^/        /'
   fi
 fi

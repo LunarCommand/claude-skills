@@ -48,12 +48,60 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   because it is what a copy merged from an older version looks like — the whole
   section absent rather than a stale sentence inside one.
 
-  A script that ships without a permission rule on purpose now says so in its
-  own header, as `# lunar:unruled <why>`. `scripts/validate.sh` and the report
-  read the same marker, so they cannot disagree about which absence is
-  deliberate; `mutation_test_worktree.sh` is the one that carries it.
+  A script that ships without a permission rule on purpose says so in its own
+  header, as `# lunar:unruled <why>`. `scripts/validate.sh` and the report read
+  the same marker, so they cannot disagree about which absence is deliberate.
+  Two scripts carry it: `mutation_test_worktree.sh`, whose rule would approve a
+  `bash -c` wrapper rather than its payload, and `lunar_install.sh`, whose rule
+  would sit in the file it writes.
+
+- `lunar_install.sh` merges the permission template into
+  `~/.claude/settings.json`, which is the half `lunar_doctor.sh` could only
+  report on. **The default writes nothing** — it prints the rules it would add
+  and a diff — and `--apply` is what commits it. That is the opposite of the
+  `gh_tasks_` scripts' `--dry-run`, deliberately: a mis-closed task can be
+  reopened, where a mangled settings file can withdraw the agent's ability to
+  fix it.
+
+  It edits as text and verifies as JSON. Rules are inserted textually so the
+  file keeps the formatting and grouping its author gave it, since a serialiser
+  drops the blank lines that make a long list navigable. Text editing can land
+  in the wrong place, so the result is parsed and compared against the
+  original — every key outside `permissions` identical, every list equal to its
+  old contents plus exactly the planned additions — and anything else writes
+  nothing. Only `permissions` is touched, and only by adding.
+
+  **It prompts on every call and will keep doing so.** It ships
+  `# lunar:unruled`, because a rule approving it would live in the file it
+  writes: the toolkit pre-approving the script that grants the toolkit its
+  permissions. The prompt shows whether `--apply` was passed.
+
+  Three things it hands back rather than deciding: a rule the template wants in
+  one list while your file has it in another (precedence is
+  `deny > ask > allow`, so adding it beside yours would hand the stricter list
+  the decision without the file showing it), an inline array, and a file written
+  on one line. Each is named, and the rules are printed to paste.
+
+  Its output is **not** redacted, unlike the report's — the diff is a slice of
+  your own settings file, so it stays in the terminal rather than going into an
+  issue.
 
 ### Repository
+
+- `scripts/install-acceptance.sh` is a second behavioural suite, for
+  `lunar_install.sh`, and `scripts/validate.sh` runs it. 23 assertions covering
+  each file shape it edits, each shape it declines, the collision path, and the
+  backup. Its last four cases break the insertion on a copy of the script and
+  require that nothing is written, so the verification step is held to the
+  repo's rule that an assertion must be able to kill the check it names — and
+  each mutation is checked for having changed the script at all, since a `sed`
+  expression that quietly stops matching turns the whole block into an
+  assertion that the unmutated script works.
+
+  Every case runs against a throwaway `HOME`, so it never reads or writes the
+  real `~/.claude`. `--quick` still skips both suites: a pre-commit hook earns
+  its place by being fast, and a behavioural failure belongs where it gets
+  investigated rather than bypassed.
 
 - `install/user/settings.json` says to edit it as text. One pass through a JSON
   serialiser to add a single rule re-sorted the allow list, flattened every

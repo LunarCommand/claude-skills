@@ -1,0 +1,419 @@
+#!/usr/bin/env bash
+# install-acceptance.sh — behavioural tests for lunar_install.sh.
+#
+# Everything in scripts/validate.sh but this and mutation-test-acceptance.sh is
+# syntactic. This one runs the artifact and asserts on what it did, because
+# lunar_install.sh writes ~/.claude/settings.json: the file that decides what
+# the agent may run. Syntax checks cannot see an insertion landing in the wrong
+# array, and that is the defect with consequences here.
+#
+# Every case runs against a throwaway HOME under mktemp, so the suite never
+# reads or writes the real ~/.claude. That is the whole reason it can run in
+# CI and on a developer machine without a flag guarding it.
+#
+# The last block is the one that earns the rest. lunar_install.sh edits as text
+# and verifies as JSON, and the verification is what makes the text editing
+# safe; so these cases BREAK the insertion and require that nothing is written.
+# Each mutation is applied to a copy and checked for having changed the file at
+# all -- a sed expression that silently stops matching would otherwise turn
+# every one of them into an assertion that the unmutated script works.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+SCRIPT="$REPO/plugin/bin/lunar_install.sh"
+TMPL="$REPO/plugin/install/user/settings.json"
+
+usage() {
+  cat <<'USAGE'
+Usage: install-acceptance.sh
+
+Behavioural tests for plugin/bin/lunar_install.sh. Runs against throwaway HOME
+directories and never touches the real ~/.claude. Called by scripts/validate.sh.
+USAGE
+}
+
+for arg in "$@"; do
+  case "$arg" in (-h|--help) usage; exit 0 ;; esac
+done
+
+for required in "$SCRIPT" "$TMPL"; do
+  if [ ! -r "$required" ]; then
+    echo "install-acceptance.sh: missing $required" >&2
+    exit 1
+  fi
+done
+
+WORK="$(mktemp -d)" || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+pass_n=0
+fail_n=0
+ok()  { pass_n=$((pass_n + 1)); printf '  ok    %s\n' "$1"; }
+bad() { fail_n=$((fail_n + 1)); printf '  FAIL  %s -- %s\n' "$1" "$2"; }
+
+HOMEDIR=""
+RC=0
+
+# setup <name>; fixture on stdin, or nothing for "no settings file at all".
+setup() {
+  HOMEDIR="$WORK/$1"
+  mkdir -p "$HOMEDIR/.claude"
+  cat > "$WORK/$1.fixture"
+  if [ -s "$WORK/$1.fixture" ]; then
+    cp "$WORK/$1.fixture" "$HOMEDIR/.claude/settings.json"
+  fi
+}
+
+# invoke <name> [args...]
+invoke() {
+  local name="$1"
+  shift
+  HOME="$HOMEDIR" "$SCRIPT" "$@" > "$WORK/$name.out" 2>&1
+  RC=$?
+}
+
+# Every template rule present in the bucket the template puts it in.
+fully_merged() {
+  python3 - "$TMPL" "$HOMEDIR/.claude/settings.json" <<'PY'
+import json
+import sys
+want = json.load(open(sys.argv[1]))['permissions']
+try:
+    have = json.load(open(sys.argv[2])).get('permissions', {})
+except Exception as exc:
+    print('unreadable: %s' % exc)
+    raise SystemExit(1)
+for bucket, rules in want.items():
+    missing = [r for r in rules if r not in have.get(bucket, [])]
+    if missing:
+        print('%s missing %d rule(s)' % (bucket, len(missing)))
+        raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
+unchanged() {
+  cmp -s "$WORK/$1.fixture" "$HOMEDIR/.claude/settings.json"
+}
+
+# Counted with a glob rather than `ls | grep`, which cannot be trusted with an
+# arbitrary filename. A glob that matches nothing stays literal, so the -e test
+# is what tells none from one.
+backup_count() {
+  local n=0
+  local f
+  for f in "$1"/settings.json.bak-*; do
+    if [ -e "$f" ]; then n=$((n + 1)); fi
+  done
+  printf '%s\n' "$n"
+}
+
+# ------------------------------------------------------------------ the cases ----
+
+setup help </dev/null
+invoke help --help
+if [ "$RC" -eq 0 ] && grep -q '^Usage: lunar_install.sh' "$WORK/help.out"; then
+  ok "--help answers with usage and exits 0"
+else
+  bad "--help" "rc=$RC"
+fi
+
+setup fresh </dev/null
+invoke fresh --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "creates a settings file where none existed"
+else
+  bad "fresh" "rc=$RC $(fully_merged)"
+fi
+
+setup report <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+invoke report
+if [ "$RC" -eq 0 ] && unchanged report; then
+  ok "the default mode writes nothing"
+else
+  bad "default mode" "rc=$RC, file changed"
+fi
+
+setup append <<'JSON'
+{
+  "env": { "SECRET": "keep-me" },
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)",
+      "Bash(my_own_tool.sh:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(env)"
+    ]
+  },
+  "theme": "dark"
+}
+JSON
+invoke append --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "appends to one-rule-per-line arrays"
+else
+  bad "append" "rc=$RC $(fully_merged)"
+fi
+if grep -q '"SECRET": "keep-me"' "$HOMEDIR/.claude/settings.json" \
+  && grep -q '"theme": "dark"' "$HOMEDIR/.claude/settings.json" \
+  && grep -q 'Bash(my_own_tool.sh:\*)' "$HOMEDIR/.claude/settings.json"; then
+  ok "other settings and the user's own rules survive"
+else
+  bad "append" "an unrelated key or rule was lost"
+fi
+if [ "$(backup_count "$HOMEDIR/.claude")" -eq 1 ]; then
+  ok "a backup is left beside the file"
+else
+  bad "append" "no backup"
+fi
+
+APPEND_HOME="$HOMEDIR"
+invoke append-again --apply
+BAK_N=$(backup_count "$APPEND_HOME/.claude")
+if [ "$RC" -eq 0 ] && grep -q 'Nothing to add' "$WORK/append-again.out" \
+  && [ "$BAK_N" -eq 1 ]; then
+  ok "a second run is a no-op and makes no second backup"
+else
+  bad "idempotence" "rc=$RC, backups=$BAK_N"
+fi
+
+setup bucket-absent <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  },
+  "model": "opus"
+}
+JSON
+invoke bucket-absent --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "adds a bucket the file does not have"
+else
+  bad "bucket-absent" "rc=$RC $(fully_merged)"
+fi
+
+setup bucket-empty <<'JSON'
+{
+  "permissions": {
+    "allow": [],
+    "ask": [],
+    "deny": []
+  }
+}
+JSON
+invoke bucket-empty --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "fills buckets that are present but empty"
+else
+  bad "bucket-empty" "rc=$RC $(fully_merged)"
+fi
+
+setup perms-absent <<'JSON'
+{
+  "theme": "dark"
+}
+JSON
+invoke perms-absent --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "adds a permissions block to a file without one"
+else
+  bad "perms-absent" "rc=$RC $(fully_merged)"
+fi
+
+setup perms-empty <<'JSON'
+{
+  "theme": "dark",
+  "permissions": {}
+}
+JSON
+invoke perms-empty --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "fills an empty permissions block"
+else
+  bad "perms-empty" "rc=$RC $(fully_merged)"
+fi
+
+setup indent4 <<'JSON'
+{
+    "permissions": {
+        "allow": [
+            "Bash(hdx_query.sh:*)"
+        ]
+    }
+}
+JSON
+invoke indent4 --apply
+# A new bucket has to take the file's own indent unit, not a hardcoded two
+# spaces: the indent is detected, so a file written with four gets four.
+if [ "$RC" -eq 0 ] && grep -qE '^        "deny"' "$HOMEDIR/.claude/settings.json" \
+  && ! grep -qE '^      "deny"' "$HOMEDIR/.claude/settings.json"; then
+  ok "a new bucket takes the file's own indent unit"
+else
+  bad "indent4" "rc=$RC, indent not matched"
+fi
+
+setup inline <<'JSON'
+{
+  "permissions": {
+    "allow": ["Bash(hdx_query.sh:*)", "Bash(langfuse_query.sh:*)"]
+  }
+}
+JSON
+invoke inline --apply
+if [ "$RC" -eq 1 ] && unchanged inline \
+  && grep -q 'not one rule per line' "$WORK/inline.out" \
+  && grep -q 'Add these by hand' "$WORK/inline.out"; then
+  ok "declines an inline array and prints the rules to paste"
+else
+  bad "inline" "rc=$RC"
+fi
+
+setup oneline <<'JSON'
+{ "permissions": { "allow": [], "ask": [], "deny": [] } }
+JSON
+invoke oneline --apply
+# This shape used to reach the verification step instead, which reported a file
+# the script simply does not edit as a defect in the script.
+if [ "$RC" -eq 1 ] && unchanged oneline \
+  && grep -q 'does not start its own line' "$WORK/oneline.out" \
+  && ! grep -q 'defect in this script' "$WORK/oneline.out"; then
+  ok "declines a one-line file without blaming itself"
+else
+  bad "oneline" "rc=$RC"
+fi
+
+setup malformed <<'JSON'
+{ "permissions": { "allow": [ "Bash(hdx_query.sh:*)", ] } }
+JSON
+invoke malformed --apply
+if [ "$RC" -eq 1 ] && unchanged malformed \
+  && grep -q 'not valid JSON' "$WORK/malformed.out"; then
+  ok "declines a file that does not parse"
+else
+  bad "malformed" "rc=$RC"
+fi
+
+setup collide <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(env)"
+    ]
+  }
+}
+JSON
+invoke collide --apply
+if [ "$RC" -eq 1 ] && grep -q 'already has them in another list' "$WORK/collide.out"; then
+  ok "a rule held in another bucket is reported, and exits 1"
+else
+  bad "collide" "rc=$RC"
+fi
+if python3 - "$HOMEDIR/.claude/settings.json" <<'PY'
+import json
+import sys
+p = json.load(open(sys.argv[1]))['permissions']
+moved = 'Bash(git push:*)' in p.get('ask', [])
+kept = 'Bash(git push:*)' in p.get('allow', [])
+raise SystemExit(0 if kept and not moved else 1)
+PY
+then
+  ok "the colliding rule stays where the user put it"
+else
+  bad "collide" "the rule was moved or duplicated"
+fi
+if grep -q 'Bash(git add:\*)' "$HOMEDIR/.claude/settings.json"; then
+  ok "the non-colliding rules are still applied"
+else
+  bad "collide" "a collision blocked the whole merge"
+fi
+
+setup nohome </dev/null
+env -u HOME "$SCRIPT" > "$WORK/nohome.out" 2>&1
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q 'HOME is unset' "$WORK/nohome.out"; then
+  ok "declines cleanly when HOME is unset"
+else
+  bad "no-home" "rc=$RC"
+fi
+
+# --------------------------------------------- the verification step itself ----
+
+mkdir -p "$WORK/root/bin/lib" "$WORK/root/install/user"
+cp "$REPO/plugin/bin/lib/require_cmd.sh" "$WORK/root/bin/lib/"
+cp "$TMPL" "$WORK/root/install/user/"
+
+# guard <label> <sed expression>
+guard() {
+  # Separate declarations: within one `local`, every word is expanded before any
+  # assignment takes effect, so a later value cannot refer to an earlier one.
+  local label="$1"
+  local expr="$2"
+  local home="$WORK/g-$label"
+  local mutant="$WORK/root/bin/mutant.sh"
+  # sed -i is not portable to the BSD sed macOS ships, so the edit goes through
+  # a second file rather than in place.
+  sed "$expr" "$SCRIPT" > "$mutant.tmp" && mv "$mutant.tmp" "$mutant"
+  if cmp -s "$mutant" "$SCRIPT"; then
+    bad "guard/$label" "the mutation changed nothing, so this asserts nothing"
+    return
+  fi
+  chmod +x "$mutant"
+  mkdir -p "$home/.claude"
+  cat > "$home/.claude/settings.json" <<'JSON'
+{
+  "env": { "SECRET": "keep-me" },
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(env)"
+    ]
+  }
+}
+JSON
+  cp "$home/.claude/settings.json" "$WORK/g-$label.before"
+  HOME="$home" "$mutant" --apply > "$WORK/g-$label.out" 2>&1
+  local rc=$?
+  if [ "$rc" -eq 1 ] \
+    && grep -qE 'did not come out as planned|would not parse' "$WORK/g-$label.out" \
+    && cmp -s "$WORK/g-$label.before" "$home/.claude/settings.json"; then
+    ok "a broken insertion is caught and nothing is written ($label)"
+  else
+    bad "guard/$label" "rc=$rc, the file may have been written"
+  fi
+}
+
+guard wrong-bucket "s/for r in plan\[bucket\]\]/for r in plan['allow']]/"
+guard dropped-rule "s/for r in plan\[bucket\]\]/for r in plan[bucket][:-1]]/"
+guard duplicated-rule "s/for r in plan\[bucket\]\]/for r in plan[bucket] + plan[bucket][:1]]/"
+guard clobbered-key 's|    new_text = live_text$|    new_text = live_text.replace("keep-me", "gone")|'
+
+echo
+if [ "$fail_n" -eq 0 ]; then echo "PASS — $pass_n assertion(s)"; exit 0; fi
+echo "FAIL — $fail_n failure(s), $pass_n passed"
+exit 1
