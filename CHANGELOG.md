@@ -14,7 +14,7 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v1.3.1 — 2026-11-23
 
 ### setup
 
@@ -27,6 +27,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   is the same change with the verification, the backup, the collision report and
   the prompt removed. Found on the first run against a real settings file, where
   the agent improvised the right answer with nothing in the skill to guide it.
+
+- The refusal table's description of itself said it covered four entries while
+  the table held six. Both counts are gone rather than corrected — the figure
+  had gone stale once per row added, which is what this repo's rule about
+  figures that date describes.
+
+### Repository
+
+- The README's instruction for running the installer yourself offered a bare
+  command in a terminal. `plugin/bin` is on the Bash tool's `PATH` and not a
+  login shell's, so that spelling fails with `command not found` — which this
+  toolkit's own skills teach as "the plugin is not loaded", making the fallback
+  a false diagnosis handed to someone already troubleshooting. It now gives the
+  `!` form, and points at the absolute path `lunar_doctor.sh` prints for anyone
+  who wants a real terminal.
 
 ## v1.3.0 — 2026-11-22
 
