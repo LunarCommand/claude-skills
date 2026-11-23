@@ -25,10 +25,11 @@ deliberate: these rules approve a command *name*, so a generic one like
 `post_reply` could be satisfied by an unrelated executable earlier on `PATH`.
 
 The matching rules live in the toolkit's `install/user/settings.json` template
-and **nothing installs them** — a plugin cannot ship a permissions layer, so the
-user merges them in. If every call prompts, that is unfinished setup, not a
-broken skill. Say so once and continue; it is never a reason to fall back to
-`gh api` directly.
+and **nothing applies them unasked** — a plugin cannot ship a permissions layer.
+`lunar_install.sh` merges them when the user asks, and `/lunar:setup` drives it.
+If every call prompts, that is unfinished setup, not a broken skill. Say so once,
+name the fix, and continue; it is never a reason to fall back to `gh api`
+directly.
 
 Two failures are environment rather than defects: `Missing required command: gh`
 (exit 127) means the GitHub CLI is absent or unauthenticated — tell the user to

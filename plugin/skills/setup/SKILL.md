@@ -1,30 +1,45 @@
 ---
 name: setup
-description: Always use this skill when the user asks whether this toolkit is installed or configured correctly, when a bundled script prompts for permission on every call, when a script is "command not found", when a skill appears broken or absent, when asked to check, diagnose, verify or fix the setup, or when asked to report a bug or file an issue against the toolkit. Triggers include "is this installed right", "why does it keep asking permission", "why does it prompt every time", "command not found", "the skill is broken", "nothing happens when I run", "check my setup", "diagnose the plugin", "is the plugin loaded", "what version am I on", "did the update work", "file an issue", "report a bug", "something is wrong with the toolkit".
+description: Always use this skill when the user asks whether this toolkit is installed or configured correctly, when a bundled script prompts for permission on every call, when a script is "command not found", when a skill appears broken or absent, when asked to check, diagnose, verify or fix the setup, when asked to apply, merge or install the toolkit's permission rules or settings template, or when asked to report a bug or file an issue against the toolkit. Triggers include "is this installed right", "why does it keep asking permission", "why does it prompt every time", "command not found", "the skill is broken", "nothing happens when I run", "check my setup", "diagnose the plugin", "is the plugin loaded", "what version am I on", "did the update work", "fix my permissions", "merge the settings template", "install the permission rules", "stop it asking every time", "file an issue", "report a bug", "something is wrong with the toolkit".
 ---
 
 # Setup and support skill
 
 Diagnoses an installation, explains what the findings mean, and turns what
-cannot be fixed locally into a filable issue. It reads; it changes nothing.
+cannot be fixed locally into a filable issue. The diagnosis reads and changes
+nothing. Merging the permission template is the one thing here that writes, and
+it writes only under `--apply`. **Show the user the report's diff and get their
+go-ahead before passing it.** A permission prompt normally also stands in the
+way, but that prompt belongs to the harness and does not appear in a session
+running with permissions bypassed or with a rule the user added themselves —
+both states `lunar_doctor.sh` reports. The go-ahead is the part this skill can
+actually require.
 
-## The bundled script
+## The bundled scripts
 
 ```bash
 lunar_doctor.sh          # the report
 lunar_doctor.sh --raw    # same, without redacting $HOME to ~
+
+lunar_install.sh         # what merging the permission template would change
+lunar_install.sh --apply # merge it
 ```
 
-Invoke it by bare name, never by a path — a path-qualified call prompts even
-though the script is approved, because the rules match the bare form.
+Invoke each by bare name, never by a path. For `lunar_doctor.sh` the reason is
+prompting: a path-qualified call prompts even though the script is approved,
+because the rules match the bare form. `lunar_install.sh` prompts whatever you
+do, so the reason there is a different and worse one — it reads the template out
+of its own copy of the plugin, and every machine that has run `/plugin install`
+has a second, older copy under `~/.claude/plugins/cache/`. A path reaches that
+one and merges its stale rule set.
 
 **Run it first, before theorising.** Most reports of a broken skill are an
 unmerged permission template or a session that predates the install, and the
 report separates those in one pass.
 
-It is **read-only** and always exits 0 when it ran. A non-zero status means a
-usage error, not a bad installation — the findings are the result, not the exit
-code. Unlike every other script here it does **not** refuse when a dependency is
+`lunar_doctor.sh` is **read-only** and always exits 0 when it ran. A non-zero
+status means a usage error, not a bad installation — the findings are the
+result, not the exit code. Unlike every other script here it does **not** refuse when a dependency is
 missing: it reports the absence and carries on, because a diagnostic that exits
 127 has refused to answer at the moment it was most needed.
 
@@ -69,14 +84,47 @@ The report counts rules rather than matching a pattern, so this case shows up as
 
 ### Fixing the permission findings
 
-Nothing installs the rules — a plugin cannot ship a permissions layer, and one
-that could pre-approve its own scripts would be granting itself the consent the
-prompt exists to collect. The templates now **ship with the plugin**, so the file
-is already on the machine. The report prints where.
+Nothing applies the rules on its own — a plugin cannot ship a permissions layer,
+and one that could pre-approve its own scripts would be granting itself the
+consent the prompt exists to collect. What ships is the template, inside the
+plugin, and a script that merges it when asked.
 
-Tell the user to merge `install/user/settings.json`, from the plugin copy the
-report names, into `~/.claude/settings.json`. Merge, never replace: that file
-holds their own settings too.
+**`lunar_install.sh` reports and writes nothing. `--apply` is what writes.** Run
+the first, read the diff, then run the second. It backs the file up, inserts
+rules as text so the formatting survives, and checks the result against the
+original before replacing anything: if the edit did not come out as planned,
+nothing is written.
+
+**It prompts on every call, by design.** It ships with no allowlist rule because
+the rule would sit in the file it writes. Approve it once you have read what it
+is about to do — the prompt shows whether `--apply` was passed, which is the
+only argument that changes anything.
+
+Five of the things it hands back rather than deciding — not the whole list:
+
+| It says | Why it stopped | What to tell the user |
+| --- | --- | --- |
+| `already has them in another list` | The template wants a rule in one list, their file has it in another | Their placement is the only one in force today. Adding the template's beside it would hand the stricter list the decision — `deny > ask > allow` — and the file would not show that it had. Theirs to move or keep |
+| `Denied by the template, permitted by your file` | The same collision, the other way round: the template **denies** a rule they allow or ask | Do not relay this as a tidy judgement call. The denial is not in force and this merge does not put it in force. `Bash(env)` and `Bash(printenv:*)` are denied because a transcript is not somewhere an API key can be withdrawn from. Ask whether they allowed it on purpose |
+| `not one rule per line` | An inline array, which it will not reflow | It prints the rules to paste. Reformatting someone's file to make room for a rule is not a thing a merge should do |
+| `does not start its own line` | The file is written on one line | Same: the rules are printed to paste |
+| `changed while this was running` | Something edited the settings file after the script read it | Nothing was written, and nothing is wrong. This is the one refusal where re-running is the answer, because the file did change: the next run reads it as it now stands |
+
+Only `permissions` is touched. The user CLAUDE.md, the optional settings and the
+per-project templates are merged by hand or with the Edit tool, where the diff
+is visible before it lands.
+
+**Exit 1 describes the file, not the run.** It means the settings file still
+differs from the template — because this was the report and `--apply` has not
+been run, or because a collision was skipped. **A report exiting 1 is the normal
+case**, not a failure. Exit 0 means there is nothing left to add.
+
+**Exit 3 is a refusal, and it is the one to read.** Nothing was written, and
+stderr names what stopped it. The table above covers four; the script has more,
+and the right move for any of them is the same: relay the message verbatim and
+stop. Do not re-run an unchanged file — it will refuse identically — and do not
+edit the script. If the message says it is a defect in the script, that is the
+one case where filing an issue is the next step.
 
 **Permissions load at startup, and the report reads the file.** Those are
 different things, and conflating them misreads both. The report opens
@@ -97,10 +145,14 @@ Issues go to `LunarCommand/claude-skills`. The repository has templates; the bug
 form asks for the report's output, which is the single most useful thing an
 issue can carry.
 
-**The output is redacted by default** — `$HOME` prints as `~`, `.agent.env` is
+**The report is redacted by default** — `$HOME` prints as `~`, `.agent.env` is
 reported by key name with no values, and permission rules are read as strings.
 It is safe to paste. If the user ran `--raw`, ask them to re-run without it
 before anything is posted.
+
+That is `lunar_doctor.sh` only. **`lunar_install.sh` output is not redacted**:
+its diff is a slice of the user's own settings file, so it belongs in the
+terminal and not in an issue. Ask for the report instead.
 
 Two things to establish before filing, because they are the two that turn a bug
 into a non-bug:

@@ -217,12 +217,16 @@ Two consequences, both load-bearing when adding a script:
   minimality load-bearing rather than tidy. Every entry should trace to a command
   a shipped skill actually runs; anything broader belongs in the user's own
   settings, not in a template they merge.
-- **Nothing can install those rules for the user, and the docs must not imply
+- **Nothing applies those rules on its own, and the docs must not imply
   otherwise.** `plugin.json` has no `permissions` field, plugins cannot ship a
   settings layer or an auto-loading CLAUDE.md, and a plugin-shipped `PreToolUse`
   hook that pre-approved its own scripts would be the plugin granting itself the
-  consent the permission prompt exists to collect. Merging by hand is the only
-  route there is, so every place that mentions the rules says so.
+  consent the permission prompt exists to collect. `lunar_install.sh` merges the
+  template on request and is the only thing here that writes
+  `~/.claude/settings.json`; it ships `# lunar:unruled` because a rule approving
+  it would sit in its own output. Every place that mentions the rules says both
+  halves: nothing applies them unasked, and this is what applies them when
+  asked.
 
 ### `.agent.env` config convention
 
@@ -305,6 +309,12 @@ gh_tasks_close.sh <issue> --reason not-planned
 # and reports rather than refuses when a dependency is missing -- see the
 # deliberate divergence in its header.
 lunar_doctor.sh
+
+# The write half: merges install/user/settings.json into ~/.claude/settings.json.
+# Reports by default; --apply is what writes. Ships # lunar:unruled, so it
+# prompts every call -- a rule approving it would sit in its own output.
+lunar_install.sh
+lunar_install.sh --apply
 ```
 
 To run one *in this repo* while developing it, use its real path
@@ -378,7 +388,8 @@ under `plugin/` since the last `v<number>` tag must carry a higher
 `docs/RELEASING.md`), and repo hygiene (no macOS cruft, personal paths, or
 credential-shaped strings — this repo is public).
 
-**Every check here is syntactic.** shellcheck, the portability scan, the manifest
+**Every check in that list is syntactic** — the two acceptance suites below are
+the only exception. shellcheck, the portability scan, the manifest
 and allowlist agreement, `bash -n` — they test spelling, not meaning, and none of
 them can tell you whether a script does what it claims. `tr '/' '_'` is valid
 shell and passes all of them; it is also not injective, which is how a bundled
@@ -396,11 +407,26 @@ scripts/validate.sh            # everything — what CI runs
 scripts/validate.sh --quick    # syntactic checks only — see below
 ```
 
-`--quick` skips the mutation-test acceptance suite, ~22s of the ~29s full run.
-That matters more than it sounds: the suite is the *only* check here that runs an
-artifact and asserts on behaviour, so `--quick` leaves nothing but syntax. The
-pre-commit hook uses it, so a clean commit hook is not evidence the scripts
-work. CI runs the full suite.
+`--quick` skips both acceptance suites. That matters more than it sounds: they
+are the *only* checks here that run an artifact and assert on behaviour, so
+`--quick` leaves nothing but syntax. The pre-commit hook uses it, so a clean
+commit hook is not evidence the scripts work. CI runs the full suite.
+
+Two suites exist, for the two scripts whose failure costs something that cannot
+be undone by rerunning them. Between them they are roughly half the full run,
+the mutation-test one being most of that — which is the reason `--quick` exists
+at all:
+
+- `scripts/mutation-test-acceptance.sh` — it builds repositories designed to
+  break a mutation runner and checks the worktree foundation refuses each one.
+- `scripts/install-acceptance.sh` — `lunar_install.sh` writes
+  `~/.claude/settings.json`, so a wrong insertion costs the user the file that
+  decides what the agent may run. Its own guard is that it verifies its edit
+  against the original before replacing anything; the suite's last four cases
+  break the insertion deliberately and require that nothing is written, which
+  is what distinguishes that guard from decoration. Every case runs against a
+  throwaway `HOME` under `mktemp`, so it never reads or writes the real
+  `~/.claude` and needs no flag guarding it.
 
 **An assertion must be able to kill the check it names.** Mutate the check; if
 the suite stays green, the assertion is decoration rather than coverage. The

@@ -18,10 +18,13 @@
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
 #
-# --quick skips the mutation-test acceptance suite. What remains is entirely
-# syntactic, so a green --quick run says the artifacts are spelled correctly and
-# nothing about whether they behave. The suite is ~22s of the ~29s full run,
-# which is why the hook does not carry it; CI does.
+# --quick skips both acceptance suites. What remains is entirely syntactic, so a
+# green --quick run says the artifacts are spelled correctly and nothing about
+# whether they behave. The suites are about half the full run between them, the
+# mutation-test one being most of that, which is why the pre-commit hook does
+# not carry them: a hook earns its place by being fast and dependable, and a
+# behavioural failure belongs where it gets investigated rather than bypassed.
+# CI runs both.
 #
 # Environment:
 #   SHELLCHECK_SEVERITY=error   stage a noisy new script without failing the run
@@ -144,7 +147,7 @@ GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
 # A template-less mktemp is GNU defaulting to tmp.XXXXXXXXXX; BSD mktemp(1)
 # requires a template or -t, so `$(mktemp)` aborts a `set -e` script on a Mac at
 # its first temporary file.
-GNU_RE="$GNU_RE|mktemp[[:space:]]*(\\)|;|\\||&|$)"
+GNU_RE="$GNU_RE|mktemp([[:space:]]+-[dqu]+)*[[:space:]]*(\\)|;|\\||&|$)"
 # timeout/realpath only in command position — otherwise the word "timeout" in
 # an error message matches.
 GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
@@ -766,6 +769,57 @@ else
   fail "optional    settings.optional.json carries a permissions key — rules belong in plugin/install/user/settings.json, which is the file the allowlist check reads"
 fi
 
+# lunar_install.sh models permissions as exactly these three lists. Claude Code
+# also accepts defaultMode, additionalDirectories and disableBypassPermissionsMode
+# there, and the project template's own _comment discusses defaultMode — so one
+# arriving in the user template is a live possibility rather than a hypothetical.
+# It would not merge: a fresh install copies the block verbatim and then fails its
+# own verification as a self-reported defect, while an existing file silently never
+# receives the key and the run still exits 0.
+#
+# The buckets must also be disjoint. The collision report is built from the user's
+# file alone, so a rule listed twice in the TEMPLATE is planned into both lists,
+# inserted into both, and precedence quietly decides — the exact outcome the
+# collision machinery exists to prevent, and invisible to the merge's own check,
+# which compares each bucket against old-plus-planned independently.
+if TEMPLATE_PROBLEM=$(python3 - plugin/install/user/settings.json <<'PY'
+import json
+import sys
+
+perms = json.load(open(sys.argv[1])).get('permissions', {})
+buckets = ('allow', 'ask', 'deny')
+extra = [k for k in perms if k not in buckets]
+if extra:
+    print('carries %s in permissions, which lunar_install.sh does not merge'
+          % ', '.join(sorted(extra)))
+    raise SystemExit(1)
+for b in buckets:
+    rules = perms.get(b, [])
+    # Before the disjointness loop, which is set() arithmetic: a string bucket
+    # would pass it as a set of characters, and the merge then plans one rule
+    # per character. Its own verification refuses that, but it refuses it as a
+    # defect in itself -- a broken template should fail here, not reach a user
+    # as a bug report against the script.
+    if not isinstance(rules, list):
+        print('has a %s that is %s, not a list' % (b, type(rules).__name__))
+        raise SystemExit(1)
+    bad = [r for r in rules if not isinstance(r, str)]
+    if bad:
+        print('has %d non-string entry/entries in %s' % (len(bad), b))
+        raise SystemExit(1)
+for i, a in enumerate(buckets):
+    for b in buckets[i + 1:]:
+        both = sorted(set(perms.get(a, [])) & set(perms.get(b, [])))
+        if both:
+            print('lists %s in both %s and %s' % (', '.join(both), a, b))
+            raise SystemExit(1)
+PY
+); then
+  pass "template    permissions holds only allow/ask/deny, each a list of strings, none shared"
+else
+  fail "template    plugin/install/user/settings.json $TEMPLATE_PROBLEM"
+fi
+
 # plugin/install/project/settings.json restates the user template's ask and deny rules,
 # because it is checked in where the user file is not: on a clone where nobody
 # merged the user file it is the whole policy, and it grants Read, Edit and Write
@@ -1012,7 +1066,7 @@ shipped = {os.path.basename(p) for p in
            glob.glob('plugin/bin/*.sh') + glob.glob('plugin/bin/lib/*.sh')}
 # The repo's own tooling, named in docs but never on a skill's PATH.
 own = {'validate.sh', 'pre-commit.sh', 'mutation-test-acceptance.sh',
-       'check-install-drift.sh'}
+       'install-acceptance.sh', 'check-install-drift.sh'}
 bad = []
 docs = (glob.glob('*.md') + glob.glob('plugin/skills/*/SKILL.md')
         + glob.glob('docs/**/*.md', recursive=True))
@@ -1146,8 +1200,9 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
 if [[ "$QUICK" == false ]]; then
 section "Mutation-test acceptance (behaviour, not spelling)"
 # --------------------------------------------------------------------------
-  # Everything above this line is syntactic. This is the one suite that runs an
-  # artifact and asserts on what it does: it builds a repository designed to
+  # Everything above this line is syntactic. This and the install suite below
+  # are the only checks that run an artifact and assert on what it does, rather
+  # than on how it is spelled. This one builds a repository designed to
   # break a mutation runner -- colliding paths, a space, a symlink, and a test
   # command wired to an absolute path the way an editable install is -- and
   # checks the worktree foundation refuses each one.
@@ -1156,6 +1211,23 @@ section "Mutation-test acceptance (behaviour, not spelling)"
     pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
   else
     fail "mutation-test acceptance suite failed:"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+
+# --------------------------------------------------------------------------
+section "Install acceptance (behaviour, not spelling)"
+# --------------------------------------------------------------------------
+  # lunar_install.sh writes ~/.claude/settings.json, so a wrong insertion costs
+  # the user the file that governs what the agent may run. Its own answer to
+  # that is to verify its edit against the original before replacing anything,
+  # and the last four cases here break the insertion to prove that check fires
+  # rather than decorating the script. Every case runs against a throwaway
+  # HOME, which is what lets it run unguarded here and in CI.
+  if out=$(./scripts/install-acceptance.sh 2>&1); then
+    printf '%s\n' "$out" | grep -E '^  (ok|FAIL)' | sed 's/^  /  /'
+    pass "acceptance  $(printf '%s' "$out" | sed -n 's/^PASS — \([0-9]*\).*/\1/p') behavioural assertion(s)"
+  else
+    fail "install acceptance suite failed:"
     printf '%s\n' "$out" | sed 's/^/        /'
   fi
 fi

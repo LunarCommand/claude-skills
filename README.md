@@ -234,6 +234,31 @@ usually nothing to configure. **It reads, adds, updates, closes and reorders**,
 and says plainly what it will not do — reopen a closed task, rewrite a body,
 clear a parent — rather than improvising.
 
+A write into a public repository refuses unless you pass `--public-ok`, since an
+issue is exactly as public as the repository holding it. The exception is a
+move, which has no such flag: a position is board metadata, so reordering
+publishes nothing. All four writers take `--dry-run`, which resolves every name
+and value and prints what it would send without sending it.
+
+Closing posts its note before it closes, so the reason is in the task's history
+and not only in its state. There is no reopen, by design: an undo would make a
+close feel cheap, and it is the one write here that cannot be taken back.
+
+Two things are worth knowing before you point it at a board. An issue is exactly
+as public as the repository it lives in, whatever the board's own privacy says —
+a private board hides the board, not its items. And the order items appear in is
+the board's own manual position, the one you set by dragging; it is not a field,
+so a view with a sort applied stops showing it.
+
+What it reads, it reports honestly: how many items it did not see, which fields
+it could not decode, which per-item lists were capped, and whether the board
+changed while it was being paged. Those land in a `warnings` array the skill is
+told to repeat verbatim, because a queue tool that quietly shows you part of the
+queue is worse than one that refuses.
+
+It needs one token scope ordinary `gh` auth does not include, and tells you the
+exact command if it is missing.
+
 #### `/lunar:setup` — is this thing on?
 
 **Use it for:** "why does it ask permission every time", "command not found",
@@ -262,30 +287,13 @@ answer at the moment it was most needed; it reports the absence and carries on.
 And it **redacts `$HOME` by default**, with `.agent.env` reported by key name
 and no values, so the output can be pasted straight into an issue.
 
-A write into a public repository refuses unless you pass `--public-ok`, since an
-issue is exactly as public as the repository holding it. The exception is a
-move, which has no such flag: a position is board metadata, so reordering
-publishes nothing. All four writers take `--dry-run`, which resolves every name
-and value and prints what it would send without sending it.
-
-Closing posts its note before it closes, so the reason is in the task's history
-and not only in its state. There is no reopen, by design: an undo would make a
-close feel cheap, and it is the one write here that cannot be taken back.
-
-Two things are worth knowing before you point it at a board. An issue is exactly
-as public as the repository it lives in, whatever the board's own privacy says —
-a private board hides the board, not its items. And the order items appear in is
-the board's own manual position, the one you set by dragging; it is not a field,
-so a view with a sort applied stops showing it.
-
-What it reads, it reports honestly: how many items it did not see, which fields
-it could not decode, which per-item lists were capped, and whether the board
-changed while it was being paged. Those land in a `warnings` array the skill is
-told to repeat verbatim, because a queue tool that quietly shows you part of the
-queue is worse than one that refuses.
-
-It needs one token scope ordinary `gh` auth does not include, and tells you the
-exact command if it is missing.
+The skill also drives the one script here that **writes**: `lunar_install.sh`
+merges the permission template into `~/.claude/settings.json`, which is the
+finding the report can state and not fix. It reports by default and writes only
+under `--apply`, and its output is **not** redacted — the diff is a slice of
+your own settings file, so it stays in the terminal. ["Running the scripts
+without a prompt each time"](#running-the-scripts-without-a-prompt-each-time)
+covers what it merges and what it refuses.
 
 ### 2. The recommended user CLAUDE.md
 
@@ -439,9 +447,9 @@ Both routes put the permission rules and the recommended user CLAUDE.md on your
 machine — they ship inside the plugin, under `install/` in whichever copy you
 installed. Neither route *applies* them. `plugin.json` has no permissions field,
 there is no plugin-shipped settings layer, and nothing auto-loads a CLAUDE.md, so
-merging them into `~/.claude/` by hand is still the only route there is. What
-shipping them changes is that you no longer have to fetch them from GitHub to do
-it. See
+applying them stays a separate, deliberate act. For the permission rules,
+`lunar_install.sh` is that act: it shows what merging the template would change
+and writes only when you pass `--apply`. The CLAUDE.md is yours to merge. See
 [Running the scripts without a prompt each time](#running-the-scripts-without-a-prompt-each-time)
 and [`plugin/install/user/CLAUDE.md`](plugin/install/user/CLAUDE.md).
 
@@ -494,24 +502,47 @@ The bundled scripts are on the Bash tool's `PATH`, so the permission rules
 approve them by bare name. Without those rules every script call prompts — which
 reads as the skill being broken when it is only unapproved.
 
-**Nothing applies them for you.** `plugin.json` has no permissions field and
-plugins cannot ship a settings layer, so merging by hand is the only route there
-is. A plugin that could pre-approve its own scripts would be granting itself the
-consent the prompt exists to collect. The file ships with the plugin, so it is
-already on your machine — that is a copy to read, not a rule in force.
+**Nothing applies them on its own.** `plugin.json` has no permissions field and
+plugins cannot ship a settings layer. A plugin that could pre-approve its own
+scripts would be granting itself the consent the prompt exists to collect. The
+file ships with the plugin, so it is already on your machine — that is a copy to
+read, not a rule in force.
+
+Applying it is one command, and it is deliberately not a quiet one:
+
+```bash
+lunar_install.sh            # what it would change, as a diff; writes nothing
+lunar_install.sh --apply    # merge it, after backing the file up
+```
+
+It appends to `permissions` and touches nothing else, keeps your formatting by
+editing as text, and verifies the result against the original before it replaces
+anything — a merge that did not come out as planned writes nothing. It skips a
+rule your file already has in a different list, because `deny > ask > allow`
+means adding it would quietly change which one applies. If your settings file is
+a symlink into a dotfiles repo, the file it points at is what changes. And it
+prompts every time, because it ships with no rule of its own: the rule would live
+in the file it writes. `/lunar:setup` drives it and reads the result.
+
+The first command exits 1 when there is still something to add and 0 when there
+is not, so a report on an unmerged file exits 1. That is the report working, not
+failing: the status describes the file rather than the run. A refusal — a shape
+it will not edit — is exit 3, and says why on stderr.
 
 [`plugin/install/user/settings.json`](plugin/install/user/settings.json) is the whole set, and
-nothing beyond it. Merge it into `~/.claude/settings.json`. User scope, not a
+nothing beyond it. It merges into `~/.claude/settings.json`. User scope, not a
 per-project copy: the plugin installs once per machine, so its permissions belong
 at the same scope, and copying it per project means re-approving the same toolkit
 in every repository. That is only safe because the file is narrow, which is the
 point of keeping it minimal:
 
-- **the bundled scripts**, by bare name — every one of them except
-  `mutation_test_worktree.sh`, which is left out on purpose because it takes a
-  command string that reaches `bash -c` verbatim, so any rule approving it
-  would approve the wrapper rather than what it runs. It runs once per session,
-  so the prompt is cheap and shows you the exact command.
+- **the bundled scripts**, by bare name — every one except two, each left out on
+  purpose. `mutation_test_worktree.sh` takes a command string that reaches
+  `bash -c` verbatim, so any rule approving it would approve the wrapper rather
+  than what it runs; it runs once per session, so the prompt is cheap and shows
+  you the exact command. `lunar_install.sh` writes this very file, so a rule
+  approving it would be the toolkit pre-approving the one script that grants the
+  toolkit its permissions.
 - **`gh repo view` / `gh pr view`** — pr-review reads the repo and PR in Step 1
 - **read-only git** — `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`,
   `merge-base`, `branch -a --contains`, `submodule status`: what

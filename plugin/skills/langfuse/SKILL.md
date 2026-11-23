@@ -36,11 +36,12 @@ The query script is meant to be pre-approved, via this rule:
 Bash(langfuse_query.sh:*)
 ```
 
-**Nothing installs that rule** — a plugin cannot ship a permissions layer. It
-ships in the toolkit's `install/user/settings.json` template, which the user
-merges into `~/.claude/settings.json` themselves. If every call prompts, the rule
-is absent: that is unfinished setup, not a broken skill, and not a reason to
-reach for curl. Say so once and carry on.
+**Nothing applies that rule on its own** — a plugin cannot ship a permissions
+layer. It ships in the toolkit's `install/user/settings.json` template, which
+`lunar_install.sh` merges into `~/.claude/settings.json` when the user asks
+(`/lunar:setup` drives that). If every call prompts, the rule is absent: that is
+unfinished setup, not a broken skill, and not a reason to reach for curl. Say so
+once, name the fix, and carry on.
 
 Run the script directly — **never** export env vars manually or run curl directly
 for data access. Both trigger permission prompts. The script reads `.agent.env`
