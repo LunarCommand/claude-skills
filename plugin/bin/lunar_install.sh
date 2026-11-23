@@ -465,13 +465,29 @@ else:
         tmpl_text = read(TMPL)
         key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{', TMPL)
         member = reindent(tmpl_text[key_at:close_at], '  ', indent)
+        # Both branches run the one-key-per-line check the rest of the script
+        # runs. Without it these two were the way a one-line file got edited
+        # after all, and the result reflowed the line this script promises never
+        # to touch: `}, "model": "opus", "env": { "A": "1" } }`.
         if 'permissions' in (live_obj or {}):
-            _, open_at, close = member_value_span(live_text, 'permissions', '{')
+            key_at_live, open_at, close = member_value_span(live_text, 'permissions', '{')
+            indent_of(live_text, key_at_live, '"permissions"', *paste_instead(plan))
             edits.append((open_at, close, member.split(':', 1)[1].lstrip()))
         else:
             brace = live_text.find('{')
             if brace < 0 or live_text[:brace].strip():
                 decline('%s does not open with a JSON object' % LIVE)
+            # The insertion goes straight after the opening brace, so what has
+            # to start its own line is whatever currently follows it. Measured
+            # as "the whitespace run after { contains a newline" rather than by
+            # testing for '\n', which a CRLF file would fail on its '\r'.
+            after = live_text[brace + 1:]
+            gap = after[:len(after) - len(after.lstrip())]
+            if after.strip() and '\n' not in gap:
+                decline('%s is written on one line' % LIVE,
+                        'This script only edits a file written one key per line, so that it',
+                        'never has to reflow a line you wrote.',
+                        *paste_instead(plan))
             edits.append((brace + 1, brace + 1, '\n%s%s,' % (indent, member)))
         note = 'adding the whole permissions block'
     else:

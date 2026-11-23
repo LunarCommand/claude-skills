@@ -147,7 +147,7 @@ GNU_RE="$GNU_RE|grep -[a-zA-Z]*P|stat -c|mktemp -p|xargs -[a-zA-Z]*r|--iso-8601"
 # A template-less mktemp is GNU defaulting to tmp.XXXXXXXXXX; BSD mktemp(1)
 # requires a template or -t, so `$(mktemp)` aborts a `set -e` script on a Mac at
 # its first temporary file.
-GNU_RE="$GNU_RE|mktemp[[:space:]]*(\\)|;|\\||&|$)"
+GNU_RE="$GNU_RE|mktemp([[:space:]]+-[dqu]+)*[[:space:]]*(\\)|;|\\||&|$)"
 # timeout/realpath only in command position — otherwise the word "timeout" in
 # an error message matches.
 GNU_RE="$GNU_RE|\\\\x[0-9a-fA-F][0-9a-fA-F]|base64 -w"
@@ -793,6 +793,20 @@ if extra:
     print('carries %s in permissions, which lunar_install.sh does not merge'
           % ', '.join(sorted(extra)))
     raise SystemExit(1)
+for b in buckets:
+    rules = perms.get(b, [])
+    # Before the disjointness loop, which is set() arithmetic: a string bucket
+    # would pass it as a set of characters, and the merge then plans one rule
+    # per character. Its own verification refuses that, but it refuses it as a
+    # defect in itself -- a broken template should fail here, not reach a user
+    # as a bug report against the script.
+    if not isinstance(rules, list):
+        print('has a %s that is %s, not a list' % (b, type(rules).__name__))
+        raise SystemExit(1)
+    bad = [r for r in rules if not isinstance(r, str)]
+    if bad:
+        print('has %d non-string entry/entries in %s' % (len(bad), b))
+        raise SystemExit(1)
 for i, a in enumerate(buckets):
     for b in buckets[i + 1:]:
         both = sorted(set(perms.get(a, [])) & set(perms.get(b, [])))
@@ -801,7 +815,7 @@ for i, a in enumerate(buckets):
             raise SystemExit(1)
 PY
 ); then
-  pass "template    permissions holds only allow/ask/deny, with no rule in two of them"
+  pass "template    permissions holds only allow/ask/deny, each a list of strings, none shared"
 else
   fail "template    plugin/install/user/settings.json $TEMPLATE_PROBLEM"
 fi

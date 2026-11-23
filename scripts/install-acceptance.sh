@@ -44,7 +44,7 @@ for required in "$SCRIPT" "$TMPL"; do
   fi
 done
 
-WORK="$(mktemp -d)" || exit 1
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/install-acceptance.XXXXXX")" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 trap 'rm -rf "$WORK"; exit 130' INT
 trap 'rm -rf "$WORK"; exit 143' TERM
@@ -338,6 +338,57 @@ if [ "$RC" -eq 3 ] && unchanged oneline \
   ok "declines a one-line file without blaming itself"
 else
   bad "oneline" "rc=$RC"
+fi
+
+# The fixture above carries all three buckets, so it reaches the append path.
+# Two other paths build the permissions block instead -- an empty permissions
+# object, and no permissions key at all -- and neither ran the one-key-per-line
+# check, so a one-line file WAS edited after all, reflowing the line the usage
+# text promises never to touch. Killed by removing either guard.
+setup oneline-emptyperms <<'JSON'
+{ "permissions": {} }
+JSON
+invoke oneline-emptyperms --apply
+if [ "$RC" -eq 3 ] && unchanged oneline-emptyperms \
+  && grep -q 'Add these by hand' "$WORK/oneline-emptyperms.out"; then
+  ok "declines a one-line file whose permissions block is empty"
+else
+  bad "oneline-emptyperms" "rc=$RC"
+fi
+
+setup oneline-noperms <<'JSON'
+{ "model": "opus", "env": { "A": "1" } }
+JSON
+invoke oneline-noperms --apply
+if [ "$RC" -eq 3 ] && unchanged oneline-noperms \
+  && grep -q 'Add these by hand' "$WORK/oneline-noperms.out"; then
+  ok "declines a one-line file with no permissions key"
+else
+  bad "oneline-noperms" "rc=$RC"
+fi
+
+# The same two shapes written across lines must still merge: the guard above is
+# a one-line check, and a CRLF file must not read as one line because of its \r.
+setup multiline-noperms <<'JSON'
+{
+  "model": "opus"
+}
+JSON
+invoke multiline-noperms --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "a multi-line file with no permissions key still merges"
+else
+  bad "multiline-noperms" "rc=$RC $(fully_merged)"
+fi
+
+HOMEDIR="$WORK/crlf-noperms"
+mkdir -p "$HOMEDIR/.claude"
+printf '{\r\n  "model": "opus"\r\n}\r\n' > "$HOMEDIR/.claude/settings.json"
+invoke crlf-noperms --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "a CRLF file is not mistaken for a one-line file"
+else
+  bad "crlf-noperms" "rc=$RC $(fully_merged)"
 fi
 
 setup malformed <<'JSON'

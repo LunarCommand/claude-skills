@@ -117,10 +117,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 ### Repository
 
 - `scripts/install-acceptance.sh` is a second behavioural suite, for
-  `lunar_install.sh`, and `scripts/validate.sh` runs it. 28 assertions covering
-  each file shape it edits, each shape it declines, the collision path, the
-  backup and where it lands, a symlinked settings file, and the mode both new
-  files are created at. Its last four cases break the insertion on a copy of the script and
+  `lunar_install.sh`, and `scripts/validate.sh` runs it. It covers each file
+  shape the merge edits and each one it declines, the collision paths, the
+  backup and where it lands, a symlinked settings file, the mode both new files
+  are created at, line endings, and every exit status the script documents. The
+  suite prints its own assertion total, which is the number worth trusting. Its last four cases break the insertion on a copy of the script and
   require that nothing is written, so the verification step is held to the
   repo's rule that an assertion must be able to kill the check it names — and
   each mutation is checked for having changed the script at all, since a `sed`
