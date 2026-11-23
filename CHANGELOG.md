@@ -14,7 +14,15 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v1.3.0 — 2026-11-22
+
+The version moved to 1.3.0 on 2026-11-21, ahead of this tag, and the payload
+under it changed twice afterwards: `lunar_doctor.sh` on the 21st, then
+`lunar_install.sh` and its fixes on the 22nd. An install taken from `main` in
+between therefore reports 1.3.0 while holding less than this section describes.
+The version string does not identify a payload here — the install record's
+`gitCommitSha` does, and "Verifying a release reached users" in
+`docs/RELEASING.md` says how to resolve one against the repository.
 
 ### setup (new)
 
