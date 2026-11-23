@@ -45,7 +45,9 @@ for required in "$SCRIPT" "$TMPL"; do
 done
 
 WORK="$(mktemp -d)" || exit 1
-trap 'rm -rf "$WORK"' EXIT INT TERM
+trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; exit 130' INT
+trap 'rm -rf "$WORK"; exit 143' TERM
 
 pass_n=0
 fail_n=0
@@ -236,6 +238,17 @@ if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
 else
   bad "bucket-absent" "rc=$RC $(fully_merged)"
 fi
+# A whole bucket is built by array_text rather than appended, so it carries the
+# template's grouping on its own code path. Killed by passing set() in place of
+# group_breaks at that call site -- which a mutation of the append path leaves
+# untouched, so both paths need asserting separately.
+TMPL_ASK=$(sed -n '/"ask": \[/,/^    \]/p' "$TMPL" | grep -c '^$')
+LIVE_ASK=$(sed -n '/"ask": \[/,/^    \]/p' "$HOMEDIR/.claude/settings.json" | grep -c '^$')
+if [ "$TMPL_ASK" -gt 0 ] && [ "$LIVE_ASK" -eq "$TMPL_ASK" ]; then
+  ok "a bucket added whole keeps the template's blank-line groups"
+else
+  bad "bucket-absent" "grouping: template=$TMPL_ASK live=$LIVE_ASK"
+fi
 
 setup bucket-empty <<'JSON'
 {
@@ -305,7 +318,7 @@ setup inline <<'JSON'
 }
 JSON
 invoke inline --apply
-if [ "$RC" -eq 1 ] && unchanged inline \
+if [ "$RC" -eq 3 ] && unchanged inline \
   && grep -q 'not one rule per line' "$WORK/inline.out" \
   && grep -q 'Add these by hand' "$WORK/inline.out"; then
   ok "declines an inline array and prints the rules to paste"
@@ -319,7 +332,7 @@ JSON
 invoke oneline --apply
 # This shape used to reach the verification step instead, which reported a file
 # the script simply does not edit as a defect in the script.
-if [ "$RC" -eq 1 ] && unchanged oneline \
+if [ "$RC" -eq 3 ] && unchanged oneline \
   && grep -q 'does not start its own line' "$WORK/oneline.out" \
   && ! grep -q 'defect in this script' "$WORK/oneline.out"; then
   ok "declines a one-line file without blaming itself"
@@ -331,7 +344,7 @@ setup malformed <<'JSON'
 { "permissions": { "allow": [ "Bash(hdx_query.sh:*)", ] } }
 JSON
 invoke malformed --apply
-if [ "$RC" -eq 1 ] && unchanged malformed \
+if [ "$RC" -eq 3 ] && unchanged malformed \
   && grep -q 'not valid JSON' "$WORK/malformed.out"; then
   ok "declines a file that does not parse"
 else
@@ -448,7 +461,7 @@ fi
 setup nohome </dev/null
 env -u HOME "$SCRIPT" > "$WORK/nohome.out" 2>&1
 RC=$?
-if [ "$RC" -eq 1 ] && grep -q 'HOME is unset' "$WORK/nohome.out"; then
+if [ "$RC" -eq 3 ] && grep -q 'HOME is unset' "$WORK/nohome.out"; then
   ok "declines cleanly when HOME is unset"
 else
   bad "no-home" "rc=$RC"
@@ -467,10 +480,18 @@ guard() {
   local label="$1"
   local expr="$2"
   local home="$WORK/g-$label"
-  local mutant="$WORK/root/bin/mutant.sh"
+  # Its own path per case. On one shared path, a sed that EXITS NON-ZERO leaves
+  # the previous case's mutant in place, cmp sees a difference, and the case
+  # silently re-tests the mutation before it -- four assertions reported, one
+  # made.
+  local mutant="$WORK/root/bin/mutant-$label.sh"
   # sed -i is not portable to the BSD sed macOS ships, so the edit goes through
   # a second file rather than in place.
-  sed "$expr" "$SCRIPT" > "$mutant.tmp" && mv "$mutant.tmp" "$mutant"
+  if ! sed "$expr" "$SCRIPT" > "$mutant.tmp"; then
+    bad "guard/$label" "the sed expression failed, so this asserts nothing"
+    return
+  fi
+  mv "$mutant.tmp" "$mutant"
   if cmp -s "$mutant" "$SCRIPT"; then
     bad "guard/$label" "the mutation changed nothing, so this asserts nothing"
     return
@@ -496,7 +517,7 @@ JSON
   cp "$home/.claude/settings.json" "$WORK/g-$label.before"
   HOME="$home" "$mutant" --apply > "$WORK/g-$label.out" 2>&1
   local rc=$?
-  if [ "$rc" -eq 1 ] \
+  if [ "$rc" -eq 3 ] \
     && grep -qE 'did not come out as planned|would not parse' "$WORK/g-$label.out" \
     && cmp -s "$WORK/g-$label.before" "$home/.claude/settings.json"; then
     ok "a broken insertion is caught and nothing is written ($label)"
@@ -527,7 +548,7 @@ if cmp -s "$STALE" "$SCRIPT"; then
 else
   HOME="$HOMEDIR" "$STALE" --apply > "$WORK/stale.out" 2>&1
   RC=$?
-  if [ "$RC" -eq 1 ] && grep -q 'changed while this was running' "$WORK/stale.out" \
+  if [ "$RC" -eq 3 ] && grep -q 'changed while this was running' "$WORK/stale.out" \
     && unchanged stale; then
     ok "every apply reaches the concurrent-edit check"
   else
@@ -535,9 +556,327 @@ else
   fi
 fi
 
-guard wrong-bucket "s/for r in plan\[bucket\]\]/for r in plan['allow']]/"
-guard dropped-rule "s/for r in plan\[bucket\]\]/for r in plan[bucket][:-1]]/"
-guard duplicated-rule "s/for r in plan\[bucket\]\]/for r in plan[bucket] + plan[bucket][:1]]/"
+# The diff is printed into the agent transcript on every run, including the
+# plain report. Printed with context lines it carried the values of whatever
+# keys sit next to "permissions" -- in a real file that is `env` and
+# `apiKeyHelper`, so a live API key reached the transcript, which is the egress
+# the shipped template denies Bash(env) to prevent. Killed by restoring any
+# non-zero n= to difflib.unified_diff.
+setup secrets <<'JSON'
+{
+  "env": {
+    "LANGFUSE_SECRET_KEY": "sk-lf-NOT-A-REAL-KEY-0000"
+  },
+  "apiKeyHelper": "NOT-A-REAL-HELPER-PATH",
+  "permissions": {
+    "deny": [
+      "Bash(env)"
+    ]
+  }
+}
+JSON
+invoke secrets
+if grep -qE 'sk-lf-NOT-A-REAL-KEY|NOT-A-REAL-HELPER-PATH' "$WORK/secrets.out"; then
+  bad "secrets" "a neighbouring settings value was printed"
+else
+  ok "the diff prints no value from outside the permissions block"
+fi
+# The same file with no permissions block at all: the first-install shape, where
+# the insertion lands at the top and the context ran over the whole file.
+setup secrets-fresh <<'JSON'
+{
+  "env": {
+    "LANGFUSE_SECRET_KEY": "sk-lf-NOT-A-REAL-KEY-0000"
+  }
+}
+JSON
+invoke secrets-fresh
+if grep -q 'sk-lf-NOT-A-REAL-KEY' "$WORK/secrets-fresh.out"; then
+  bad "secrets-fresh" "a secret was printed on the first-install shape"
+else
+  ok "the first-install diff prints no value from outside permissions"
+fi
+
+# A file this script creates decides what the agent may run, so it does not get
+# the umask default. Under umask 002 -- shared build hosts, many container
+# images -- 0664 would let any account in the user's group grant themselves
+# Bash(*). Killed by dropping the explicit mode in the live_text is None branch.
+# Not via setup(), which pre-creates .claude: the directory mode is only this
+# script's business when this script is the one creating it.
+HOMEDIR="$WORK/newmode"
+mkdir -p "$HOMEDIR"
+OLD_UMASK=$(umask)
+umask 002
+invoke newmode --apply
+umask "$OLD_UMASK"
+if [ "$RC" -eq 0 ] && [ "$(file_mode "$HOMEDIR/.claude/settings.json")" = "600" ] \
+  && [ "$(file_mode "$HOMEDIR/.claude")" = "700" ]; then
+  ok "a created settings file and its directory are not group-readable"
+else
+  bad "newmode" "settings=$(file_mode "$HOMEDIR/.claude/settings.json") dir=$(file_mode "$HOMEDIR/.claude")"
+fi
+
+# The other half of that decision: a ~/.claude the user already has is left at
+# whatever mode they chose. Re-permissioning a directory this script did not
+# create is a side effect nobody asked for.
+HOMEDIR="$WORK/existingdir"
+mkdir -p "$HOMEDIR/.claude"
+chmod 755 "$HOMEDIR/.claude"
+invoke existingdir --apply
+if [ "$RC" -eq 0 ] && [ "$(file_mode "$HOMEDIR/.claude")" = "755" ]; then
+  ok "an existing .claude keeps the mode the user gave it"
+else
+  bad "existingdir" "rc=$RC, dir=$(file_mode "$HOMEDIR/.claude")"
+fi
+
+# An interruption between the temp write and the rename used to strand the temp
+# file forever, and a later run drawing the same pid then failed on it.
+if [ -z "$(find "$HOMEDIR/.claude" -name '*.lunar-new-*' 2>/dev/null)" ]; then
+  ok "a successful apply leaves no temporary file"
+else
+  bad "newmode" "a .lunar-new- file was left behind"
+fi
+
+# When the write fails after the backup was taken, the message says the settings
+# file is untouched -- true, and read alone it implies the run left nothing
+# behind. The backup has to be named or it is invisible.
+setup rofail <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+mkdir -p "$HOMEDIR/ro"
+mv "$HOMEDIR/.claude/settings.json" "$HOMEDIR/ro/settings.json"
+ln -s "$HOMEDIR/ro/settings.json" "$HOMEDIR/.claude/settings.json"
+chmod 500 "$HOMEDIR/ro"
+invoke rofail --apply
+chmod 700 "$HOMEDIR/ro"
+if [ "$RC" -eq 3 ] && grep -q 'The backup this run made is still at' "$WORK/rofail.out" \
+  && [ -z "$(find "$HOMEDIR/.claude" -name '*.lunar-new-*')" ]; then
+  ok "a failed write names the backup it left and strands no temp file"
+else
+  bad "rofail" "rc=$RC"
+fi
+
+# 127 is now a documented status, so it needs pinning like the others. The shim
+# carries the few commands the bash half runs before the preflight -- without
+# bash itself on PATH, `env bash` fails and returns 127 for the wrong reason,
+# which is a green light that tests nothing.
+SHIM="$WORK/shim-bin"
+mkdir -p "$SHIM"
+SHIM_OK=yes
+for c in bash dirname cat sed; do
+  if command -v "$c" > /dev/null 2>&1; then
+    ln -s "$(command -v "$c")" "$SHIM/$c"
+  else
+    SHIM_OK=no
+  fi
+done
+if [ "$SHIM_OK" = no ]; then
+  bad "no-python3" "could not build a shim PATH, so this asserts nothing"
+else
+  HOMEDIR="$WORK/nopython"
+  mkdir -p "$HOMEDIR/.claude"
+  PATH="$SHIM" HOME="$HOMEDIR" "$SCRIPT" --apply > "$WORK/nopython.out" 2>&1
+  RC=$?
+  PATH="$SHIM" HOME="$HOMEDIR" "$SCRIPT" --help > "$WORK/nopython-help.out" 2>&1
+  HELP_RC=$?
+  if [ "$RC" -eq 127 ] && grep -q 'Missing required command: python3' "$WORK/nopython.out" \
+    && [ "$HELP_RC" -eq 0 ]; then
+    ok "a missing python3 exits 127, and --help still answers without it"
+  else
+    bad "no-python3" "rc=$RC help=$HELP_RC"
+  fi
+fi
+
+# A CRLF file -- a dotfiles repo checked out with core.autocrlf=true -- had
+# every line ending rewritten, invisibly: the diff compares the already
+# translated text against itself, so the report showed only the added rules.
+# Killed by removing newline='' from either read() or write_new().
+HOMEDIR="$WORK/crlf"
+mkdir -p "$HOMEDIR/.claude"
+printf '{\r\n  "permissions": {\r\n    "allow": [\r\n      "Bash(hdx_query.sh:*)"\r\n    ]\r\n  }\r\n}\r\n' \
+  > "$HOMEDIR/.claude/settings.json"
+cp "$HOMEDIR/.claude/settings.json" "$WORK/crlf.orig"
+invoke crlf --apply
+BAK=""
+for f in "$HOMEDIR/.claude/"settings.json.bak-*; do
+  if [ -e "$f" ]; then BAK="$f"; fi
+done
+if [ "$RC" -eq 0 ] && [ -n "$BAK" ] && cmp -s "$WORK/crlf.orig" "$BAK" \
+  && python3 -c "
+import sys
+b = open(sys.argv[1], 'rb').read()
+raise SystemExit(0 if b.count(b'\r\n') and b.count(b'\n') == b.count(b'\r\n') else 1)
+" "$HOMEDIR/.claude/settings.json"; then
+  ok "a CRLF file keeps its line endings and its backup is byte-exact"
+else
+  bad "crlf" "rc=$RC, endings mixed or backup not byte-exact"
+fi
+
+# The same rule in two buckets is a file Claude Code resolves by precedence and
+# runs. Anchoring on a whole-file search for the last rule's text refused the
+# entire merge on it. Killed by reverting the append anchor to unique().
+setup dup-across <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm:*)"
+    ],
+    "ask": [
+      "Bash(rm:*)"
+    ]
+  }
+}
+JSON
+invoke dup-across --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null; then
+  ok "a rule the user lists in two buckets does not block the merge"
+else
+  bad "dup-across" "rc=$RC $(fully_merged)"
+fi
+
+# A rule spelled with an escaped solidus is the same JSON value but different
+# bytes, so a json.dumps comparison could not find it and the script claimed the
+# file was a shape it cannot edit.
+setup escaped <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Read(\/tmp\/x\/**)"
+    ]
+  }
+}
+JSON
+invoke escaped --apply
+if [ "$RC" -eq 0 ] && fully_merged >/dev/null \
+  && python3 -c "
+import json, sys
+allow = json.load(open(sys.argv[1]))['permissions']['allow']
+raise SystemExit(0 if 'Read(/tmp/x/**)' in allow else 1)
+" "$HOMEDIR/.claude/settings.json"; then
+  ok "a rule escaped differently from json.dumps is found, and survives"
+else
+  bad "escaped" "rc=$RC"
+fi
+
+# The blank-line grouping is the stated reason this script edits as text. It was
+# delivered only when creating a file from nothing; an append emitted one flat
+# block. Killed by dropping the breaks argument from either insertion path.
+setup grouped <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(my_own_tool:*)"
+    ]
+  }
+}
+JSON
+invoke grouped --apply
+TMPL_GROUPS=$(sed -n '/"allow": \[/,/^    \]/p' "$TMPL" | grep -c '^$')
+LIVE_GROUPS=$(sed -n '/"allow": \[/,/^    \]/p' "$HOMEDIR/.claude/settings.json" | grep -c '^$')
+if [ "$RC" -eq 0 ] && [ "$LIVE_GROUPS" -ge "$TMPL_GROUPS" ] && [ "$TMPL_GROUPS" -gt 0 ]; then
+  ok "an append keeps the template's blank-line groups"
+else
+  bad "grouped" "rc=$RC, template=$TMPL_GROUPS live=$LIVE_GROUPS"
+fi
+
+# A template rule the user keeps in allow means the denial is not in force. Said
+# in the same neutral words as the allow/ask direction, it reads as the safe
+# choice, which is backwards.
+setup denied <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(env)"
+    ]
+  }
+}
+JSON
+invoke denied --apply
+if grep -q 'Denied by the template, permitted by your file' "$WORK/denied.out"; then
+  ok "a denial the user permits is called out, not reported neutrally"
+else
+  bad "denied" "the deny direction was reported in the neutral wording"
+fi
+
+# HOME under a symlinked path is routine -- macOS resolves /tmp into /private,
+# and these fixtures are mktemp dirs. The notice claimed the settings file was a
+# link whenever any parent was one, sending the reader after a link that is not
+# there. Killed by gating on TARGET != LIVE again.
+setup parentlink <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Bash(hdx_query.sh:*)"
+    ]
+  }
+}
+JSON
+mkdir -p "$WORK/real-home"
+cp -r "$HOMEDIR/.claude" "$WORK/real-home/"
+rm -rf "$HOMEDIR"
+ln -s "$WORK/real-home" "$HOMEDIR"
+invoke parentlink
+if ! grep -q 'a symlink' "$WORK/parentlink.out"; then
+  ok "a symlinked parent directory is not reported as a symlinked settings file"
+else
+  bad "parentlink" "claimed a symlink that is not there"
+fi
+
+# Two races, each made deterministic by injecting the other party's write into
+# the script itself. A sleep-and-background-write version of these would be
+# timing-dependent; this asks the same question with no clock in it.
+race() {
+  local label="$1"
+  local expr="$2"
+  local want="$3"
+  local mutant="$WORK/root/bin/race-$label.sh"
+  if ! sed "$expr" "$SCRIPT" > "$mutant.tmp"; then
+    bad "race/$label" "the sed expression failed, so this asserts nothing"
+    return
+  fi
+  mv "$mutant.tmp" "$mutant"
+  if cmp -s "$mutant" "$SCRIPT"; then
+    bad "race/$label" "the mutation changed nothing, so this asserts nothing"
+    return
+  fi
+  chmod +x "$mutant"
+  local home="$WORK/r-$label"
+  mkdir -p "$home/.claude"
+  if [ "$label" = "vanished" ]; then
+    printf '{\n  "permissions": {\n    "allow": [\n      "Bash(hdx_query.sh:*)"\n    ]\n  }\n}\n' \
+      > "$home/.claude/settings.json"
+  fi
+  HOME="$home" "$mutant" --apply > "$WORK/r-$label.out" 2>&1
+  local rc=$?
+  if [ "$rc" -eq 3 ] && grep -q "$want" "$WORK/r-$label.out"; then
+    ok "a settings file that $label mid-run is refused, not overwritten"
+  else
+    bad "race/$label" "rc=$rc"
+  fi
+}
+
+# The create path has no backup of anything, so unlike the replace path its
+# guard is a real guarantee: os.link fails if the name was taken. Killed by
+# reverting it to os.replace, which overwrites whatever appeared.
+race appeared \
+  's|^            os.link(tmp, TARGET)|            open(TARGET, "w").close(); os.link(tmp, TARGET)|' \
+  'appeared while this was running'
+
+# os.stat used to sit above the try that handles exactly this, so a file removed
+# mid-run ended in a traceback rather than the message written for it.
+race vanished \
+  's|^        mode = os.stat(TARGET)|        os.unlink(TARGET); mode = os.stat(TARGET)|' \
+  'cannot re-read'
+
+guard wrong-bucket "s/enumerate(plan\[bucket\]))/enumerate(plan['allow']))/"
+guard dropped-rule "s/enumerate(plan\[bucket\]))/enumerate(plan[bucket][:-1]))/"
+guard duplicated-rule "s/enumerate(plan\[bucket\]))/enumerate(plan[bucket] + plan[bucket][:1]))/"
 guard clobbered-key 's|    new_text = live_text$|    new_text = live_text.replace("keep-me", "gone")|'
 
 echo

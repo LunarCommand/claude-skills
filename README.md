@@ -234,6 +234,31 @@ usually nothing to configure. **It reads, adds, updates, closes and reorders**,
 and says plainly what it will not do — reopen a closed task, rewrite a body,
 clear a parent — rather than improvising.
 
+A write into a public repository refuses unless you pass `--public-ok`, since an
+issue is exactly as public as the repository holding it. The exception is a
+move, which has no such flag: a position is board metadata, so reordering
+publishes nothing. All four writers take `--dry-run`, which resolves every name
+and value and prints what it would send without sending it.
+
+Closing posts its note before it closes, so the reason is in the task's history
+and not only in its state. There is no reopen, by design: an undo would make a
+close feel cheap, and it is the one write here that cannot be taken back.
+
+Two things are worth knowing before you point it at a board. An issue is exactly
+as public as the repository it lives in, whatever the board's own privacy says —
+a private board hides the board, not its items. And the order items appear in is
+the board's own manual position, the one you set by dragging; it is not a field,
+so a view with a sort applied stops showing it.
+
+What it reads, it reports honestly: how many items it did not see, which fields
+it could not decode, which per-item lists were capped, and whether the board
+changed while it was being paged. Those land in a `warnings` array the skill is
+told to repeat verbatim, because a queue tool that quietly shows you part of the
+queue is worse than one that refuses.
+
+It needs one token scope ordinary `gh` auth does not include, and tells you the
+exact command if it is missing.
+
 #### `/lunar:setup` — is this thing on?
 
 **Use it for:** "why does it ask permission every time", "command not found",
@@ -262,30 +287,13 @@ answer at the moment it was most needed; it reports the absence and carries on.
 And it **redacts `$HOME` by default**, with `.agent.env` reported by key name
 and no values, so the output can be pasted straight into an issue.
 
-A write into a public repository refuses unless you pass `--public-ok`, since an
-issue is exactly as public as the repository holding it. The exception is a
-move, which has no such flag: a position is board metadata, so reordering
-publishes nothing. All four writers take `--dry-run`, which resolves every name
-and value and prints what it would send without sending it.
-
-Closing posts its note before it closes, so the reason is in the task's history
-and not only in its state. There is no reopen, by design: an undo would make a
-close feel cheap, and it is the one write here that cannot be taken back.
-
-Two things are worth knowing before you point it at a board. An issue is exactly
-as public as the repository it lives in, whatever the board's own privacy says —
-a private board hides the board, not its items. And the order items appear in is
-the board's own manual position, the one you set by dragging; it is not a field,
-so a view with a sort applied stops showing it.
-
-What it reads, it reports honestly: how many items it did not see, which fields
-it could not decode, which per-item lists were capped, and whether the board
-changed while it was being paged. Those land in a `warnings` array the skill is
-told to repeat verbatim, because a queue tool that quietly shows you part of the
-queue is worse than one that refuses.
-
-It needs one token scope ordinary `gh` auth does not include, and tells you the
-exact command if it is missing.
+The skill also drives the one script here that **writes**: `lunar_install.sh`
+merges the permission template into `~/.claude/settings.json`, which is the
+finding the report can state and not fix. It reports by default and writes only
+under `--apply`, and its output is **not** redacted — the diff is a slice of
+your own settings file, so it stays in the terminal. ["Running the scripts
+without a prompt each time"](#running-the-scripts-without-a-prompt-each-time)
+covers what it merges and what it refuses.
 
 ### 2. The recommended user CLAUDE.md
 
@@ -516,8 +524,10 @@ a symlink into a dotfiles repo, the file it points at is what changes. And it
 prompts every time, because it ships with no rule of its own: the rule would live
 in the file it writes. `/lunar:setup` drives it and reads the result.
 
-The first command exits 1 whenever there is still something to add, which after
-a report there always is. That is the report working, not failing.
+The first command exits 1 when there is still something to add and 0 when there
+is not, so a report on an unmerged file exits 1. That is the report working, not
+failing: the status describes the file rather than the run. A refusal — a shape
+it will not edit — is exit 3, and says why on stderr.
 
 [`plugin/install/user/settings.json`](plugin/install/user/settings.json) is the whole set, and
 nothing beyond it. It merges into `~/.claude/settings.json`. User scope, not a

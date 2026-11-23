@@ -769,6 +769,43 @@ else
   fail "optional    settings.optional.json carries a permissions key — rules belong in plugin/install/user/settings.json, which is the file the allowlist check reads"
 fi
 
+# lunar_install.sh models permissions as exactly these three lists. Claude Code
+# also accepts defaultMode, additionalDirectories and disableBypassPermissionsMode
+# there, and the project template's own _comment discusses defaultMode — so one
+# arriving in the user template is a live possibility rather than a hypothetical.
+# It would not merge: a fresh install copies the block verbatim and then fails its
+# own verification as a self-reported defect, while an existing file silently never
+# receives the key and the run still exits 0.
+#
+# The buckets must also be disjoint. The collision report is built from the user's
+# file alone, so a rule listed twice in the TEMPLATE is planned into both lists,
+# inserted into both, and precedence quietly decides — the exact outcome the
+# collision machinery exists to prevent, and invisible to the merge's own check,
+# which compares each bucket against old-plus-planned independently.
+if TEMPLATE_PROBLEM=$(python3 - plugin/install/user/settings.json <<'PY'
+import json
+import sys
+
+perms = json.load(open(sys.argv[1])).get('permissions', {})
+buckets = ('allow', 'ask', 'deny')
+extra = [k for k in perms if k not in buckets]
+if extra:
+    print('carries %s in permissions, which lunar_install.sh does not merge'
+          % ', '.join(sorted(extra)))
+    raise SystemExit(1)
+for i, a in enumerate(buckets):
+    for b in buckets[i + 1:]:
+        both = sorted(set(perms.get(a, [])) & set(perms.get(b, [])))
+        if both:
+            print('lists %s in both %s and %s' % (', '.join(both), a, b))
+            raise SystemExit(1)
+PY
+); then
+  pass "template    permissions holds only allow/ask/deny, with no rule in two of them"
+else
+  fail "template    plugin/install/user/settings.json $TEMPLATE_PROBLEM"
+fi
+
 # plugin/install/project/settings.json restates the user template's ask and deny rules,
 # because it is checked in where the user file is not: on a clone where nobody
 # merged the user file it is the whole policy, and it grants Read, Edit and Write

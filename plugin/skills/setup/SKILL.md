@@ -8,7 +8,12 @@ description: Always use this skill when the user asks whether this toolkit is in
 Diagnoses an installation, explains what the findings mean, and turns what
 cannot be fixed locally into a filable issue. The diagnosis reads and changes
 nothing. Merging the permission template is the one thing here that writes, and
-it asks twice before it does — `--apply`, then the permission prompt.
+it writes only under `--apply`. **Show the user the report's diff and get their
+go-ahead before passing it.** A permission prompt normally also stands in the
+way, but that prompt belongs to the harness and does not appear in a session
+running with permissions bypassed or with a rule the user added themselves —
+both states `lunar_doctor.sh` reports. The go-ahead is the part this skill can
+actually require.
 
 ## The bundled scripts
 
@@ -20,10 +25,13 @@ lunar_install.sh         # what merging the permission template would change
 lunar_install.sh --apply # merge it
 ```
 
-Invoke each by bare name, never by a path — a path-qualified call prompts even
-though a script is approved, because the rules match the bare form. That applies
-to `lunar_doctor.sh`; `lunar_install.sh` prompts whatever you do, and the next
-section says why.
+Invoke each by bare name, never by a path. For `lunar_doctor.sh` the reason is
+prompting: a path-qualified call prompts even though the script is approved,
+because the rules match the bare form. `lunar_install.sh` prompts whatever you
+do, so the reason there is a different and worse one — it reads the template out
+of its own copy of the plugin, and every machine that has run `/plugin install`
+has a second, older copy under `~/.claude/plugins/cache/`. A path reaches that
+one and merges its stale rule set.
 
 **Run it first, before theorising.** Most reports of a broken skill are an
 unmerged permission template or a session that predates the install, and the
@@ -92,25 +100,31 @@ the rule would sit in the file it writes. Approve it once you have read what it
 is about to do — the prompt shows whether `--apply` was passed, which is the
 only argument that changes anything.
 
-Four things it hands back rather than deciding:
+Five of the things it hands back rather than deciding — not the whole list:
 
 | It says | Why it stopped | What to tell the user |
 | --- | --- | --- |
 | `already has them in another list` | The template wants a rule in one list, their file has it in another | Their placement is the only one in force today. Adding the template's beside it would hand the stricter list the decision — `deny > ask > allow` — and the file would not show that it had. Theirs to move or keep |
+| `Denied by the template, permitted by your file` | The same collision, the other way round: the template **denies** a rule they allow or ask | Do not relay this as a tidy judgement call. The denial is not in force and this merge does not put it in force. `Bash(env)` and `Bash(printenv:*)` are denied because a transcript is not somewhere an API key can be withdrawn from. Ask whether they allowed it on purpose |
 | `not one rule per line` | An inline array, which it will not reflow | It prints the rules to paste. Reformatting someone's file to make room for a rule is not a thing a merge should do |
 | `does not start its own line` | The file is written on one line | Same: the rules are printed to paste |
-| `changed while this was running` | Something edited the settings file after the script read it | Nothing was written, and nothing is wrong. Run it again — the next run reads the file as it now stands |
+| `changed while this was running` | Something edited the settings file after the script read it | Nothing was written, and nothing is wrong. This is the one refusal where re-running is the answer, because the file did change: the next run reads it as it now stands |
 
 Only `permissions` is touched. The user CLAUDE.md, the optional settings and the
 per-project templates are merged by hand or with the Edit tool, where the diff
 is visible before it lands.
 
 **Exit 1 describes the file, not the run.** It means the settings file still
-differs from the template — most often because this was the report and `--apply`
-has not been run yet, otherwise because a shape was declined or a collision was
-skipped. **A report exiting 1 is the normal case**, not a failure, and not a
-reason to re-run it or to edit the script. Exit 0 from a report means there was
-nothing to add.
+differs from the template — because this was the report and `--apply` has not
+been run, or because a collision was skipped. **A report exiting 1 is the normal
+case**, not a failure. Exit 0 means there is nothing left to add.
+
+**Exit 3 is a refusal, and it is the one to read.** Nothing was written, and
+stderr names what stopped it. The table above covers four; the script has more,
+and the right move for any of them is the same: relay the message verbatim and
+stop. Do not re-run an unchanged file — it will refuse identically — and do not
+edit the script. If the message says it is a defect in the script, that is the
+one case where filing an issue is the next step.
 
 **Permissions load at startup, and the report reads the file.** Those are
 different things, and conflating them misreads both. The report opens

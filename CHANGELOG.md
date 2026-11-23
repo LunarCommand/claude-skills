@@ -78,11 +78,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   writes: the toolkit pre-approving the script that grants the toolkit its
   permissions. The prompt shows whether `--apply` was passed.
 
-  Three things it hands back rather than deciding: a rule the template wants in
-  one list while your file has it in another (precedence is
-  `deny > ask > allow`, so adding it beside yours would hand the stricter list
-  the decision without the file showing it), an inline array, and a file written
-  on one line. Each is named, and the rules are printed to paste.
+  Things it hands back rather than deciding, each named on stderr with exit 3:
+  a rule the template wants in one list while your file has it in another
+  (precedence is `deny > ask > allow`, so adding it beside yours would hand the
+  stricter list the decision without the file showing it), an inline array, a
+  file written on one line, and a file that changed while it was running. The
+  two shape refusals print the rules to paste; a collision does not, because
+  the placement is yours and there is nothing to paste. A collision where the
+  template **denies** what your file permits is called out separately rather
+  than in the same neutral wording — that direction drops a protection instead
+  of adding one.
 
   **A symlinked settings file is followed, not replaced.**
   `~/.claude/settings.json` is commonly a link into a dotfiles repo, and
@@ -98,9 +103,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   overwritten. That narrows the window; closing it would mean locking a file
   nothing else locks.
 
-  Its output is **not** redacted, unlike the report's — the diff is a slice of
-  your own settings file, so it stays in the terminal rather than going into an
-  issue.
+  **The diff prints only the lines it adds**, never surrounding context. The
+  keys next to `permissions` in a real settings file are `env` and
+  `apiKeyHelper`, so printed with context the report put live API keys into the
+  agent transcript on every run — the egress the template denies `Bash(env)` to
+  prevent. What remains is a slice of your own permission rules, so it still
+  belongs in a terminal rather than in an issue; `lunar_doctor.sh` is the one
+  whose output is redacted.
+
+  A file written with CRLF keeps its line endings, and the backup is a
+  byte-for-byte copy of what was there.
 
 ### Repository
 

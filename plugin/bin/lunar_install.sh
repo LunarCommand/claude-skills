@@ -64,15 +64,18 @@ reported and skipped. Precedence is deny > ask > allow, so adding it would
 silently change which one wins, and the file would not show why. That decision
 is yours.
 
-Exit status:
-  0   the file now holds every template rule
-  1   it does not, and the output says what is left -- most often that you have
-      not passed --apply yet, otherwise a shape this script will not edit or a
-      rule whose placement is yours to decide. A run that adds most of the
-      rules and skips a colliding one exits 1 too: the status describes the
-      file, not whether the script did something. None of these is a bug in
-      the script; do not go looking for one
+Exit status describes the FILE, not whether this script did something:
+  0   the file holds every template rule
+  1   it does not, and that is an ordinary outcome -- you have not passed
+      --apply yet, or a rule's placement is yours to decide and was skipped. A
+      run that adds most of the rules and skips a colliding one exits 1 too.
+      Nothing here is a bug; do not go looking for one
   2   usage error
+  3   refused. Nothing was written and stderr says why: either a shape this
+      script will not edit, which the message tells you how to work around, or
+      a defect in this script, which the message asks you to report. Re-running
+      an unchanged file will refuse identically
+  127 a required command or a bundled file is missing
 
 Its output is NOT redacted -- the diff shows part of your own settings file.
 lunar_doctor.sh is the one whose output is safe to paste into an issue.
@@ -125,12 +128,12 @@ TEMPLATE="$PLUGIN_ROOT/install/user/settings.json"
 if [ ! -r "$TEMPLATE" ]; then
   echo "lunar_install.sh: template missing from the plugin at $TEMPLATE" >&2
   echo "  This plugin install is incomplete; reinstall lunar." >&2
-  exit 1
+  exit 3
 fi
 
 if [ -z "${HOME:-}" ]; then
   echo "lunar_install.sh: HOME is unset, so there is no ~/.claude/settings.json to merge into" >&2
-  exit 1
+  exit 3
 fi
 LIVE="$HOME/.claude/settings.json"
 
@@ -163,7 +166,12 @@ def decline(msg, *detail):
     print('lunar_install.sh: %s' % msg, file=sys.stderr)
     for line in detail:
         print('  %s' % line, file=sys.stderr)
-    raise SystemExit(1)
+    # 3, not 1. Exit 1 means "work remains", which is what the report and a
+    # skipped collision mean and is an ordinary outcome. A refusal is not, and
+    # two of the paths through here say "this is a defect in this script" --
+    # under one status with the usage text promising exit 1 is never a bug, an
+    # agent re-runs the same refusal forever.
+    raise SystemExit(3)
 
 
 def paste_instead(rules_by_bucket):
@@ -178,7 +186,14 @@ def paste_instead(rules_by_bucket):
 
 
 def read(path):
-    with open(path) as fh:
+    # newline='' so line endings arrive as they are written on disk. The default
+    # translates CRLF to LF on the way in and nothing puts it back, so a CRLF
+    # file -- a dotfiles repo checked out with core.autocrlf=true -- had every
+    # line ending in it rewritten, invisibly: the diff compares the already
+    # translated text against itself, and the backup was written from the same
+    # translated text, so it could not restore the original bytes either.
+    # utf-8 rather than the locale's encoding, because JSON is utf-8 by spec.
+    with open(path, encoding='utf-8', newline='') as fh:
         return fh.read()
 
 
@@ -189,27 +204,40 @@ def write_new(path, text, mode):
     # O_EXCL also means a symlink sitting at this path is an error rather than
     # something written through.
     #
-    # mode None is a file that did not exist, where the umask decides as it
-    # would for any new file. A mode is one copied from the file being replaced,
-    # and is then set exactly: the umask can only clear bits, and a backup that
-    # is tighter than its original is as wrong as one that is looser.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                 0o666 if mode is None else mode)
-    with os.fdopen(fd, 'w') as fh:
+    # The mode is then set exactly, because the umask can only clear bits and a
+    # copy that is tighter than its original is as wrong as one that is looser.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    with os.fdopen(fd, 'w', encoding='utf-8', newline='') as fh:
         fh.write(text)
-    if mode is not None:
-        os.chmod(path, mode)
+    os.chmod(path, mode)
 
 
-def unique(text, needle, what):
+def discard(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def blame(where):
+    # These helpers are run against the shipped template as well as the user's
+    # file, and a template that cannot be parsed is a broken install, not a
+    # defect in settings the user may never have touched.
+    return ('This plugin install is incomplete; reinstall lunar.',) if where == TMPL else ()
+
+
+def unique(text, needle, what, where=None):
+    where = where or LIVE
     first = text.find(needle)
     if first < 0:
-        decline('cannot find %s in %s' % (what, LIVE),
-                'The file is valid JSON but not a shape this script can edit as text.')
+        decline('cannot find %s in %s' % (what, where),
+                'The file is valid JSON but not a shape this script can edit as text.',
+                *blame(where))
     if text.find(needle, first + 1) >= 0:
-        decline('%s appears more than once in %s' % (what, LIVE),
+        decline('%s appears more than once in %s' % (what, where),
                 'Which one to edit is a guess, and guessing is how the wrong line gets',
-                'rewritten. Resolve the duplicate, or add the rules by hand.')
+                'rewritten. Resolve the duplicate, or add the rules by hand.',
+                *blame(where))
     return first
 
 
@@ -219,14 +247,14 @@ def line_bounds(text, offset):
     return start, (len(text) if end < 0 else end)
 
 
-def indent_of(text, offset, what, *detail):
+def indent_of(text, offset, what, *detail, **kw):
     # A caller that reused whatever precedes the offset as indentation built
     # unparseable JSON out of a one-line file, and left the guard to report a
     # shape this script simply does not edit as a defect in itself.
     start, _ = line_bounds(text, offset)
     prefix = text[start:offset]
     if prefix.strip():
-        decline('%s in %s does not start its own line' % (what, LIVE),
+        decline('%s in %s does not start its own line' % (what, kw.get('where') or LIVE),
                 'This script only edits a file written one key per line, so that it',
                 'never has to reflow a line you wrote.',
                 *detail)
@@ -251,15 +279,41 @@ def reindent(span, outer_from, outer_to):
     return '\n'.join(kept)
 
 
-def array_text(rules, outer, step):
+def array_text(rules, outer, step, breaks=()):
     inner = outer + step
-    body = ',\n'.join(inner + json.dumps(r) for r in rules)
+    body = ',\n'.join(('\n' if r in breaks and n else '') + inner + json.dumps(r)
+                      for n, r in enumerate(rules))
     return '[\n%s\n%s]' % (body, outer)
 
 
-def member_value_span(text, key, opener):
+def group_breaks(text, bucket):
+    """Rules the template introduces with a blank line.
+
+    The blank-line grouping is the stated reason this script edits as text
+    rather than reserialising, and copying the template verbatim delivered it
+    only when creating a file from nothing. Appending to a list the user
+    already has is the common case, and it was emitting one flat block.
+    """
+    _, open_at, close = member_value_span(text, bucket, '[', TMPL)
+    marked, blank = set(), False
+    for row in text[open_at + 1:close - 1].split('\n'):
+        stripped = row.strip()
+        if not stripped:
+            blank = True
+            continue
+        if blank:
+            value = stripped[:-1].rstrip() if stripped.endswith(',') else stripped
+            try:
+                marked.add(json.loads(value))
+            except ValueError:
+                pass
+        blank = False
+    return marked
+
+
+def member_value_span(text, key, opener, where=None):
     """Span of a top-level-ish member's container value, located by a unique key."""
-    off = unique(text, json.dumps(key), 'the %s key' % json.dumps(key))
+    off = unique(text, json.dumps(key), 'the %s key' % json.dumps(key), where)
     m = re.compile(r'\s*:\s*\%s' % opener).match(text, off + len(json.dumps(key)))
     if not m:
         decline('the %s key in %s is not followed by %s' % (json.dumps(key), LIVE, opener),
@@ -343,7 +397,11 @@ total = sum(len(v) for v in plan.values())
 
 out('template  %s' % TMPL)
 out('settings  %s%s' % (LIVE, '' if live_text is not None else '  (does not exist yet)'))
-if TARGET != LIVE:
+if os.path.islink(LIVE):
+    # Only when the settings file is itself a link. TARGET also differs when a
+    # parent directory is one -- routine on macOS, where /tmp and /var resolve
+    # into /private -- and claiming a link that is not there sends the reader
+    # looking for it.
     out('          -> %s  (a symlink; the file it points at is what changes)' % TARGET)
 out()
 
@@ -353,6 +411,22 @@ if collisions:
         out('  %s' % rule)
         out('    the template puts it in %s; yours has it in %s' % (wanted, found))
     out()
+    # Split by direction. The paragraph below is written for a template rule
+    # that is stricter than where the user keeps it -- there, leaving theirs
+    # alone is the conservative answer. When the template's bucket is deny and
+    # theirs is allow or ask, the same neutral wording describes dropping a
+    # protection as the safe choice, which is backwards: the merge reports as
+    # applied while the permissive placement stands.
+    dropped = [c for c in collisions if c[1] == 'deny' and c[2] != 'deny']
+    if dropped:
+        out('  Denied by the template, permitted by your file:')
+        for rule, _, found in dropped:
+            out('    %s  (yours: %s)' % (rule, found))
+        out('  Those denials are not in force, and this merge does not put them in')
+        out('  force. The template denies Bash(env) and Bash(printenv:*) because a')
+        out('  transcript is not somewhere an API key can be withdrawn from. If you')
+        out('  did not put these in allow on purpose, move them to deny yourself.')
+        out()
     out('  Your placement is the only one in the file, so it is what applies today.')
     out('  Precedence is deny > ask > allow, so adding the template\'s rule beside')
     out('  yours would hand the stricter list the decision, and the file would not')
@@ -378,16 +452,18 @@ if live_text is None or not live_obj:
     # carries the blank-line grouping that makes a list this long navigable,
     # which is exactly what rebuilding it from parsed rules would drop.
     tmpl_text = read(TMPL)
-    key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{')
+    key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{', TMPL)
     new_text = '{\n  %s\n}\n' % tmpl_text[key_at:close_at]
     note = ('creating the file with only a permissions block' if live_text is None
             else 'replacing an empty object with a permissions block')
 else:
     indent = detect_indent(live_text)
+    # Read once: every bucket's grouping comes out of the same template text.
+    tmpl_all = read(TMPL)
     edits = []
     if not live_perms:
         tmpl_text = read(TMPL)
-        key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{')
+        key_at, _, close_at = member_value_span(tmpl_text, 'permissions', '{', TMPL)
         member = reindent(tmpl_text[key_at:close_at], '  ', indent)
         if 'permissions' in (live_obj or {}):
             _, open_at, close = member_value_span(live_text, 'permissions', '{')
@@ -407,33 +483,74 @@ else:
             if bucket not in live_perms:
                 _, open_at, close = member_value_span(live_text, 'permissions', '{')
                 member_indent = indent * 2
-                body = array_text(plan[bucket], member_indent, indent)
+                body = array_text(plan[bucket], member_indent, indent,
+                                  group_breaks(tmpl_all, bucket))
                 edits.append((open_at + 1, open_at + 1,
                               '\n%s%s: %s,' % (member_indent, json.dumps(bucket), body)))
             elif not existing:
                 key_at, open_at, close = member_value_span(live_text, bucket, '[')
                 outer = indent_of(live_text, key_at, '"permissions.%s"' % bucket,
                                   *paste_instead({bucket: plan[bucket]}))
-                edits.append((open_at, close, array_text(plan[bucket], outer, indent)))
+                edits.append((open_at, close,
+                              array_text(plan[bucket], outer, indent,
+                                         group_breaks(tmpl_all, bucket))))
             else:
                 last = existing[-1]
                 if not isinstance(last, str):
                     decline('the last entry in "permissions.%s" is not a string' % bucket)
-                anchor = json.dumps(last)
-                off = unique(live_text, anchor, 'the last %s rule' % bucket)
-                start, end = line_bounds(live_text, off)
-                if live_text[start:end].strip() != anchor:
+                # Located from the array's own span, not by searching the whole
+                # file for the last rule's text. A whole-file search refused the
+                # entire merge when the user held that rule in two buckets at
+                # once -- a file Claude Code resolves by precedence and runs
+                # fine -- and missed outright when their spelling of the string
+                # differed from json.dumps's, an escaped slash or a raw accent.
+                # Neither makes the file uneditable.
+                _, open_at, close = member_value_span(live_text, bucket, '[')
+                # close is one past the ']', so the bracket itself is excluded.
+                rows = live_text[open_at + 1:close - 1].split('\n')
+                filled = [i for i, row in enumerate(rows) if row.strip()]
+                # rows[0] is what follows '[' on its own line, so a last rule
+                # found there means the array opens and closes without ever
+                # starting a line of its own. That is the inline shape, and
+                # reflowing it is the one thing this script will not do.
+                if not filled or filled[-1] == 0:
                     decline('"permissions.%s" in %s is not one rule per line' % (bucket, LIVE),
                             'This script only appends to a one-rule-per-line array, so that',
                             'it never has to reflow a line you wrote.',
                             *paste_instead({bucket: plan[bucket]}))
-                pad = indent_of(live_text, off, 'the last "permissions.%s" rule' % bucket)
-                ins = ','.join([''] + ['\n%s%s' % (pad, json.dumps(r)) for r in plan[bucket]])
+                idx = filled[-1]
+                tail = rows[idx].strip()
+                tail = tail[:-1].rstrip() if tail.endswith(',') else tail
+                try:
+                    parsed = json.loads(tail)
+                except ValueError:
+                    parsed = None
+                if parsed != last:
+                    decline('"permissions.%s" in %s is not one rule per line' % (bucket, LIVE),
+                            'This script only appends to a one-rule-per-line array, so that',
+                            'it never has to reflow a line you wrote.',
+                            *paste_instead({bucket: plan[bucket]}))
+                end = open_at + 1 + sum(len(row) + 1 for row in rows[:idx]) + len(rows[idx])
+                pad = rows[idx][:len(rows[idx]) - len(rows[idx].lstrip())]
+                # A blank line before the first added rule separates the
+                # user's own entries from the block this script appends, and
+                # then wherever the template starts a new group.
+                marked = group_breaks(tmpl_all, bucket)
+                ins = ''.join(
+                    ',%s\n%s%s' % ('\n' if (n == 0 or r in marked) else '',
+                                   pad, json.dumps(r))
+                    for n, r in enumerate(plan[bucket]))
                 edits.append((end, end, ins))
 
     new_text = live_text
     for start, end, replacement in sorted(edits, key=lambda e: -e[0]):
         new_text = new_text[:start] + replacement + new_text[end:]
+
+# Everything above is built with \n, including the template text copied in, so
+# an insertion into a CRLF file leaves the two mixed. One pass at the end puts
+# the file back on the endings it arrived with.
+if live_text and '\r\n' in live_text:
+    new_text = new_text.replace('\r\n', '\n').replace('\n', '\r\n')
 
 # ----------------------------------------------------------------- the check ----
 
@@ -477,10 +594,18 @@ if problems:
 
 # ---------------------------------------------------------------- the output ----
 
+# n=0, so only added and removed lines print and never a line of surrounding
+# context. Context is what leaks: the keys next to "permissions" in a real
+# settings file are "env" and "apiKeyHelper", and three lines of it printed a
+# live API key into the agent transcript on a plain report -- the whole env
+# block on a first install, where the insertion lands at the top of the file.
+# The shipped template denies Bash(env) to keep keys out of a transcript, so
+# printing them here defeated the toolkit's own control. Every +/- line is a
+# permission rule by construction, which is the only thing this script writes.
 diff = list(difflib.unified_diff(
     (live_text or '').splitlines(keepends=True),
     new_text.splitlines(keepends=True),
-    fromfile=LIVE + '  (now)', tofile=LIVE + '  (after)', n=3))
+    fromfile=LIVE + '  (now)', tofile=LIVE + '  (after)', n=0))
 
 if MODE != 'apply':
     out('Would change %s -- %s:' % (LIVE, note))
@@ -493,23 +618,26 @@ if MODE != 'apply':
 
 for directory in {os.path.dirname(TARGET), os.path.dirname(LIVE)}:
     try:
-        os.makedirs(directory, exist_ok=True)
+        # 0o700: this directory holds the file that decides what the agent may
+        # run. A group-writable ~/.claude on a shared machine or in a container
+        # with umask 002 lets another local account edit that file.
+        os.makedirs(directory, 0o700, exist_ok=True)
     except OSError as exc:
         decline('cannot create %s: %s' % (directory, exc))
-
-# Both new files inherit the mode of the file being replaced, so neither the
-# backup nor the half-written replacement is readable to anyone the original
-# was not.
-mode = os.stat(TARGET).st_mode & 0o7777 if live_text is not None else None
 
 # The file was read before the plan was built, and what is about to be written
 # is that text plus the planned rules. An edit landing in between would be
 # overwritten without trace, so the file is read again and the run declines if
 # it moved. The window between this check and the rename below stays open --
-# narrowing it is worth five lines, closing it would mean locking a file
-# nothing else locks.
+# narrowing it is worth the lines, closing it would mean locking a file nothing
+# else locks. The stat sits inside this try because the same disappearance it
+# guards against would otherwise raise here, ten lines above the message
+# written for it.
 if live_text is not None:
     try:
+        # The replacement and the backup both inherit the mode of the file
+        # being replaced, so neither is readable to anyone the original was not.
+        mode = os.stat(TARGET).st_mode & 0o7777
         if read(TARGET) != live_text:
             decline('%s changed while this was running' % LIVE,
                     'Nothing was written. Re-run to see a diff of the file as it',
@@ -517,6 +645,11 @@ if live_text is not None:
     except OSError as exc:
         decline('cannot re-read %s: %s' % (LIVE, exc),
                 'Nothing was written. The settings file is untouched.')
+else:
+    # 0600 rather than the umask default for a file this script creates: it
+    # decides what the agent may run, and 0664 hands that decision to every
+    # account in the user's group.
+    mode = 0o600
 
 backup = None
 if live_text is not None:
@@ -537,6 +670,10 @@ if live_text is not None:
         except FileExistsError:
             continue
         except OSError as exc:
+            # A write that stopped partway leaves a short file under a name
+            # claiming to be a full copy, which is worse than no backup at all:
+            # restoring from it would drop whatever rules did not make it.
+            discard(backup)
             decline('cannot write the backup %s: %s' % (backup, exc),
                     'Nothing was written. The settings file is untouched.')
     else:
@@ -550,14 +687,37 @@ if live_text is not None:
 tmp = '%s.lunar-new-%d' % (TARGET, os.getpid())
 try:
     write_new(tmp, new_text, mode)
-    os.replace(tmp, TARGET)
+    if live_text is None:
+        # The file did not exist when the plan was built, so this run has no
+        # backup of anything and never saw whatever created it since -- Claude
+        # Code persisting an "always allow", a dotfiles stow, a second apply.
+        # os.replace would overwrite that silently. A link fails instead if the
+        # name has been taken, which is the only path here that is a guarantee
+        # rather than a narrowing.
+        try:
+            os.link(tmp, TARGET)
+        except FileExistsError:
+            decline('%s appeared while this was running' % LIVE,
+                    'It did not exist when this started, so there is no backup of',
+                    'what it now holds. Nothing was written. Re-run to see a diff',
+                    'against the file as it stands.')
+    else:
+        os.replace(tmp, TARGET)
+except FileExistsError:
+    decline('a temporary file from an interrupted run is in the way: %s' % tmp,
+            'Nothing was written. Delete that file and re-run.')
 except OSError as exc:
-    try:
-        os.unlink(tmp)
-    except OSError:
-        pass
-    decline('cannot write %s: %s' % (LIVE, exc),
-            'The settings file is untouched.' if live_text is not None else '')
+    detail = ['The settings file is untouched.'] if live_text is not None else []
+    if backup:
+        # Naming it because the line above says the settings file is untouched,
+        # which a reader can otherwise take to mean the run left nothing behind.
+        detail.append('The backup this run made is still at %s' % backup)
+    decline('cannot write %s: %s' % (LIVE, exc), *detail)
+finally:
+    # Also covers an interruption between the write and the rename, which is
+    # not an OSError and would otherwise strand the file until a later run drew
+    # the same pid and failed on it.
+    discard(tmp)
 
 out('Applied -- %s.' % note)
 if backup:
