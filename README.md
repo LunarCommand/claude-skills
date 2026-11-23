@@ -524,6 +524,13 @@ a symlink into a dotfiles repo, the file it points at is what changes. And it
 prompts every time, because it ships with no rule of its own: the rule would live
 in the file it writes. `/lunar:setup` drives it and reads the result.
 
+**A permission classifier may stop the agent running `--apply` at all**, on the
+grounds that a change to the permission file is a change to the agent's own
+oversight. That has happened, and it is the same reasoning that keeps the script
+off the allowlist. Run it yourself — `! lunar_install.sh --apply` from inside a
+session, or the bare command in a terminal — and restart afterwards. The skill
+tells the agent to hand it over rather than find another way in.
+
 The first command exits 1 when there is still something to add and 0 when there
 is not, so a report on an unmerged file exits 1. That is the report working, not
 failing: the status describes the file rather than the run. A refusal — a shape

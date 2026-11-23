@@ -95,12 +95,22 @@ rules as text so the formatting survives, and checks the result against the
 original before replacing anything: if the edit did not come out as planned,
 nothing is written.
 
+**If `--apply` is blocked, hand it to the user — do not route around it.** A
+permission classifier can refuse the call precisely because it changes what the
+agent may run; one has, naming it as undermining oversight. That is the control
+working, not a fault, and it is the same judgement that keeps this script off
+the allowlist. Tell the user to run `! lunar_install.sh --apply` themselves,
+then restart. **Never write `~/.claude/settings.json` with the Edit tool, a
+heredoc or a shell redirect instead** — that is the same change with the
+verification, the backup, the collision report and the prompt all removed, and
+it is the one file where losing those costs the user the ability to correct it.
+
 **It prompts on every call, by design.** It ships with no allowlist rule because
 the rule would sit in the file it writes. Approve it once you have read what it
 is about to do — the prompt shows whether `--apply` was passed, which is the
 only argument that changes anything.
 
-Five of the things it hands back rather than deciding — not the whole list:
+Six of the things it hands back rather than deciding — not the whole list:
 
 | It says | Why it stopped | What to tell the user |
 | --- | --- | --- |
@@ -108,6 +118,7 @@ Five of the things it hands back rather than deciding — not the whole list:
 | `Denied by the template, permitted by your file` | The same collision, the other way round: the template **denies** a rule they allow or ask | Do not relay this as a tidy judgement call. The denial is not in force and this merge does not put it in force. `Bash(env)` and `Bash(printenv:*)` are denied because a transcript is not somewhere an API key can be withdrawn from. Ask whether they allowed it on purpose |
 | `not one rule per line` | An inline array, which it will not reflow | It prints the rules to paste. Reformatting someone's file to make room for a rule is not a thing a merge should do |
 | `does not start its own line` | The file is written on one line | Same: the rules are printed to paste |
+| blocked before it runs, by a permission classifier | It writes the file that decides what the agent may run, which is what the classifier is there to catch | Not a refusal from the script and not a defect. Ask the user to run `! lunar_install.sh --apply` themselves, then restart. Do not reach for the Edit tool on `~/.claude/settings.json` |
 | `changed while this was running` | Something edited the settings file after the script read it | Nothing was written, and nothing is wrong. This is the one refusal where re-running is the answer, because the file did change: the next run reads it as it now stands |
 
 Only `permissions` is touched. The user CLAUDE.md, the optional settings and the

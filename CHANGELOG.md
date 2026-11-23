@@ -14,6 +14,20 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### setup
+
+- The skill now says what to do when a permission classifier **blocks**
+  `lunar_install.sh --apply` rather than the script refusing. One does, naming
+  it as undermining oversight — which is the same judgement that keeps the
+  script off the allowlist, so it is the control working rather than a fault.
+  The agent is told to hand the command to the user and, explicitly, never to
+  write `~/.claude/settings.json` with the Edit tool or a redirect instead: that
+  is the same change with the verification, the backup, the collision report and
+  the prompt removed. Found on the first run against a real settings file, where
+  the agent improvised the right answer with nothing in the skill to guide it.
+
 ## v1.3.0 — 2026-11-22
 
 The version moved to 1.3.0 on 2026-11-21, ahead of this tag, and the payload
