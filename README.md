@@ -38,7 +38,7 @@ it yourself, then answer the humans.
 ```mermaid
 flowchart TD
     idea(["an idea, a PRD, or a bug you traced"])
-    fp1["<b>/lunar:feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then asks you questions in the file</i>"]
+    fp1["<b>/lunar:feature-planning</b><br/>writes _reqs/&lt;slug&gt;.md<br/><i>then walks you through its questions,<br/>or you answer them in the file</i>"]
     g1{{"GATE 1 &nbsp; reply <b>answered</b>"}}
     fp2["<b>/lunar:feature-planning</b> continues<br/>writes _plans/&lt;slug&gt;-plan.md<br/><i>phases, tests, invariants, coverage</i>"]
     g2{{"GATE 2 &nbsp; reply <b>approved</b> to build now<br/>or <b>accepted</b> to stop here"}}
@@ -130,14 +130,17 @@ refactor with consequences.
 
 A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
 asked for, plus its own analysis: what is strong, what worries it, the holes in
-your requirements, and alternatives worth considering — then `_plans/<slug>-plan.md`
+your requirements, and alternatives worth considering — each item carrying its own
+ID and a recommendation — then `_plans/<slug>-plan.md`
 with phases, tasks carrying `P<phase>.<task>` IDs, enumerated tests (`T-<n>`),
 invariants (`INV-<n>`), and a coverage table proving every invariant and success
 criterion maps to a test. The identifiers exist so a commit message or a review
 comment can name one thing unambiguously — prose gets reworded, IDs do not.
 
-Two gates, two different words. **Gate 1** happens in the *file*: answer the
-questions in `_reqs/<slug>.md`, then reply `answered`. **Gate 2** has two exits:
+Two gates, two different words. **Gate 1** is that analysis in `_reqs/<slug>.md`.
+It offers to walk you through the items one at a time, each with its recommendation,
+or you answer them in the file yourself — either way the answers land in the file and
+you reply `answered`. **Gate 2** has two exits:
 `approved` means the plan is right *and* start building; `accepted` means the plan
 is right but stop here. No code is written before `approved` — which is what lets
 you say "good plan, not yet" without interrupting a run already writing code.
@@ -704,9 +707,11 @@ the plugin, so `command not found` means the plugin is not loaded — check
 finds these, because that `PATH` belongs to the Bash tool rather than your login
 shell.
 
-**"It asked me a question in a file, not in chat."** That is
+**"It wrote its questions to a file instead of asking me."** That is
 `feature-planning`'s first gate, and it is deliberate. Answers in a file are
-reviewable, greppable, and survive the session.
+reviewable, greppable, and survive the session. It will offer to walk you through
+the items one at a time — a thirty-item file is faster answered out loud — but the
+answers still go in the file, which is the part that matters.
 
 **"The review is taking forever."** For anything PR-sized it is meant to. It
 escalated to the background workflow and is running dozens of agents.
