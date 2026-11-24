@@ -130,8 +130,8 @@ refactor with consequences.
 
 A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
 asked for, plus its own analysis: what is strong, what worries it, the holes in
-your requirements, and alternatives worth considering — each item carrying its own
-ID and a recommendation — then `_plans/<slug>-plan.md`
+your requirements, and alternatives worth considering — each carrying an ID, and a
+recommendation wherever one can honestly be made — then `_plans/<slug>-plan.md`
 with phases, tasks carrying `P<phase>.<task>` IDs, enumerated tests (`T-<n>`),
 invariants (`INV-<n>`), and a coverage table proving every invariant and success
 criterion maps to a test. The identifiers exist so a commit message or a review
@@ -139,7 +139,7 @@ comment can name one thing unambiguously — prose gets reworded, IDs do not.
 
 Two gates, two different words. **Gate 1** is that analysis in `_reqs/<slug>.md`.
 It offers to walk you through the items one at a time, each with its recommendation,
-or you answer them in the file yourself — either way the answers land in the file and
+or you fill in the `A:` lines yourself — either way the answers land in the file and
 you reply `answered`. **Gate 2** has two exits:
 `approved` means the plan is right *and* start building; `accepted` means the plan
 is right but stop here. No code is written before `approved` — which is what lets

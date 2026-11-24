@@ -30,17 +30,25 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   exactly that. The walkthrough still does not open Gate 1; only "answered" does,
   however many items it settled.
 
-- **Every analysis item carries a stable ID and a recommendation.** `C-<n>`
-  concerns, `G-<n>` gaps, `OPP-<n>` opportunities, `ALT-<n>` alternatives, `Q-<n>`
-  questions, numbered within their own kind so appending a gap never renumbers a
-  question, and kept when an item moves to **Addressed**. Same reason `T-<n>` and
-  `P<phase>.<task>` exist: chat, the walkthrough and the file have to be able to
-  name the same item.
+- **Every analysis item carries a stable ID.** `C-<n>` concerns, `G-<n>` gaps,
+  `OPP-<n>` opportunities, `ALT-<n>` alternatives, `Q-<n>` questions, `D-<n>`
+  directions — numbered within their own kind so appending a gap never renumbers a
+  question, and kept when the item moves. Same reason `T-<n>` and `P<phase>.<task>`
+  exist: chat and the file have to be able to name the same item.
+
+  The kinds were never uniform, and a table in Step 2 now says so rather than
+  leaving it to be inferred: which carry a recommendation, which have an **Open** /
+  **Addressed** split, and where an answer to each is recorded. Alternatives carry
+  an ID but no per-item recommendation, because `### My recommendation` decides them
+  together.
 
   An item the agent cannot honestly call now says so — `Your call — <what only you
   can decide>` — rather than carrying a manufactured recommendation. An invented
   one reads exactly like a real one, and it does the most damage on the items the
-  agent understands least.
+  agent understands least. Such an item is left in the file rather than forced into
+  a multiple choice: the dialog has no one-option form, and inventing a second
+  choice to fill it is how a `Your call` item would acquire a recommendation nobody
+  made.
 
 ## v1.3.1 — 2026-11-23
 
