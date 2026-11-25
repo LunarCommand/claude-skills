@@ -238,21 +238,21 @@ batching:
 
 > "I've added my approach analysis and clarifying questions to `$REQUIREMENTS_FILE` —
 > <n> items in all. Want me to walk you through them one at a time with a
-> recommendation for each, or would you rather fill in the `A:` lines yourself?
-> Either way, push back on or accept the analysis and reply **'answered'** when
-> you're done."
+> recommendation for each, or would you rather answer in the file yourself — `A:`
+> lines for the questions, a note on any other item? Either way, push back on or
+> accept the analysis and reply **'answered'** when you're done."
 
 When those conditions are not met, send the same message without the offer, asking
-them to fill in the `A:` lines and reply **'answered'**.
+them to answer in the file and reply **'answered'**.
 
 ---
 
 ### Step 2a — Offer to walk the items
 
 A requirements file routinely carries thirty or more items to settle, and answering
-them by editing `A:` lines is slow. Offer to walk them instead. **Offer once**, in the
-message above, and take no for an answer — the file route is unchanged and equally
-correct, and a user who declines is not asked again.
+them one at a time in the file is slow. Offer to walk them instead. **Offer once**,
+in the message above, and take no for an answer — the file route is unchanged and
+equally correct, and a user who declines is not asked again.
 
 **Offer only when there is enough to batch.** Skip it on the brief form and whenever
 the analysis settles out at a handful of items: two questions are answered faster in
@@ -335,6 +335,9 @@ that arrives loose in chat alike. Whenever the user answers or decides something
 - Move each concern or gap it settles under **Addressed**, naming what settled it. Keep
   **Open** first in both sections, and write `None open.` when nothing is left, so the file
   reads top-down and can be put down at the first Addressed item.
+- Write `Answered:` on a concern, gap or opportunity the answer did not settle, in the
+  user's words. An item discussed and left open must not read like one never raised —
+  that is what a resumed walkthrough reads to find where it got to.
 - Record under `### Direction taken at Gate 1` any decision that answers no single question.
 - Append a question the answer raised to Clarifying Questions, with the next free
   `Q-<n>`, a `Reco:`, and a blank `A:`.
@@ -642,11 +645,12 @@ behind its back, and re-presents Gate 2 for work already under way.
 - **Offer the walkthrough once, and take no for an answer.** It is how answers are
   collected, never where the analysis is made, and every answer it collects goes into the
   file as it is given. See Step 2a.
-- **Every analysis item carries a stable ID** — `C-<n>`, `G-<n>`, `OPP-<n>`, `ALT-<n>`,
-  `Q-<n>`, `D-<n>`, numbered within their own kind and kept when the item moves. Same
-  reason as `T-<n>` and `P<phase>.<task>`: chat and the file must be able to name the
-  same item. The kinds are not uniform — the table in Step 2 says which carry a `Reco:`,
-  which have an **Open** / **Addressed** split, and where an answer to each is recorded.
+- **Every item the table gives an ID carries one** — `C-<n>`, `G-<n>`, `OPP-<n>`,
+  `ALT-<n>`, `Q-<n>`, `D-<n>`, numbered within their own kind and kept when the item
+  moves. Same reason as `T-<n>` and `P<phase>.<task>`: chat and the file must be able
+  to name the same item. The kinds are not uniform — the table in Step 2 says which
+  carry an ID, which carry a `Reco:`, which have an **Open** / **Addressed** split,
+  and where an answer to each is recorded.
 - **Every item the table marks `Reco:` carries one, or says why it cannot.** `Your call
   — <what only they can decide>` is a complete answer; an invented recommendation is
   not, and it does the most damage on the items you understand least. Alternatives are

@@ -130,12 +130,13 @@ refactor with consequences.
 
 A file or a plain description both work. It writes `_reqs/<slug>.md` — what you
 asked for, plus its own analysis: what is strong, what worries it, the holes in
-your requirements, and alternatives worth considering — each carrying an ID, and a
-recommendation wherever one can honestly be made — then `_plans/<slug>-plan.md`
-with phases, tasks carrying `P<phase>.<task>` IDs, enumerated tests (`T-<n>`),
-invariants (`INV-<n>`), and a coverage table proving every invariant and success
-criterion maps to a test. The identifiers exist so a commit message or a review
-comment can name one thing unambiguously — prose gets reworded, IDs do not.
+your requirements, and alternatives worth considering — each worry, hole and
+alternative carrying an ID, and a recommendation wherever one can honestly be
+made — then `_plans/<slug>-plan.md` with phases, tasks carrying `P<phase>.<task>`
+IDs, enumerated tests (`T-<n>`), invariants (`INV-<n>`), and a coverage table
+proving every invariant and success criterion maps to a test. The identifiers
+exist so a commit message or a review comment can name one thing unambiguously —
+prose gets reworded, IDs do not.
 
 Two gates, two different words. **Gate 1** is that analysis in `_reqs/<slug>.md`.
 It offers to walk you through the items one at a time, each with its recommendation,
