@@ -361,7 +361,11 @@ Re-read `$REQUIREMENTS_FILE` in full. Check that:
 - Every item settled in the walkthrough is recorded **in the file**. An answer that
   exists only in the chat transcript is not recorded, and the plan gets written without it
 
-If any `A:` lines are still blank, list the unanswered questions and wait for the user to complete them. Do not proceed until all are answered.
+If any `A:` lines are still blank, list the unanswered questions and wait for the
+user to complete them. Do not proceed until all are answered. A concern or gap the
+user chose to leave open is not a blocker — the plan is written against what is
+genuinely still open. An answer they gave that the file does not record is one, so
+write it down rather than asking for it a second time.
 
 ---
 
