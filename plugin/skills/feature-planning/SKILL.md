@@ -153,11 +153,11 @@ Reco: <...>
 A: 
 ```
 
-**Items carry a stable ID**, numbered within their own kind so appending a gap never
-renumbers a question, and kept when the item moves. They exist for the same reason
-`T-<n>` and `P<phase>.<task>` do: chat and the file have to be able to name the same
-item, and prose gets reworded. An item added later takes the next free number rather
-than reusing a retired one.
+**Every item the table below gives an ID carries one**, numbered within its own kind
+so appending a gap never renumbers a question, and kept when the item moves. They
+exist for the same reason `T-<n>` and `P<phase>.<task>` do: chat and the file have
+to be able to name the same item, and prose gets reworded. An item added later takes
+the next free number rather than reusing a retired one.
 
 **The kinds are not uniform.** What each carries, and where an answer to it is
 recorded:
