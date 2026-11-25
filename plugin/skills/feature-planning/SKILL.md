@@ -72,13 +72,18 @@ Read it in full.
 ⚠️ **Both the analysis and the questions MUST be written to `$REQUIREMENTS_FILE` on disk. This is not optional.**
 
 ❌ NEVER do any of the following:
-- Discuss the approach in chat or terminal
-- List your concerns, alternatives, or questions in your response
-- Run an interactive interview
+- Work the approach out in chat instead of in the file
+- Raise a concern, alternative or question you have not written down first
+- Put the questions to the user as prose in chat. Answers are collected by the user
+  editing the file, or through Step 2a's walkthrough, and nowhere else
 - Skip the analysis because the requirements seem solid
 - Skip the questions because the requirements seem clear enough
 
 ✅ The ONLY correct action is to open `$REQUIREMENTS_FILE` and append BOTH sections below to the bottom of it using your file write tools, then tell the user where to find them.
+
+Step 2a offers to walk the written items one at a time, and it is not an exception
+to any of the above. It puts items already on disk in front of the user and writes
+their answers back; the analysis itself is written first, always.
 
 Note: when the requirements file was generated from a `$DESCRIPTION`, expect more gaps than usual — lean harder on Clarifying Questions to surface what the prose didn't cover.
 
@@ -94,50 +99,88 @@ The sections MUST use this exact format:
 ### Concerns & risks
 
 **Open**
-- <concern> — why it matters
-- <concern> — why it matters
+- **C-1** <concern> — why it matters. **Reco:** <what you would do about it>
+- **C-2** <concern> — why it matters. **Reco:** <...>
+  **Answered:** <what the user said, when it did not settle the concern. Present only
+  on an item that has been put to them and is still open.>
 
 **Addressed**
-<Empty when first written. A concern moves here when an answer or a decision settles it:>
-- <concern> — settled by <the question it answered, or the Direction entry>
+<Empty when first written. A concern moves here when an answer or a decision settles
+it, keeping the ID it was given:>
+- **C-3** <concern> — settled by <the question it answered, or the Direction entry>
 
 ### Gaps & holes in the requirements
 Poke holes in the requirements *as written* — this is about defects in the spec, not risks in the approach. Look for:
 
 **Open**
-- <ambiguity or under-specified behavior> — what's unclear and why it will bite
-- <unstated assumption the reqs depend on> — what happens if it's false
-- <missing edge case / failure mode not addressed>
-- <internal contradiction or requirement that conflicts with another>
-- <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>
+- **G-1** <ambiguity or under-specified behavior> — what's unclear and why it will bite. **Reco:** <...>
+- **G-2** <unstated assumption the reqs depend on> — what happens if it's false. **Reco:** <...>
+- **G-3** <missing edge case / failure mode not addressed>. **Reco:** <...>
+- **G-4** <internal contradiction or requirement that conflicts with another>. **Reco:** <...>
+- **G-5** <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>. **Reco:** <...>
 
 **Addressed**
-<as above — what settled it, not just that it is settled>
+<as above, keeping the ID — what settled it, not just that it is settled>
 
 ### Opportunities worth considering
 Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope (the user decides at Gate 1).
-- **<Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>.
-- **<Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>.
+- **OPP-1 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <take it / skip it> — <why>.
+- **OPP-2 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <...>
+  **Answered:** <what the user decided. Present only on an item that has been put to
+  them — there is no **Addressed** section here, so this line is the whole record.>
 
 ### Alternative approaches worth considering
-- **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
-- **<Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
+These are one decision rather than several — `### My recommendation` picks among
+them, so they carry no per-item **Reco:**.
+- **ALT-1 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
+- **ALT-2 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 
 ### Direction taken at Gate 1
 <Decisions the user made in chat that answer no single question. Empty until there is one.>
-- <ISO date> — <the decision, in the user's terms> — <what it changes>
+- **D-1** <ISO date> — <the decision, in the user's terms> — <what it changes>
 
 ### My recommendation
 <One paragraph. Be opinionated — pick one approach and defend it. If the proposed approach is the right one, say so and explain why the alternatives lose. If a different approach is better, say so directly.>
 
 ## Clarifying Questions
 
-**Q: <question>**
+**Q-1: <question>**
+Reco: <your proposed answer, or `Your call — <what only the user can decide>`>
 A: 
 
-**Q: <question>**
+**Q-2: <question>**
+Reco: <...>
 A: 
 ```
+
+**Every item the table below gives an ID carries one**, numbered within its own kind
+so appending a gap never renumbers a question, and kept when the item moves. They
+exist for the same reason `T-<n>` and `P<phase>.<task>` do: chat and the file have
+to be able to name the same item, and prose gets reworded. An item added later takes
+the next free number rather than reusing a retired one.
+
+**The kinds are not uniform.** What each carries, and where an answer to it is
+recorded:
+
+| Kind | ID | `Reco:` | Open / Addressed | Where an answer is recorded |
+| --- | --- | --- | --- | --- |
+| What's strong about this approach | none | no | no | nothing to answer |
+| Concerns & risks | `C-<n>` | yes | yes | **Addressed** once settled, `Answered:` on the item until then |
+| Gaps & holes | `G-<n>` | yes | yes | as above |
+| Opportunities | `OPP-<n>` | yes | no | `Answered:` on the item |
+| Alternative approaches | `ALT-<n>` | no — `### My recommendation` decides them together | no | `### Direction taken at Gate 1` |
+| Clarifying Questions | `Q-<n>` | yes | no | the `A:` line |
+| Direction taken at Gate 1 | `D-<n>` | no | no | it is itself the record |
+
+**Where the table says `Reco:`, every item has one, or says why it cannot** — write
+`Your call — <what only they can decide>` rather than inventing a recommendation. This
+is what makes a thirty-item file tractable: without it the user is answering alone;
+with it they are agreeing or disagreeing. An invented recommendation reads exactly like
+a real one, and it does the most damage on the items you understand least.
+
+**Record an answer even when it does not settle the item.** "I'll think about C-4" is
+an answer. Without it a concern the user has already discussed is byte-identical to one
+never put to them, and a resumed walkthrough asks it a second time.
 
 The Approach Analysis is **required** even when you fully agree with the proposed approach — in that case, your job is to explain *why* the alternatives lose so the user can sanity-check your reasoning. Rubber-stamping isn't analysis.
 
@@ -149,13 +192,28 @@ If you genuinely have no alternatives worth raising and zero concerns, write a b
 The proposed approach is the right one. I considered <alternative 1> and <alternative 2> but rejected them because <reason>. No material concerns.
 
 ### Gaps & holes in the requirements
-<gaps found, or "None — requirements are complete and unambiguous.">
+
+**Open**
+- **G-1** <gap> — why it will bite. **Reco:** <...>
+
+<or "None — requirements are complete and unambiguous." in place of the list>
+
+**Addressed**
+None open.
 
 ### Opportunities worth considering
-<opportunities found, or "None worth flagging.">
+- **OPP-1 <Opportunity>** — <what it is>. Value: <...>. Cost: <...>. **Reco:** <...>
+
+<or "None worth flagging.">
 ```
 
-Leave every `A:` line blank — the user will fill them in directly in the file. The user may also edit the Approach Analysis section to push back, agree, or redirect — those edits are direction changes you must respect.
+The brief form is shorter, not differently shaped: the IDs, the `Reco:` lines and the
+**Open** / **Addressed** split are the same as the full template.
+
+Leave every `A:` line blank when the section is first written. They are filled in as
+answers arrive — by the user editing the file, or by you recording what they said in the
+walkthrough. The user may also edit the Approach Analysis section to push back, agree, or
+redirect — those edits are direction changes you must respect.
 
 Good questions to consider:
 - Are there edge cases not covered?
@@ -174,9 +232,93 @@ If the requirements are genuinely fully unambiguous and you have zero questions,
 No clarifying questions — requirements are fully specified.
 ```
 
-After writing to the file, tell the user:
+After writing to the file, tell the user. Make the walkthrough offer only when Step
+2a's conditions are met — `AskUserQuestion` available, and enough items to be worth
+batching:
 
-> "I've added my approach analysis and clarifying questions to `$REQUIREMENTS_FILE`. Please open the file, push back on or accept the analysis, fill in your answers on the `A:` lines, then reply **'answered'** when ready."
+> "I've added my approach analysis and clarifying questions to `$REQUIREMENTS_FILE` —
+> <n> items in all. Want me to walk you through them one at a time with a
+> recommendation for each, or would you rather answer in the file yourself — `A:`
+> lines for the questions, a note on any other item? Either way, push back on or
+> accept the analysis and reply **'answered'** when you're done."
+
+When those conditions are not met, send the same message without the offer, asking
+them to answer in the file and reply **'answered'**.
+
+---
+
+### Step 2a — Offer to walk the items
+
+A requirements file routinely carries thirty or more items to settle, and answering
+them one at a time in the file is slow. Offer to walk them instead. **Offer once**,
+in the message above, and take no for an answer — the file route is unchanged and
+equally correct, and a user who declines is not asked again.
+
+**Offer only when there is enough to batch.** Skip it on the brief form and whenever
+the analysis settles out at a handful of items: two questions are answered faster in
+the file than in a dialog, and "0 items in all — want me to walk you through them?" is
+the shape to avoid. `<n>` in the message is the number of questions the walkthrough
+would actually ask — the concerns, gaps, opportunities and clarifying questions that
+have a real choice set, plus one for the alternatives — not the number of lines in the
+file.
+
+The walkthrough changes **how answers are collected, not where they live.** Every answer
+is written into `$REQUIREMENTS_FILE` as it is given, by the rules in *While Gate 1 is
+open* below. An answer that exists only in the chat transcript has not been recorded.
+
+**Run it with the `AskUserQuestion` tool**, not as prose questions in chat:
+
+- **Up to four items per call**, grouped by kind. The schema is hard on both counts:
+  1–4 questions per call, 2–4 options each.
+- **Header** — the item's kind: `Concerns`, `Gaps`, `Opportunity`, `Approach`,
+  `Questions`. The chip is capped at 12 characters, which is why it is `Opportunity`
+  and not `Opportunities`.
+- **Question text** — the position, then the item: `Gap 9 of 9: the requirements rely
+  on rules they never state. Should these become Phase 2's invariants, each proven by a
+  test? (1) … (2) …`. The position is progress; the ID in the file is identity.
+- **Options** — concrete and mutually exclusive, the `Reco:` first and labelled
+  `(Recommended)`. Each option's description says **what that answer does to the plan**,
+  not what the label already said: *"Each becomes an INV in the Phase 2 plan with a test
+  that tries to break it"* is a description, *"treat them as invariants"* is a
+  restatement.
+- **An item you cannot call is asked only if it still has two or more real choices.**
+  Then put the one needing the user's knowledge first and mark nothing `(Recommended)`.
+- **An item whose honest answer space is not two to four mutually exclusive choices is
+  not walked.** There is no one-option form, so inventing a second choice to satisfy the
+  schema is exactly how a `Your call —` item acquires a recommendation nobody made.
+  Leave it in the file with its `Your call —` line intact, and name it at the end among
+  what is still open.
+- **Do not build escape hatches.** The harness always adds a free-text choice of its
+  own, so do not write an "Other", "Skip" or "none of these" option.
+
+**The alternatives are one question, not several.** `ALT-1`…`ALT-n` are mutually
+exclusive by construction, so ask once under the `Approach` header with the proposed
+approach and each alternative as options, the one `### My recommendation` names marked
+`(Recommended)`. The proposed approach takes one of the four slots, so more than three
+alternatives will not fit: name the three that are live and say in the question text
+that the rest are in the file. Skip this question entirely when there are no
+alternatives.
+
+**Write each batch's answers to the file before asking the next** — not at the end. A
+walkthrough that writes once at the end loses every answer if the session drops, and
+writing as you go makes the file the record of where you got to: a resumed session
+starts at the first item with no recorded answer. The table above says where each
+kind's answer lives, and an answer is recorded even when it settles nothing — that is
+what makes an item already put to the user distinguishable from one never reached.
+
+**The user can stop at any point.** Items not reached keep their `Reco:` and carry no
+recorded answer, and the file route still works for them.
+
+**The walkthrough does not open Gate 1.** Settling every item means the file is
+complete, not that the user has read it. Say the file is updated, say what is still open
+if anything, and wait for **"answered"**.
+
+**If `AskUserQuestion` is unavailable**, say so once and fall back to the file route. Do
+not simulate it with numbered prose questions in chat: the structure is what keeps each
+answer attached to an item, and prose question-and-answer drifts into a conversation
+nobody can map back to the file.
+
+---
 
 ⛔ **GATE 1 — STOP. Do not continue until the user replies with "answered".**
 "done", "ready", "continue" do NOT open this gate. Only "answered" does.
@@ -185,15 +327,20 @@ After writing to the file, tell the user:
 
 **Gate 1 is usually a conversation, and the file has to keep up with it.** Answers arrive in
 chat at least as often as in the file, each one opens new ground, and an analysis left as first
-written ends up with half its concerns settled while still reading as live. Whenever the user
-answers or decides something in chat:
+written ends up with half its concerns settled while still reading as live. Step 2a's
+walkthrough is the structured form of this, and the rules below govern it and any answer
+that arrives loose in chat alike. Whenever the user answers or decides something:
 
 - Fill the `A:` line it answers, in the user's words.
 - Move each concern or gap it settles under **Addressed**, naming what settled it. Keep
   **Open** first in both sections, and write `None open.` when nothing is left, so the file
   reads top-down and can be put down at the first Addressed item.
+- Write `Answered:` on a concern, gap or opportunity the answer did not settle, in the
+  user's words. An item discussed and left open must not read like one never raised —
+  that is what a resumed walkthrough reads to find where it got to.
 - Record under `### Direction taken at Gate 1` any decision that answers no single question.
-- Append a question the answer raised to Clarifying Questions, with a blank `A:`.
+- Append a question the answer raised to Clarifying Questions, with the next free
+  `Q-<n>`, a `Reco:`, and a blank `A:`.
 - Update the requirements file's Goals, Constraints and Non-Goals to what the user has said
   since the description — still writing only what they said, never what you inferred.
 - Rewrite a claim the user corrected, and anything that rested on it.
@@ -211,8 +358,14 @@ Re-read `$REQUIREMENTS_FILE` in full. Check that:
   still open. A concern left under **Open** that an answer settled is a stale file, and the plan
   will be written against it
 - `### Direction taken at Gate 1` carries every decision that answered no single question
+- Every item settled in the walkthrough is recorded **in the file**. An answer that
+  exists only in the chat transcript is not recorded, and the plan gets written without it
 
-If any `A:` lines are still blank, list the unanswered questions and wait for the user to complete them. Do not proceed until all are answered.
+If any `A:` lines are still blank, list the unanswered questions and wait for the
+user to complete them. Do not proceed until all are answered. A concern or gap the
+user chose to leave open is not a blocker — the plan is written against what is
+genuinely still open. An answer they gave that the file does not record is one, so
+write it down rather than asking for it a second time.
 
 ---
 
@@ -489,7 +642,28 @@ behind its back, and re-presents Gate 2 for work already under way.
 
 - **Right-size the plan.** The templates are the maximum shape. Keep every heading, but scale each section's depth to the feature — a trivial change gets terse or `None — <reason>` sections, not fabricated ceremony. See "Right-sizing the plan".
 - **Either input works**, but a requirements file on disk is the source of truth from Step 2 onward. If the user gave a prose description, write it to `/_reqs/<slug>.md` in Step 1 before doing anything else.
-- **Analysis and questions go in the file. Always. No exceptions.** Never discuss approach or ask questions in chat.
+- **Analysis and questions go in the file. Always. No exceptions.** Never work the
+  approach out in chat, and never raise an item you have not written down first. Step
+  2a's walkthrough asks about items already in the file and writes the answers back,
+  which is not the same as thinking in chat.
+- **Offer the walkthrough once, and take no for an answer.** It is how answers are
+  collected, never where the analysis is made, and every answer it collects goes into the
+  file as it is given. See Step 2a.
+- **Every item the table gives an ID carries one** — `C-<n>`, `G-<n>`, `OPP-<n>`,
+  `ALT-<n>`, `Q-<n>`, `D-<n>`, numbered within their own kind and kept when the item
+  moves. Same reason as `T-<n>` and `P<phase>.<task>`: chat and the file must be able
+  to name the same item. The kinds are not uniform — the table in Step 2 says which
+  carry an ID, which carry a `Reco:`, which have an **Open** / **Addressed** split,
+  and where an answer to each is recorded.
+- **Every item the table marks `Reco:` carries one, or says why it cannot.** `Your call
+  — <what only they can decide>` is a complete answer; an invented recommendation is
+  not, and it does the most damage on the items you understand least. Alternatives are
+  the exception by design: `### My recommendation` decides them together.
+- **Write each walkthrough batch's answers to the file before asking the next**, and
+  record an answer even when it settles nothing. This is the one walkthrough rule whose
+  breach loses the user's answers outright.
+- **The walkthrough does not open Gate 1.** Only "answered" does, however many items it
+  settled.
 - **Keep the file current while Gate 1 is open.** Answers arrive in chat; a concern an answer
   settled still sitting under **Open** is a stale file, and the plan gets written against it.
   Move it to **Addressed** with what settled it. None of that opens the gate.

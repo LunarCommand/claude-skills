@@ -14,6 +14,42 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### feature-planning
+
+- **The analysis can be walked through instead of edited.** A requirements file
+  routinely carries thirty or more items to settle, and answering them by editing
+  `A:` lines is slow. Step 2a offers to put them in front of you one at a time,
+  each with the recommendation the agent would act on, and writes your answers
+  back into the file as they are given. The offer is made once and declining it
+  changes nothing: the file route is unchanged and equally correct.
+
+  Where the answers live has not changed, which is the point — an answer that
+  exists only in the chat transcript is not recorded, and Step 3 now checks for
+  exactly that. The walkthrough still does not open Gate 1; only "answered" does,
+  however many items it settled.
+
+- **Six analysis kinds now carry stable IDs.** `C-<n>` concerns, `G-<n>` gaps,
+  `OPP-<n>` opportunities, `ALT-<n>` alternatives, `Q-<n>` questions, `D-<n>`
+  directions — numbered within their own kind so appending a gap never renumbers a
+  question, and kept when the item moves. Same reason `T-<n>` and `P<phase>.<task>`
+  exist: chat and the file have to be able to name the same item.
+
+  The kinds were never uniform, and a table in Step 2 now says so rather than
+  leaving it to be inferred: which carry an ID, which carry a recommendation, which
+  have an **Open** / **Addressed** split, and where an answer to each is recorded.
+  Alternatives carry an ID but no per-item recommendation, because
+  `### My recommendation` decides them together.
+
+  An item the agent cannot honestly call now says so — `Your call — <what only you
+  can decide>` — rather than carrying a manufactured recommendation. An invented
+  one reads exactly like a real one, and it does the most damage on the items the
+  agent understands least. Such an item is left in the file rather than forced into
+  a multiple choice: the dialog has no one-option form, and inventing a second
+  choice to fill it is how a `Your call` item would acquire a recommendation nobody
+  made.
+
 ## v1.3.1 — 2026-11-23
 
 ### setup
