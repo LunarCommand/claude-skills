@@ -55,14 +55,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 - **The recommended workflow fixes what it notices.** Step 2 said to list adjacent
   issues for later and not fix them, which left the handoff carrying a list of
   small things that should simply have been done. Inside the planned scope a real
-  defect is now fixed by default and the handoff reports it as fixed. Three things
+  defect is now fixed by default and the handoff reports it as fixed. Four things
   are still reported rather than fixed: anything that changes a plan decision,
-  anything needing a product or domain call, and anything outside the scope step 1
-  named.
+  anything needing a product or domain call, anything outside the scope step 1
+  named, and anything whose fix needs an entry on the never-without-ack list.
 
-  The never-without-ack list is unchanged, and it is what bounds this. A fix that
-  needs any entry on that list is reported instead of made, and a cleanup nobody
-  asked for is still a cleanup rather than a defect.
+  That list is unchanged, and it is what bounds this. A cleanup nobody asked for is
+  still a cleanup rather than a defect.
 
   **A review's findings are not things you noticed.** Step 7 still says report every
   finding with its disposition and wait, because a review hands back a batch of
