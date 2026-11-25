@@ -50,6 +50,33 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   choice to fill it is how a `Your call` item would acquire a recommendation nobody
   made.
 
+### Repository
+
+- **The recommended workflow fixes what it notices.** Step 2 said to list adjacent
+  issues for later and not fix them, which left the handoff carrying a list of
+  small things that should simply have been done. Inside the planned scope a real
+  defect is now fixed by default and the handoff reports it as fixed. Three things
+  are still reported rather than fixed: anything that changes a plan decision,
+  anything needing a product or domain call, and anything outside the scope step 1
+  named.
+
+  The never-without-ack list is unchanged, and it is what bounds this. A fix that
+  needs any entry on that list is reported instead of made, and a cleanup nobody
+  asked for is still a cleanup rather than a defect.
+
+  **A review's findings are not things you noticed.** Step 7 still says report every
+  finding with its disposition and wait, because a review hands back a batch of
+  conclusions and authorizing the review was never authorizing the fixes. Both rules
+  now say where the line between them falls rather than leaving it to be inferred,
+  since read alone each one reads as contradicting the other.
+
+- **The handoff's one `Noticed but didn't fix` bucket becomes three** — what was
+  fixed along the way, what was noticed and left with the reason it was left, and
+  what needs the user: a decision, a call only they can make, or anything the agent
+  could not do alone. One bucket could not distinguish something already handled
+  from something waiting on someone, which is the distinction the list exists to
+  carry. Empty buckets are omitted, as before.
+
 ## v1.3.1 — 2026-11-23
 
 ### setup
