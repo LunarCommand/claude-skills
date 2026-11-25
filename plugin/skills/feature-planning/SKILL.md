@@ -381,11 +381,20 @@ If `/_plans/` does not exist, create it first.
 
 The plan file MUST include the following sections (this is the maximum shape — apply **Right-sizing the plan** to scale each section's depth to the feature; keep every heading):
 
+The template marks who each line is for, and the three markers are the whole rule:
+
+- **`_(italic parenthetical)_`** — an instruction to you. Never copy it into the plan.
+- **`<angle brackets>`** — a placeholder. Replace it with the real content.
+- **Anything else** — the plan's own prose. Keep it as it stands.
+
+A line with no marker is text the plan's reader is meant to see, so an instruction that
+arrives unmarked will end up in the delivered file.
+
 ```markdown
 # Plan: <Feature Name>
 
 ## Summary
-One-paragraph overview of what will be built and why.
+<One-paragraph overview of what will be built and why.>
 
 ## Requirements Reference
 /_reqs/<requirements-file>.md
@@ -399,33 +408,39 @@ One-paragraph overview of what will be built and why.
 - <what this feature will never do, by decision — "not this feature", not "not yet">
 
 ## Invariants
-Properties that must hold true at ALL times, across every state and input — the design contract. An invariant is a standing safety property ("X is always true"), NOT a one-time outcome ("we achieved X" — that's Success Criteria) and NOT a risk. If it can ever be false without the feature being broken, it isn't an invariant.
+Properties that must hold true at ALL times, across every state and input — the design contract.
+
+_(An invariant is a standing safety property — "X is always true" — NOT a one-time outcome such as "we achieved X", which is Success Criteria, and NOT a risk. If it can ever be false without the feature being broken, it isn't an invariant.)_
 
 - **INV-1:** <the property that must always hold> — <why it matters / what breaks if violated>
 - **INV-2:** <...>
 
-Include invariants the requirements imply but never state (surfaced in Step 2's Gaps & holes). Each invariant must be verified by at least one test in Test Definitions.
+_(Include invariants the requirements imply but never state — surfaced in Step 2's Gaps & holes. Each invariant must be verified by at least one test in Test Definitions.)_
 
 ## Non-Functional Requirements
-Measurable quality constraints the feature must meet — distinct from functional behavior (what it does) and invariants (what must always hold). State a target, not a vibe. Where a target is measurable, map it to a `T-<n>`; where it can only be checked by judgment, say so.
+Measurable quality constraints the feature must meet — distinct from functional behavior, which is what it does, and invariants, which must always hold.
+
+_(State a target, not a vibe. Where a target is measurable, map it to a `T-<n>`; where it can only be checked by judgment, say so.)_
 
 - **Performance** — <target, e.g. "p95 request latency < 200ms at 100 rps", or "None — not on a hot path">
 - **Security** — <authz/authn, input validation, secrets handling, data exposure constraints, or "None beyond existing system guarantees">
 - **Scalability** — <expected load / growth the design must absorb, or "None — bounded single-user operation">
 - **Reliability** — <availability, retries, idempotency, failure-handling expectations, or "None specified">
 
-Add or drop categories as the feature warrants; a light feature may reduce this whole section to `None — <reason>`.
+_(Add or drop categories as the feature warrants; a light feature may reduce this whole section to `None — <reason>`.)_
 
 ## Success Criteria
-How we know this is done and working. Measurable where possible. These are the target the Test Plan, Test Definitions, and Coverage below map back to — so define them before the test sections reference them.
+How we know this is done and working. Measurable where possible.
+
+_(These are the target the Test Plan, Test Definitions, and Coverage below map back to — so define them before the test sections reference them.)_
 
 ## Strategy
 
 ### Chosen approach
-Describe the approach in 2–4 sentences. This should reflect the conclusion from the Approach Analysis after any user feedback.
+_(Describe the approach in 2–4 sentences. This should reflect the conclusion from the Approach Analysis after any user feedback.)_
 
 ### Why this approach
-Explain why this beats the alternatives considered. Reference the trade-offs.
+_(Explain why this beats the alternatives considered. Reference the trade-offs.)_
 
 ### Alternatives rejected
 - **<Alternative>** — rejected because <reason>.
@@ -456,7 +471,7 @@ Explain why this beats the alternatives considered. Reference the trade-offs.
 - `path/to/file.ts` — purpose
 
 ## Test Plan
-How this feature will be verified, across levels. Be specific.
+How this feature will be verified, across levels. _(Be specific.)_
 
 - **Unit** — <what units get covered; which modules/functions; tooling/framework>
 - **Integration** — <what boundaries/interactions get covered; which real vs. mocked dependencies>
@@ -465,10 +480,12 @@ How this feature will be verified, across levels. Be specific.
 
 **Execution notes:** <how/when tests run — CI, pre-commit, local only; ordering or data-setup concerns; anything that must exist before these tests can run.>
 
-Every behavior in Success Criteria must map to at least one test ID below, and every invariant (INV-<n>) must be verified by at least one test. Every phase in the Implementation Plan must cite the test IDs that verify it.
+_(Every behavior in Success Criteria must map to at least one test ID below, and every invariant `INV-<n>` must be verified by at least one test. Every phase in the Implementation Plan must cite the test IDs that verify it.)_
 
 ## Test Definitions
-Enumerated, reviewable test cases. Assign each a stable `T-<n>` ID and group by level. These are the concrete cases the tests will implement — approving this plan approves these behaviors.
+Enumerated, reviewable test cases. These are the concrete cases the tests will implement — approving this plan approves these behaviors.
+
+_(Assign each a stable `T-<n>` ID and group by level.)_
 
 ### Unit
 
@@ -507,7 +524,9 @@ Enumerated, reviewable test cases. Assign each a stable `T-<n>` ID and group by 
 _(Include only the levels that apply. Cover the happy path, the key edge cases surfaced in Clarifying Questions, the failure modes from Risks & Mitigations, and a test that tries to violate each Invariant (INV-<n>) — don't just test the happy path.)_
 
 ## Coverage
-Traceability rollup so nothing planned goes unverified. Every invariant, success criterion, measurable NFR, and phase must appear here with the test IDs that cover it. Any row with no test is a gap to close before this plan is presented.
+Traceability rollup so nothing planned goes unverified.
+
+_(Every invariant, success criterion, measurable NFR, and phase must appear here with the test IDs that cover it. Any row with no test is a gap to close before this plan is presented.)_
 
 - **INV-1** → <T-ids>
 - **Success: <criterion>** → <T-ids>
@@ -515,16 +534,19 @@ Traceability rollup so nothing planned goes unverified. Every invariant, success
 - **Phase 1** → <T-ids>
 
 ## Rollout / Migration
-How this ships safely — feature flags, backfills, deprecation steps, rollback plan if needed. Write "N/A — greenfield" if there's nothing to migrate.
+How this ships safely — feature flags, backfills, deprecation steps, rollback plan if needed.
+
+_(Write "N/A — greenfield" if there's nothing to migrate.)_
 
 ## Out of Scope
-Deferred, not declined — what a later change could reasonably add that this one does not,
-including any Opportunity the user turned down at Gate 1. Something the feature will *never* do
-belongs in **Non-Goals** instead. The test: would revisiting it be a change of mind, or just the
-next piece of work?
+Deferred, not declined — what a later change could reasonably add that this one does not.
+
+_(Include any Opportunity the user turned down at Gate 1. Something the feature will *never* do
+belongs in **Non-Goals** instead — the test being whether revisiting it would be a change of
+mind, or just the next piece of work.)_
 
 ## Open Questions
-Any unresolved questions to revisit later.
+<Any unresolved questions to revisit later, or "None." >
 
 ## Amendments
 _(Omit until the plan is first amended. Add it then, and keep it directly above `## Status`.)_
@@ -539,10 +561,10 @@ and to `## Coverage` as well, or the rollup is stale from here on.>
 else — see Step 5.>
 
 ## Status
-`Drafted` — set at Gate 2 to `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`,
-and to `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha
-here, and only here.
-One line, always last, never duplicated.
+`Drafted` | `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)` | `Implemented (<YYYY-MM-DD>)`
+
+_(Set at Gate 2 to Accepted, and to Implemented when Step 5 finishes. An amendment re-baselines
+the sha here, and only here. One line, always last, never duplicated.)_
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
