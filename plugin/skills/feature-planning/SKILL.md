@@ -447,8 +447,8 @@ _(Explain why this beats the alternatives considered. Reference the trade-offs.)
 - **<Alternative>** — rejected because <reason>.
 
 ## Clarifications & Decisions
-- [Question] → [Answer / decision made]
-- [Approach feedback from user] → [How the plan reflects it]
+- <question> → <the answer or decision made>
+- <approach feedback from the user> → <how the plan reflects it>
 
 ## Risks & Mitigations
 - **<Risk>** — likelihood: <low/med/high>. Mitigation: <plan>.
@@ -457,18 +457,18 @@ _(Explain why this beats the alternatives considered. Reference the trade-offs.)
 ## Implementation Plan
 
 ### Phase 1: <n>
-- [ ] **P1.1** Task 1
-- [ ] **P1.2** Task 2
+- [ ] **P1.1** <task>
+- [ ] **P1.2** <task>
 
 **Verified by:** T-1, T-2 _(the test IDs from Test Definitions that prove this phase is done)_
 
 ### Phase 2: <n>
-- [ ] **P2.1** Task 3
+- [ ] **P2.1** <task>
 
 **Verified by:** T-3
 
 ## Files to Create / Modify
-- `path/to/file.ts` — purpose
+- `<path/to/file>` — <purpose>
 
 ## Test Plan
 How this feature will be verified, across levels. _(Be specific.)_
@@ -515,7 +515,7 @@ _(Assign each a stable `T-<n>` ID and group by level.)_
 ### End-to-end / Manual
 
 **T-4 — <short name>**
-- **Level:** e2e | manual
+- **Level:** <e2e / manual>
 - **Preconditions:** <...>
 - **Given** <...>
 - **When** <...>
@@ -561,10 +561,11 @@ and to `## Coverage` as well, or the rollup is stale from here on.>
 else — see Step 5.>
 
 ## Status
-`Drafted` | `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)` | `Implemented (<YYYY-MM-DD>)`
+`Drafted`
 
-_(Set at Gate 2 to Accepted, and to Implemented when Step 5 finishes. An amendment re-baselines
-the sha here, and only here. One line, always last, never duplicated.)_
+_(One line, always last, never duplicated. At Gate 2 it becomes `Accepted — not yet implemented
+(<YYYY-MM-DD>, plan <short-sha>)`, and `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An
+amendment re-baselines the sha here, and only here.)_
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
