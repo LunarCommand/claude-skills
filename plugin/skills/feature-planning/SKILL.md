@@ -87,6 +87,21 @@ their answers back; the analysis itself is written first, always.
 
 Note: when the requirements file was generated from a `$DESCRIPTION`, expect more gaps than usual — lean harder on Clarifying Questions to surface what the prose didn't cover.
 
+**Every template here marks who each line is for, and the three markers are the
+whole rule:**
+
+- **`_(italic parenthetical)_`** — an instruction to you, never copied into the file.
+- **`<angle brackets>`** — a placeholder. Replace it with the real content.
+- **Anything else** — the file's own text. Write it as it stands.
+
+A line with no marker is text the reader of that file is meant to see, so an
+instruction that arrives unmarked ends up in the artifact. IDs are the one thing that
+looks like a sample and is not: every ID these templates show is the real first value,
+written as it stands with no brackets. `C-1` is genuinely the first concern's ID rather
+than a stand-in for one, and the same holds for every kind the table below gives an ID,
+for `T-<n>` and `INV-<n>` in the plan's tests and invariants, and for `P<phase>.<task>`
+on its tasks.
+
 The sections MUST use this exact format:
 
 ```markdown
@@ -110,7 +125,7 @@ it, keeping the ID it was given:>
 - **C-3** <concern> — settled by <the question it answered, or the Direction entry>
 
 ### Gaps & holes in the requirements
-Poke holes in the requirements *as written* — this is about defects in the spec, not risks in the approach. Look for:
+_(Poke holes in the requirements *as written* — this is about defects in the spec, not risks in the approach.)_
 
 **Open**
 - **G-1** <ambiguity or under-specified behavior> — what's unclear and why it will bite. **Reco:** <...>
@@ -123,15 +138,16 @@ Poke holes in the requirements *as written* — this is about defects in the spe
 <as above, keeping the ID — what settled it, not just that it is settled>
 
 ### Opportunities worth considering
-Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope (the user decides at Gate 1).
+_(Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope — the user decides at Gate 1.)_
 - **OPP-1 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <take it / skip it> — <why>.
 - **OPP-2 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <...>
   **Answered:** <what the user decided. Present only on an item that has been put to
   them — there is no **Addressed** section here, so this line is the whole record.>
 
 ### Alternative approaches worth considering
-These are one decision rather than several — `### My recommendation` picks among
-them, so they carry no per-item **Reco:**.
+These are one decision rather than several — `### My recommendation` picks among them.
+
+_(So they carry no per-item **Reco:**.)_
 - **ALT-1 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 - **ALT-2 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 
@@ -381,14 +397,7 @@ If `/_plans/` does not exist, create it first.
 
 The plan file MUST include the following sections (this is the maximum shape — apply **Right-sizing the plan** to scale each section's depth to the feature; keep every heading):
 
-The template marks who each line is for, and the three markers are the whole rule:
-
-- **`_(italic parenthetical)_`** — an instruction to you. Never copy it into the plan.
-- **`<angle brackets>`** — a placeholder. Replace it with the real content.
-- **Anything else** — the plan's own prose. Keep it as it stands.
-
-A line with no marker is text the plan's reader is meant to see, so an instruction that
-arrives unmarked will end up in the delivered file.
+The three markers Step 2 defines apply to this template too.
 
 ```markdown
 # Plan: <Feature Name>
@@ -552,13 +561,15 @@ mind, or just the next piece of work.)_
 _(Omit until the plan is first amended. Add it then, and keep it directly above `## Status`.)_
 
 ### Amendment <n> — <YYYY-MM-DD> — <what changed, in a phrase>
-<Why the plan was wrong, what replaces it, and what that costs. Then, explicitly:>
+<Why the plan was wrong, what replaces it, and what that costs.>
 
 **Supersedes <section / INV-\<n\> / T-\<n\>>.** <What the old text claimed and why it no longer holds.>
-**Adds T-\<n\> / INV-\<n\>.** <Any new test or invariant this requires. Add it to Test Definitions
-and to `## Coverage` as well, or the rollup is stale from here on.>
-**Supersedes baseline:** plan <old-short-sha>. <The new sha goes in `## Status` and nowhere
-else — see Step 5.>
+**Adds T-\<n\> / INV-\<n\>.** <The new test or invariant this requires.>
+**Supersedes baseline:** plan <old-short-sha>.
+
+_(Write those three lines explicitly, not as prose. Add any new `T-<n>` or `INV-<n>` to Test
+Definitions and to `## Coverage` as well, or the rollup is stale from here on. The new sha goes
+in `## Status` and nowhere else — see Step 5.)_
 
 ## Status
 `Drafted`
