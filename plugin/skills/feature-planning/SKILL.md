@@ -95,9 +95,12 @@ whole rule:**
 - **Anything else** — the file's own text. Write it as it stands.
 
 A line with no marker is text the reader of that file is meant to see, so an
-instruction that arrives unmarked ends up in the artifact. IDs are the one thing
-that looks like a sample and is not: `C-1`, `G-1`, `T-1`, `INV-1` and `P1.1` are the
-real first values, so they carry no brackets and are written as they stand.
+instruction that arrives unmarked ends up in the artifact. IDs are the one thing that
+looks like a sample and is not: every ID these templates show is the real first value,
+written as it stands with no brackets. `C-1` is genuinely the first concern's ID rather
+than a stand-in for one, and the same holds for every kind the table below gives an ID,
+for `T-<n>` and `INV-<n>` in the plan's tests and invariants, and for `P<phase>.<task>`
+on its tasks.
 
 The sections MUST use this exact format:
 
