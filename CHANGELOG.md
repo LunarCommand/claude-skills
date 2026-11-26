@@ -50,21 +50,29 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   choice to fill it is how a `Your call` item would acquire a recommendation nobody
   made.
 
-- **The plan template says which of its lines are for you.** It was one 163-line
-  block with two audiences in it: the shape of the plan file, and instructions for
-  filling it in. Seven of those instructions referenced steps and gates of the skill
-  itself, which the plan's reader has no access to, so the agent either copied them
-  into the delivered file or decided line by line which to keep. Three markers now
-  carry the whole rule — an italic parenthetical is an instruction and is never
-  copied, angle brackets are a placeholder to replace, anything else is the plan's
-  own prose.
+- **The templates say which of their lines are for you.** The plan template was one
+  163-line block with two audiences in it: the shape of the file the agent writes,
+  and instructions for filling it in. Seven of those instructions referenced steps
+  and gates of the skill itself, which the file's reader has no access to, so the
+  agent either copied them into the artifact or decided line by line which to keep.
+  The Approach Analysis template had the same defect in three places — and that one
+  is appended to a file the user reads and edits, where an instruction written about
+  the user in the third person is harder to miss.
+
+  Three markers now carry the whole rule, stated once at Step 2 and pointed at from
+  Step 4: an italic parenthetical is an instruction and is never copied, angle
+  brackets are a placeholder to replace, anything else is the file's own text. IDs
+  are the one thing that looks like a sample and is not — `C-1`, `G-1`, `T-1`,
+  `INV-1` and `P1.1` are the real first values, so they carry no brackets.
 
   The instructions stay beside the sections they govern rather than moving to a list
-  above the template: a note about Non-Functional Requirements is worth more next to
-  that heading than in a preamble to a 176-line block. `## Status` is the one
-  section that had to change shape rather than gain a marker — it now shows its
-  three values on one line, with the rule for moving between them as a note
-  beneath.
+  above each template: a note about Non-Functional Requirements is worth more next
+  to that heading than in a preamble to a 177-line block. Two sections needed more
+  than a marker. `## Status` holds `Drafted` alone now, with the later states and
+  the transitions that produce them in a note beneath. The Amendments block had
+  angle brackets holding instructions rather than content, so its `Supersedes` and
+  `Adds` lines now carry real placeholders and the rules for updating Test
+  Definitions, `## Coverage` and the baseline sha sit in a note of their own.
 
 ### Repository
 
