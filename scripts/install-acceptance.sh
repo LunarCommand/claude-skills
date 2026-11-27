@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # install-acceptance.sh — behavioural tests for lunar_install.sh.
 #
-# Everything in scripts/validate.sh but this, mutation-test-acceptance.sh and
-# the resolver check is syntactic. This one runs the artifact and asserts on
-# what it did, because lunar_install.sh writes ~/.claude/settings.json: the file
-# that decides what the agent may run. Syntax checks cannot see an insertion
-# landing in the wrong array, and that is the defect with consequences here.
+# Everything in scripts/validate.sh but this, mutation-test-acceptance.sh and a
+# few small output checks is syntactic. This one runs the artifact and asserts
+# on what it did, because lunar_install.sh writes ~/.claude/settings.json: the
+# file that decides what the agent may run. Syntax checks cannot see an
+# insertion landing in the wrong array, and that is the defect with consequences
+# here.
 #
 # Every case runs against a throwaway HOME under mktemp, so the suite never
 # reads or writes the real ~/.claude. That is the whole reason it can run in

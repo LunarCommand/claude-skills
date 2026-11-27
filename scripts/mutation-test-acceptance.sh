@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # mutation-test-acceptance.sh — behavioural tests for mutation_test_worktree.sh.
 #
-# Everything else in scripts/validate.sh but install-acceptance.sh and the
-# resolver check is syntactic. This runs the artifact and asserts on what it
-# does.
+# Everything else in scripts/validate.sh but install-acceptance.sh and a few
+# small output checks is syntactic. This runs the artifact and asserts on what
+# it does.
 #
 # Rules here, each one paid for by a defect that got through an earlier version:
 #   * an assertion must be able to KILL the guard it names. Mutate the guard;

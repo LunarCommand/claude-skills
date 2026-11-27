@@ -26,6 +26,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   also means `adversarial_review_path.sh SKILL.md` is now refused: every skill
   has one. Engine names, which is what the skill passes, resolve as before.
 
+### feature-planning
+
+- **Ticking off a task no longer changes the plan's recorded hash.** v1.4.0
+  began recording the plan's hash when it is approved, and Step 5 ticks tasks
+  off as it goes, so the first tick made an approved plan look changed to any
+  later check. The hash now reads every ticked box as unticked, so it moves only
+  when the plan's content does. A plan with no ticks hashes as it did before; an
+  approved plan already under way needs its hash recorded once more.
+
 ### Repository
 
 - **`validate.sh` runs the resolver instead of only checking its spelling.**
@@ -33,8 +42,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   path-shaped, unknown or shared name has to be refused. Copies of the script in
   throwaway trees check that it answers only for the tree it sits in. A second
   check requires engine file names to be unique across skills, since the
-  resolver refuses a duplicate. The docs and script headers that said every
-  check besides the two acceptance suites is syntactic now name this one too.
+  resolver refuses a duplicate.
+
+- **`validate.sh` runs `feature-planning`'s hash command.** The command lives in
+  `SKILL.md` as text an agent copies, so the check pulls it out and runs it on
+  small fixture plans: ticking a box in any Markdown task-list form, rewriting
+  the Status line, and a blank line under the heading must leave the hash
+  alone, while an edit, or a `[x]` inside a sentence, must change it. CI
+  runs it on macOS too, so the command is proven on that awk as well. The
+  sentences describing which checks are syntactic no longer list the
+  exceptions by name, since each new one made the list wrong.
 
 ## v1.4.0 — 2026-11-26
 

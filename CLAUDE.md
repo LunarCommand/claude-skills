@@ -365,7 +365,9 @@ There is no unit-test suite — the artifacts are Markdown contracts and bash
 scripts. What exists instead is `scripts/validate.sh`, which enforces the
 mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
 engine basenames unique across skills, the engine resolver (each engine
-resolves, and a path-shaped, unknown or shared name is refused),
+resolves, and a path-shaped, unknown or shared name is refused), the hash
+command `feature-planning` records at Gate 2 (run on fixture plans: ticking a
+box or rewriting Status leaves it alone, an edit changes it),
 SKILL.md frontmatter (`name` matching its directory, `description` present, and
 the block parsing as YAML at all -- an unquoted `: ` in a description shipped
 past every other check here, `claude plugin validate` included, and a skill whose
@@ -392,11 +394,11 @@ under `plugin/` since the last `v<number>` tag must carry a higher
 `docs/RELEASING.md`), and repo hygiene (no macOS cruft, personal paths, or
 credential-shaped strings — this repo is public).
 
-**Every check in that list is syntactic except the resolver check**, which runs
-`adversarial_review_path.sh` and asserts on what it prints; the two acceptance
-suites below are the other exceptions. shellcheck, the portability scan, the
-manifest and allowlist agreement, `bash -n` — they test spelling, not meaning,
-and none of them can tell you whether a script does what it claims. `tr '/' '_'`
+**Nearly every check in that list is syntactic.** A few run one script or
+command and assert on what it prints, and the two acceptance suites below run
+whole scenarios; the rest — shellcheck, the portability scan, the manifest and
+allowlist agreement, `bash -n` — test spelling, not meaning, and none of them
+can tell you whether a script does what it claims. `tr '/' '_'`
 is valid shell and passes all of them; it is also not injective, which is how a
 bundled runner came to restore one file's contents over another and print "all
 files restored" with exit 0.
@@ -413,8 +415,8 @@ scripts/validate.sh --quick    # skips the acceptance suites — see below
 ```
 
 `--quick` skips both acceptance suites. That matters more than it sounds: apart
-from the resolver check, which asserts only on what one script prints, they are
-the only checks here that run an artifact and assert on behaviour, so `--quick`
+from a few checks that assert on what one script or command prints, they are the
+only checks here that run an artifact and assert on behaviour, so `--quick`
 leaves almost nothing but syntax. The pre-commit hook uses it, so a clean
 commit hook is not evidence the scripts work. CI runs the full suite.
 
