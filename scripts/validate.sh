@@ -583,27 +583,42 @@ else
     out=$( cd "$ph_tmp" && bash -c "set -o pipefail; $ph_cmd" 2>/dev/null ) \
       && printf '%s' "$out" || printf FAILED
   }
-  ph_fmt='# Plan: P\n\n## Summary\n%s\n\n## Implementation Plan\n\n### Phase 1: One\n'
-  ph_fmt+='- [%s] **P1.1** First\n  - [%s] **P1.2** Second\n\n## Status\n%s\n'
-  ph_plan() {  # $1 = task 1 box, $2 = task 2 box, $3 = summary, $4 = text under ## Status
+  ph_fmt='# Plan: P\n\n## Summary\n%s\n\n## Implementation Plan\n\n### Phase 1: One\n%s\n\n## Status\n%s\n'
+  ph_plan() {  # $1 = summary, $2 = the task lines, $3 = text under ## Status
     # shellcheck disable=SC2059  # the format is this check's own fixed template
-    printf "$ph_fmt" "$3" "$1" "$2" "$4"
+    printf "$ph_fmt" "$1" "$2" "$3"
   }
+  ph_tasks=$'- [ ] **P1.1** First\n  - [ ] **P1.2** Second'
   ph_bad=''
   ph_same() {  # $1 = what changed, $2 = the hash it must keep, rest = ph_plan args
     local why=$1 want=$2; shift 2
     [[ "$(ph_hash "$(ph_plan "$@")")" == "$want" ]] || ph_bad+="$why changed the hash"$'\n'
   }
-  ph_base=$(ph_hash "$(ph_plan ' ' ' ' 'What it does.' '`Drafted`')")
-  ph_same "ticking a box" "$ph_base" x ' ' 'What it does.' '`Drafted`'
-  ph_same "ticking every box, either case, at any indent" "$ph_base" X x 'What it does.' '`Drafted`'
-  ph_same "rewriting the Status line" "$ph_base" ' ' ' ' 'What it does.' \
+  # Each task-list form is compared ticked against unticked: the forms differ
+  # from each other, and only the tick is meant to be invisible.
+  ph_tick() {  # $1 = the form, $2 = a task line unticked, $3 = the same line ticked
+    ph_same "ticking $1" "$(ph_hash "$(ph_plan 'What it does.' "$2" '`Drafted`')")" \
+      'What it does.' "$3" '`Drafted`'
+  }
+  ph_tick "a box" '- [ ] **P1.1** First' '- [x] **P1.1** First'
+  ph_tick "a nested box with a capital X" '  - [ ] **P1.2** Second' '  - [X] **P1.2** Second'
+  ph_tick "a tab-indented box" $'\t- [ ] **P1.2** Second' $'\t- [x] **P1.2** Second'
+  ph_tick "a box with a tab after it" $'- [ ]\t**P1.1** First' $'- [x]\t**P1.1** First'
+  ph_tick "a * item" '* [ ] **P1.1** First' '* [x] **P1.1** First'
+  ph_tick "a + item" '+ [ ] **P1.1** First' '+ [x] **P1.1** First'
+  ph_tick "a numbered item" '1. [ ] **P1.1** First' '1. [x] **P1.1** First'
+  # A pattern broad enough to catch those must still leave content alone.
+  [[ "$(ph_hash "$(ph_plan 'Set [ ] here.' "$ph_tasks" '`Drafted`')")" \
+     != "$(ph_hash "$(ph_plan 'Set [x] here.' "$ph_tasks" '`Drafted`')")" ]] \
+    || ph_bad+="a [x] inside a sentence was treated as a tick"$'\n'
+  ph_base=$(ph_hash "$(ph_plan 'What it does.' "$ph_tasks" '`Drafted`')")
+  ph_same "rewriting the Status line" "$ph_base" 'What it does.' "$ph_tasks" \
     '`Approved — in progress (2026-01-01, plan abc1234)`'
   # A blank line under the heading is itself content, so it gets its own base.
-  ph_blank=$(ph_hash "$(ph_plan ' ' ' ' 'What it does.' $'\n`Drafted`')")
-  ph_same "rewriting a Status line that sits after a blank line" "$ph_blank" ' ' ' ' 'What it does.' \
-    $'\n`Accepted — not yet implemented (2026-01-01, plan abc1234)`'
-  [[ "$(ph_hash "$(ph_plan ' ' ' ' 'What it does, edited.' '`Drafted`')")" != "$ph_base" ]] \
+  ph_blank=$(ph_hash "$(ph_plan 'What it does.' "$ph_tasks" $'\n`Drafted`')")
+  ph_same "rewriting a Status line that sits after a blank line" "$ph_blank" \
+    'What it does.' "$ph_tasks" $'\n`Accepted — not yet implemented (2026-01-01, plan abc1234)`'
+  [[ "$(ph_hash "$(ph_plan 'What it does, edited.' "$ph_tasks" '`Drafted`')")" != "$ph_base" ]] \
     || ph_bad+="an edit to the plan left the hash unchanged"$'\n'
   [[ -n "$ph_base" && "$ph_base" != FAILED ]] || ph_bad+="the command could not hash a plan"$'\n'
   rm -rf "$ph_tmp"

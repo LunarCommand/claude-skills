@@ -627,7 +627,8 @@ Two words open this gate, and they mean different things:
 
   ```bash
   awk 'skip && NF { skip = 0; next } /^## Status$/ { skip = 1 }
-       /^ *- \[[xX]\] / { sub(/\[[xX]\]/, "[ ]") } { print }' \
+       /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+\[[xX]\]([ \t]|$)/ { sub(/\[[xX]\]/, "[ ]") }
+       { print }' \
     _plans/<feature-name>-plan.md | git hash-object --stdin
   ```
 

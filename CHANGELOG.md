@@ -46,8 +46,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 
 - **`validate.sh` runs `feature-planning`'s hash command.** The command lives in
   `SKILL.md` as text an agent copies, so the check pulls it out and runs it on
-  small fixture plans: ticking boxes, rewriting the Status line and a blank line
-  under the heading must leave the hash alone, and an edit must change it. CI
+  small fixture plans: ticking a box in any Markdown task-list form, rewriting
+  the Status line, and a blank line under the heading must leave the hash
+  alone, while an edit, or a `[x]` inside a sentence, must change it. CI
   runs it on macOS too, so the command is proven on that awk as well. The
   sentences describing which checks are syntactic no longer list the
   exceptions by name, since each new one made the list wrong.
