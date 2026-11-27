@@ -1,6 +1,6 @@
 # Local Claude Code settings for working IN this repo — not part of the toolkit.
-# Anchored to the repo root so the shipped template at project-files/.claude/
-# stays tracked.
+# Anchored to the repo root, so it never hides a .claude/ directory that a skill
+# or template might ship further down.
 /.claude/
 
 # macOS cruft (was previously committed by accident)
