@@ -42,8 +42,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   path-shaped, unknown or shared name has to be refused. Copies of the script in
   throwaway trees check that it answers only for the tree it sits in. A second
   check requires engine file names to be unique across skills, since the
-  resolver refuses a duplicate. The docs and script headers that said every
-  check besides the two acceptance suites is syntactic now name this one too.
+  resolver refuses a duplicate.
+
+- **`validate.sh` runs `feature-planning`'s hash command.** The command lives in
+  `SKILL.md` as text an agent copies, so the check pulls it out and runs it on
+  small fixture plans: ticking boxes, rewriting the Status line and a blank line
+  under the heading must leave the hash alone, and an edit must change it. CI
+  runs it on macOS too, so the command is proven on that awk as well. The
+  sentences describing which checks are syntactic no longer list the
+  exceptions by name, since each new one made the list wrong.
 
 ## v1.4.0 — 2026-11-26
 

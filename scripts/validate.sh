@@ -18,8 +18,8 @@
 #   scripts/validate.sh            # everything
 #   scripts/validate.sh --quick    # skips the acceptance suites (pre-commit hook)
 #
-# --quick skips both acceptance suites. What remains is syntactic apart from the
-# resolver check, which asserts only on what one script prints, so a green
+# --quick skips both acceptance suites. What remains is syntactic apart from a
+# few checks that assert on what one script or command prints, so a green
 # --quick run says the artifacts are spelled correctly and almost nothing about
 # whether they behave. The suites are about half the full run between them, the
 # mutation-test one being most of that, which is why the pre-commit hook does
@@ -557,6 +557,60 @@ for s in plugin/bin/*.sh; do
   [[ -e "$s" ]] || continue
   [[ -x "$s" ]] && pass "executable  $s" || fail "not executable: $s"
 done
+
+# feature-planning records a plan's hash at Gate 2 and compares it later, and
+# the command that computes it lives in SKILL.md as prose an agent copies. Run
+# that exact text, so CI's macOS awk judges it too: ticking a box or rewriting
+# the Status line must leave the hash alone, and an edit to the plan must not.
+ph_file=plugin/skills/feature-planning/SKILL.md
+ph_cmd=$(awk '/^ *```bash$/ { f = 1; b = ""; next }
+              f && /^ *```$/ { if (b ~ /hash-object/) { printf "%s", b; exit } f = 0; next }
+              f { sub(/^  /, ""); b = b $0 "\n" }' "$ph_file")
+if [[ -z "$ph_cmd" ]]; then
+  fail "plan hash   no bash block running git hash-object found in $ph_file"
+else
+  # An empty path would put the fixtures at the filesystem root: no set -e.
+  ph_tmp=$(mktemp -d "${TMPDIR:-/tmp}/validate-planhash.XXXXXX") \
+    || { echo "validate.sh: cannot create a temporary directory under ${TMPDIR:-/tmp}" >&2; exit 1; }
+  mkdir -p "$ph_tmp/_plans"
+  ph_cmd=${ph_cmd//<feature-name>/p}
+  # pipefail, and the output kept only on success: when awk cannot read the plan,
+  # git hash-object still prints the hash of empty input, every variant then
+  # matches, and the invariance checks pass for nothing.
+  ph_hash() {
+    local out
+    printf '%s' "$1" > "$ph_tmp/_plans/p-plan.md"
+    out=$( cd "$ph_tmp" && bash -c "set -o pipefail; $ph_cmd" 2>/dev/null ) \
+      && printf '%s' "$out" || printf FAILED
+  }
+  ph_fmt='# Plan: P\n\n## Summary\n%s\n\n## Implementation Plan\n\n### Phase 1: One\n'
+  ph_fmt+='- [%s] **P1.1** First\n  - [%s] **P1.2** Second\n\n## Status\n%s\n'
+  ph_plan() {  # $1 = task 1 box, $2 = task 2 box, $3 = summary, $4 = text under ## Status
+    # shellcheck disable=SC2059  # the format is this check's own fixed template
+    printf "$ph_fmt" "$3" "$1" "$2" "$4"
+  }
+  ph_bad=''
+  ph_same() {  # $1 = what changed, $2 = the hash it must keep, rest = ph_plan args
+    local why=$1 want=$2; shift 2
+    [[ "$(ph_hash "$(ph_plan "$@")")" == "$want" ]] || ph_bad+="$why changed the hash"$'\n'
+  }
+  ph_base=$(ph_hash "$(ph_plan ' ' ' ' 'What it does.' '`Drafted`')")
+  ph_same "ticking a box" "$ph_base" x ' ' 'What it does.' '`Drafted`'
+  ph_same "ticking every box, either case, at any indent" "$ph_base" X x 'What it does.' '`Drafted`'
+  ph_same "rewriting the Status line" "$ph_base" ' ' ' ' 'What it does.' \
+    '`Approved — in progress (2026-01-01, plan abc1234)`'
+  # A blank line under the heading is itself content, so it gets its own base.
+  ph_blank=$(ph_hash "$(ph_plan ' ' ' ' 'What it does.' $'\n`Drafted`')")
+  ph_same "rewriting a Status line that sits after a blank line" "$ph_blank" ' ' ' ' 'What it does.' \
+    $'\n`Accepted — not yet implemented (2026-01-01, plan abc1234)`'
+  [[ "$(ph_hash "$(ph_plan ' ' ' ' 'What it does, edited.' '`Drafted`')")" != "$ph_base" ]] \
+    || ph_bad+="an edit to the plan left the hash unchanged"$'\n'
+  [[ -n "$ph_base" && "$ph_base" != FAILED ]] || ph_bad+="the command could not hash a plan"$'\n'
+  rm -rf "$ph_tmp"
+  [[ -z "$ph_bad" ]] \
+    && pass "plan hash   feature-planning's command ignores ticks and Status, and sees an edit" \
+    || { fail "plan hash   feature-planning's hash command misbehaves:"; printf '%s' "$ph_bad" | sed 's/^/        /'; }
+fi
 
 # --------------------------------------------------------------------------
 section "Plugin manifests"
@@ -1263,9 +1317,9 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
 if [[ "$QUICK" == false ]]; then
 section "Mutation-test acceptance (behaviour, not spelling)"
 # --------------------------------------------------------------------------
-  # Everything above this line but the resolver check is syntactic. This and the
-  # install suite below run an artifact and assert on what it does, rather than
-  # on how it is spelled. This one builds a repository designed to
+  # Everything above this line is syntactic but for a few small output checks.
+  # This and the install suite below run an artifact and assert on what it does,
+  # rather than on how it is spelled. This one builds a repository designed to
   # break a mutation runner -- colliding paths, a space, a symlink, and a test
   # command wired to an absolute path the way an editable install is -- and
   # checks the worktree foundation refuses each one.
