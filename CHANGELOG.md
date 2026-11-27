@@ -94,6 +94,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   `Decided while planning:`, and the Gate 2 message names each one, since they
   are the part of the plan nobody has reviewed.
 
+- **An empty Addressed or Direction section reads `None yet.`** Their templates
+  held an instruction in angle brackets, which the markers define as a
+  placeholder to replace, and nothing said what an empty one should hold, so
+  each run made up its own. The instructions are notes now, and an empty list
+  reads `None yet.`, distinct from `None open.` on a list with nothing left
+  open.
+
 ### Repository
 
 - **The recommended workflow fixes what it notices.** Step 2 said to list adjacent

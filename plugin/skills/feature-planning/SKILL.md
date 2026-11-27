@@ -116,12 +116,14 @@ The sections MUST use this exact format:
 **Open**
 - **C-1** <concern> — why it matters. **Reco:** <what you would do about it>
 - **C-2** <concern> — why it matters. **Reco:** <...>
-  **Answered:** <what the user said, when it did not settle the concern. Present only
-  on an item that has been put to them and is still open.>
+  **Answered:** <what the user said, when it did not settle the concern>
+  _(Present only on an item that has been put to them and is still open.)_
 
 **Addressed**
-<Empty when first written. A concern moves here when an answer or a decision settles
-it, keeping the ID it was given:>
+None yet.
+
+_(A concern moves here, keeping its ID, when an answer or a decision settles it. The
+first one replaces `None yet.`, and each takes this form:)_
 - **C-3** <concern> — settled by <the question it answered, or the Direction entry>
 
 ### Gaps & holes in the requirements
@@ -135,14 +137,18 @@ _(Poke holes in the requirements *as written* — this is about defects in the s
 - **G-5** <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>. **Reco:** <...>
 
 **Addressed**
-<as above, keeping the ID — what settled it, not just that it is settled>
+None yet.
+
+_(As above: a gap moves here keeping its ID, saying what settled it rather than only
+that it is settled.)_
 
 ### Opportunities worth considering
 _(Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope — the user decides at Gate 1.)_
 - **OPP-1 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <take it / skip it> — <why>.
 - **OPP-2 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <...>
-  **Answered:** <what the user decided. Present only on an item that has been put to
-  them — there is no **Addressed** section here, so this line is the whole record.>
+  **Answered:** <what the user decided>
+  _(Present only on an item that has been put to them. There is no **Addressed** section
+  here, so this line is the whole record.)_
 
 ### Alternative approaches worth considering
 These are one decision rather than several — `### My recommendation` picks among them.
@@ -152,7 +158,10 @@ _(So they carry no per-item **Reco:**.)_
 - **ALT-2 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 
 ### Direction taken at Gate 1
-<Decisions the user made in chat that answer no single question. Empty until there is one.>
+None yet.
+
+_(A decision the user makes in chat that answers no single question goes here. The
+first one replaces `None yet.`, and each takes this form:)_
 - **D-1** <ISO date> — <the decision, in the user's terms> — <what it changes>
 
 ### My recommendation
@@ -215,7 +224,7 @@ The proposed approach is the right one. I considered <alternative 1> and <altern
 <or "None — requirements are complete and unambiguous." in place of the list>
 
 **Addressed**
-None open.
+None yet.
 
 ### Opportunities worth considering
 - **OPP-1 <Opportunity>** — <what it is>. Value: <...>. Cost: <...>. **Reco:** <...>
