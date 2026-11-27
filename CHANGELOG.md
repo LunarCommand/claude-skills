@@ -81,6 +81,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   approved later was always reported as changed and sent back through Gate 2.
   All three now compute the same hash, and Gate 2 gives the command.
 
+- **"approved" now records itself.** It used to leave `## Status` at `Drafted`
+  for the whole implementation, which routinely spans sessions, so a later
+  session could not tell the plan had been approved, and an amendment made
+  during the build had no baseline to supersede. It now writes
+  `Approved — in progress` with a date and the plan's hash, the same way
+  "accepted" does.
+
 ### Repository
 
 - **The recommended workflow fixes what it notices.** Step 2 said to list adjacent

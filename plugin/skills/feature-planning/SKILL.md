@@ -575,8 +575,9 @@ in `## Status` and nowhere else — see Step 5.)_
 `Drafted`
 
 _(One line, always last, never duplicated. At Gate 2 it becomes `Accepted — not yet implemented
-(<YYYY-MM-DD>, plan <short-sha>)`, and `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An
-amendment re-baselines the sha here, and only here.)_
+(<YYYY-MM-DD>, plan <short-sha>)` or `Approved — in progress (<YYYY-MM-DD>, plan <short-sha>)`,
+and `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha here,
+and only here.)_
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
@@ -589,7 +590,10 @@ After writing the file, tell the user:
 
 Two words open this gate, and they mean different things:
 
-- **"approved"** — the plan is right *and* start building. Proceed to Step 5.
+- **"approved"** — the plan is right *and* start building. Rewrite `## Status` to
+  `Approved — in progress (<YYYY-MM-DD>, plan <short-sha>)`, with the sha taken as below,
+  then proceed to Step 5. Implementation routinely outlives the session that started it,
+  and a plan still reading `Drafted` tells the next one the gate was never opened.
 - **"accepted"** — the plan is right, **stop here**. Do NOT begin Step 5. The plan is final
   and something else happens before implementation: scheduling, waiting on a dependency, or
   simply another day. Confirm the plan is final, say nothing about what should happen next,
@@ -626,6 +630,8 @@ assumption, not a fact: "accepted" exists precisely so time can pass, and the fi
 anyone during it. This is the read-then-write race Gate 1 already guards against, on the one gate
 designed to span days.
 
+If they match, rewrite `## Status` to `Approved — in progress` with today's date and the same
+sha, and begin Step 5.
 If the shas differ, show `git diff` of the plan file, say what changed, and re-present Gate 2.
 If `## Status` records no sha, say the baseline is missing and re-present Gate 2 rather than
 proceeding on an unverifiable claim.
@@ -713,10 +719,10 @@ behind its back, and re-presents Gate 2 for work already under way.
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
 - There are two separate gates — Gate 1 ("answered") and Gate 2 ("approved" or "accepted") — they are not interchangeable.
 - **Gate 2 has two exits.** "approved" means start building; "accepted" means the plan is final but do not start. Never treat "accepted" as permission to write code.
-- **`## Status` is a single line in the plan file that every gate maintains** — `Drafted` at
-  write time, `Accepted — not yet implemented` with a date and a plan sha at Gate 2, `Implemented`
-  when Step 5 finishes. The state has to survive the session, the sha is what makes "has this
-  changed" answerable, and a stale Status is worse than none because it is believed.
+- **`## Status` is a single line in the plan file that every gate maintains**, through the
+  values the template's `## Status` note lists. The state has to survive the session, the sha
+  is what makes "has this changed" answerable, and a stale Status is worse than none because it
+  is believed.
 - **A plan that turns out wrong is amended, not edited.** Append an `### Amendment <n>` saying
   what it supersedes and why, add any new `T-<n>` or `INV-<n>` to Test Definitions and
   `## Coverage`, and re-baseline the sha in `## Status`. Editing in place loses the superseded
