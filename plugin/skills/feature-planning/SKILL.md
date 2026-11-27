@@ -621,11 +621,13 @@ Two words open this gate, and they mean different things:
   **Record it in the plan file before you stop.** Rewrite the existing `## Status` line — the
   last section of the template, so there is one and only one — to
   `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is the hash of
-  the plan with its Status line removed, which is what the re-entry check below and an
-  amendment compute too, so the three agree whatever that line says at the time:
+  the plan with its Status line removed and every ticked box read as unticked. The re-entry
+  check below and an amendment compute it with this same command, so the three agree whatever
+  the Status line says, and ticking tasks off in Step 5 never reads as a change to the plan:
 
   ```bash
-  awk 'skip && NF { skip = 0; next } /^## Status$/ { skip = 1 } { print }' \
+  awk 'skip && NF { skip = 0; next } /^## Status$/ { skip = 1 }
+       /^ *- \[[xX]\] / { sub(/\[[xX]\]/, "[ ]") } { print }' \
     _plans/<feature-name>-plan.md | git hash-object --stdin
   ```
 
@@ -643,8 +645,8 @@ decisions, and conflating them means the only way to say "good plan, not yet" is
 a run that has already started writing code.
 
 After "accepted", a later "approved" opens Step 5 without re-running Gate 2 — but **re-read the
-plan file from disk first and verify it against the sha recorded in `## Status`**. Strip the
-Status line, run `git hash-object` on the rest, and compare. "The plan has not changed" is an
+plan file from disk first and verify it against the sha recorded in `## Status`**. Compute it
+with the command above and compare. "The plan has not changed" is an
 assumption, not a fact: "accepted" exists precisely so time can pass, and the file is editable by
 anyone during it. This is the read-then-write race Gate 1 already guards against, on the one gate
 designed to span days.
@@ -686,11 +688,10 @@ Gate 2 re-entry check compares against. So:
    coverage self-check ran once, at Gate 2, and an amendment is how its result goes stale.
 3. Record the superseded baseline in the amendment — the sha `## Status` holds *now*, before you
    touch it. The body is then final.
-4. Re-baseline: strip the `## Status` line, run `git hash-object` on the rest, and write that sha
-   into `## Status`.
+4. Re-baseline: compute the sha with Gate 2's command and write it into `## Status`.
 
-**The new sha goes in `## Status` and nowhere else.** The re-entry check strips only the Status
-line, so the amendment body is inside the hashed region: write the new sha there and the hash no
+**The new sha goes in `## Status` and nowhere else.** The hash leaves out only the Status line
+and which boxes are ticked, so the amendment body is inside the hashed region: write the new sha there and the hash no
 longer describes the file it was taken from, and the next comparison fails on a plan nobody
 touched. Hence the order above — the amendment records the baseline it *replaced*, which is known
 before the hash is taken.

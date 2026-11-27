@@ -26,6 +26,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   also means `adversarial_review_path.sh SKILL.md` is now refused: every skill
   has one. Engine names, which is what the skill passes, resolve as before.
 
+### feature-planning
+
+- **Ticking off a task no longer changes the plan's recorded hash.** v1.4.0
+  began recording the plan's hash when it is approved, and Step 5 ticks tasks
+  off as it goes, so the first tick made an approved plan look changed to any
+  later check. The hash now reads every ticked box as unticked, so it moves only
+  when the plan's content does. A plan with no ticks hashes as it did before; an
+  approved plan already under way needs its hash recorded once more.
+
 ### Repository
 
 - **`validate.sh` runs the resolver instead of only checking its spelling.**
