@@ -74,6 +74,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   `Adds` lines now carry real placeholders and the rules for updating Test
   Definitions, `## Coverage` and the baseline sha sit in a note of their own.
 
+- **Accepting a plan and approving it later no longer always reports a change.**
+  Gate 2 recorded the baseline as the hash of the whole plan file, its `Drafted`
+  line included, while the re-entry check and an amendment hash the plan with
+  its Status line removed. The two could never match, so a plan accepted and
+  approved later was always reported as changed and sent back through Gate 2.
+  All three now compute the same hash, and Gate 2 gives the command.
+
 ### Repository
 
 - **The recommended workflow fixes what it notices.** Step 2 said to list adjacent

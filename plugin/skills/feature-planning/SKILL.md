@@ -597,9 +597,16 @@ Two words open this gate, and they mean different things:
 
   **Record it in the plan file before you stop.** Rewrite the existing `## Status` line — the
   last section of the template, so there is one and only one — to
-  `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is
-  `git hash-object /_plans/<feature-name>-plan.md` taken *before* you write the Status line,
-  and it is what makes the Gate 2 re-entry check below possible: without a recorded baseline,
+  `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is the hash of
+  the plan with its Status line removed, which is what the re-entry check below and an
+  amendment compute too, so the three agree whatever that line says at the time:
+
+  ```bash
+  awk 'skip && NF { skip = 0; next } /^## Status$/ { skip = 1 } { print }' \
+    _plans/<feature-name>-plan.md | git hash-object --stdin
+  ```
+
+  It is what makes the Gate 2 re-entry check below possible: without a recorded baseline,
   "has the plan changed" has nothing to compare against. If the repo is not a git repo, write
   `plan unversioned` and say that the check will be by eye.
 
