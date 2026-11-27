@@ -458,6 +458,10 @@ _(Explain why this beats the alternatives considered. Reference the trade-offs.)
 ## Clarifications & Decisions
 - <question> → <the answer or decision made>
 - <approach feedback from the user> → <how the plan reflects it>
+- Decided while planning: <a choice you made writing this plan> → <why>
+
+_(Mark every decision the user has not yet seen with `Decided while planning:`. Gate 1
+never saw them, so they are what a Gate 2 review most needs to find.)_
 
 ## Risks & Mitigations
 - **<Risk>** — likelihood: <low/med/high>. Mitigation: <plan>.
@@ -585,6 +589,9 @@ and only here.)_
 After writing the file, tell the user:
 
 > "Plan written to `/_plans/<feature-name>-plan.md`. Please review it and reply **'approved'** to start implementing now, or **'accepted'** if the plan is right but you don't want implementation to start yet. Or tell me what you'd like to change."
+
+Then name each `Decided while planning:` entry in a line. They are the part of the plan
+nobody has reviewed, and a plan several hundred lines long hides them otherwise.
 
 ⛔ **GATE 2 — STOP. Do not write any code. Do not begin Step 5.**
 

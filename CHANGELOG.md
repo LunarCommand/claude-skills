@@ -88,6 +88,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   `Approved — in progress` with a date and the plan's hash, the same way
   "accepted" does.
 
+- **Decisions made while writing the plan are marked.** Gate 1 settles what you
+  were asked, and writing the plan settles more, but those choices sat unmarked
+  among your answers. `## Clarifications & Decisions` now tags them
+  `Decided while planning:`, and the Gate 2 message names each one, since they
+  are the part of the plan nobody has reviewed.
+
 ### Repository
 
 - **The recommended workflow fixes what it notices.** Step 2 said to list adjacent
