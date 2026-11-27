@@ -285,7 +285,8 @@ the file than in a dialog, and "0 items in all — want me to walk you through t
 the shape to avoid. `<n>` in the message is the number of questions the walkthrough
 would actually ask — the concerns, gaps, opportunities and clarifying questions that
 have a real choice set, plus one for the alternatives — not the number of lines in the
-file.
+file. It is the count when the offer is made; answers that raise new questions add to it
+as the walk goes.
 
 The walkthrough changes **how answers are collected, not where they live.** Every answer
 is written into `$REQUIREMENTS_FILE` as it is given, by the rules in *While Gate 1 is
@@ -362,7 +363,9 @@ that arrives loose in chat alike. Whenever the user answers or decides something
   reads top-down and can be put down at the first Addressed item.
 - Write `Answered:` on a concern, gap or opportunity the answer did not settle, in the
   user's words. An item discussed and left open must not read like one never raised —
-  that is what a resumed walkthrough reads to find where it got to.
+  that is what a resumed walkthrough reads to find where it got to. An item carries one
+  `Answered:` line: a later answer rewrites it to cover both, because a second line
+  leaves the first standing as though it were still current.
 - Record under `### Direction taken at Gate 1` any decision that answers no single question.
 - Append a question the answer raised to Clarifying Questions, with the next free
   `Q-<n>`, a `Reco:`, and a blank `A:`.
