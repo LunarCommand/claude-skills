@@ -14,7 +14,7 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v1.4.0 — 2026-11-26
 
 ### feature-planning
 
