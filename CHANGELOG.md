@@ -14,6 +14,28 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### adversarial-review
+
+- **`adversarial_review_path.sh` finds an engine in any skill, not only this
+  one.** It searched `adversarial-review`'s own folder, so no other skill could
+  ship a workflow engine. It now searches every skill in the copy of the plugin
+  that contains it, and still never another copy. A name that more than one
+  skill ships is refused rather than resolved to whichever it found first, which
+  also means `adversarial_review_path.sh SKILL.md` is now refused: every skill
+  has one. Engine names, which is what the skill passes, resolve as before.
+
+### Repository
+
+- **`validate.sh` runs the resolver instead of only checking its spelling.**
+  Each bundled engine has to resolve to its own path in the checkout, and a
+  path-shaped, unknown or shared name has to be refused. Copies of the script in
+  throwaway trees check that it answers only for the tree it sits in. A second
+  check requires engine file names to be unique across skills, since the
+  resolver refuses a duplicate. The docs and script headers that said every
+  check besides the two acceptance suites is syntactic now name this one too.
+
 ## v1.4.0 — 2026-11-26
 
 ### feature-planning
