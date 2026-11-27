@@ -288,7 +288,9 @@ for arg in a/b .. . '' /etc/passwd ../bin/adversarial_review_path.sh no-such-eng
     res_bad+="accepted '$arg' and printed $got"$'\n'
   fi
 done
-res_tmp=$(mktemp -d "${TMPDIR:-/tmp}/validate-resolver.XXXXXX")
+# An empty path would put every fixture at the filesystem root: no set -e.
+res_tmp=$(mktemp -d "${TMPDIR:-/tmp}/validate-resolver.XXXXXX") \
+  || { echo "validate.sh: cannot create a temporary directory under ${TMPDIR:-/tmp}" >&2; exit 1; }
 mkdir -p "$res_tmp/bin" "$res_tmp/skills/one" "$res_tmp/skills/two"
 cp "$resolver" "$res_tmp/bin/"
 touch "$res_tmp/skills/one/shared.workflow.js" "$res_tmp/skills/two/shared.workflow.js" \
@@ -1191,7 +1193,9 @@ scan_file() {
 # greps disagree about what to return for an operand they could not open — GNU
 # grep exits 2, ugrep exits 0 having matched nothing — but none of them prints a
 # matching line from a file it never read.
-dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX")
+# An empty path would put every canary at the filesystem root: no set -e.
+dashprobe=$(mktemp -d "${TMPDIR:-/tmp}/vdash.XXXXXX") \
+  || { echo "validate.sh: cannot create a temporary directory under ${TMPDIR:-/tmp}" >&2; exit 1; }
 printf 'x /home/someone/secret\n' > "$dashprobe/-probe.md"
 # cd in and use the BARE relative name. An absolute path begins with '/', so
 # grep never sees a leading dash and the canary would pass either way — which
