@@ -116,12 +116,14 @@ The sections MUST use this exact format:
 **Open**
 - **C-1** <concern> — why it matters. **Reco:** <what you would do about it>
 - **C-2** <concern> — why it matters. **Reco:** <...>
-  **Answered:** <what the user said, when it did not settle the concern. Present only
-  on an item that has been put to them and is still open.>
+  **Answered:** <what the user said, when it did not settle the concern>
+  _(Present only on an item that has been put to them and is still open.)_
 
 **Addressed**
-<Empty when first written. A concern moves here when an answer or a decision settles
-it, keeping the ID it was given:>
+None yet.
+
+_(A concern moves here, keeping its ID, when an answer or a decision settles it. The
+first one replaces `None yet.`, and each takes this form:)_
 - **C-3** <concern> — settled by <the question it answered, or the Direction entry>
 
 ### Gaps & holes in the requirements
@@ -135,14 +137,18 @@ _(Poke holes in the requirements *as written* — this is about defects in the s
 - **G-5** <unstated invariant the reqs assume but never declare — a property that must always hold for the feature to be correct>. **Reco:** <...>
 
 **Addressed**
-<as above, keeping the ID — what settled it, not just that it is settled>
+None yet.
+
+_(As above: a gap moves here keeping its ID, saying what settled it rather than only
+that it is settled.)_
 
 ### Opportunities worth considering
 _(Things the user did NOT ask for but should see — adjacent wins, low-cost additions, things that would make the feature notably better. Flag them; do not assume them into scope — the user decides at Gate 1.)_
 - **OPP-1 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <take it / skip it> — <why>.
 - **OPP-2 <Opportunity>** — <what it is>. Value: <low/med/high>. Cost: <low/med/high>. **Reco:** <...>
-  **Answered:** <what the user decided. Present only on an item that has been put to
-  them — there is no **Addressed** section here, so this line is the whole record.>
+  **Answered:** <what the user decided>
+  _(Present only on an item that has been put to them. There is no **Addressed** section
+  here, so this line is the whole record.)_
 
 ### Alternative approaches worth considering
 These are one decision rather than several — `### My recommendation` picks among them.
@@ -152,7 +158,10 @@ _(So they carry no per-item **Reco:**.)_
 - **ALT-2 <Alternative name>** — <one-line description>. Trade-off: <what you gain / lose vs. the proposed approach>.
 
 ### Direction taken at Gate 1
-<Decisions the user made in chat that answer no single question. Empty until there is one.>
+None yet.
+
+_(A decision the user makes in chat that answers no single question goes here. The
+first one replaces `None yet.`, and each takes this form:)_
 - **D-1** <ISO date> — <the decision, in the user's terms> — <what it changes>
 
 ### My recommendation
@@ -215,7 +224,7 @@ The proposed approach is the right one. I considered <alternative 1> and <altern
 <or "None — requirements are complete and unambiguous." in place of the list>
 
 **Addressed**
-None open.
+None yet.
 
 ### Opportunities worth considering
 - **OPP-1 <Opportunity>** — <what it is>. Value: <...>. Cost: <...>. **Reco:** <...>
@@ -276,7 +285,8 @@ the file than in a dialog, and "0 items in all — want me to walk you through t
 the shape to avoid. `<n>` in the message is the number of questions the walkthrough
 would actually ask — the concerns, gaps, opportunities and clarifying questions that
 have a real choice set, plus one for the alternatives — not the number of lines in the
-file.
+file. It is the count when the offer is made; answers that raise new questions add to it
+as the walk goes.
 
 The walkthrough changes **how answers are collected, not where they live.** Every answer
 is written into `$REQUIREMENTS_FILE` as it is given, by the rules in *While Gate 1 is
@@ -353,7 +363,9 @@ that arrives loose in chat alike. Whenever the user answers or decides something
   reads top-down and can be put down at the first Addressed item.
 - Write `Answered:` on a concern, gap or opportunity the answer did not settle, in the
   user's words. An item discussed and left open must not read like one never raised —
-  that is what a resumed walkthrough reads to find where it got to.
+  that is what a resumed walkthrough reads to find where it got to. An item carries one
+  `Answered:` line: a later answer rewrites it to cover both, because a second line
+  leaves the first standing as though it were still current.
 - Record under `### Direction taken at Gate 1` any decision that answers no single question.
 - Append a question the answer raised to Clarifying Questions, with the next free
   `Q-<n>`, a `Reco:`, and a blank `A:`.
@@ -458,6 +470,10 @@ _(Explain why this beats the alternatives considered. Reference the trade-offs.)
 ## Clarifications & Decisions
 - <question> → <the answer or decision made>
 - <approach feedback from the user> → <how the plan reflects it>
+- Decided while planning: <a choice you made writing this plan> → <why>
+
+_(Mark every decision the user has not yet seen with `Decided while planning:`. Gate 1
+never saw them, so they are what a Gate 2 review most needs to find.)_
 
 ## Risks & Mitigations
 - **<Risk>** — likelihood: <low/med/high>. Mitigation: <plan>.
@@ -575,8 +591,9 @@ in `## Status` and nowhere else — see Step 5.)_
 `Drafted`
 
 _(One line, always last, never duplicated. At Gate 2 it becomes `Accepted — not yet implemented
-(<YYYY-MM-DD>, plan <short-sha>)`, and `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An
-amendment re-baselines the sha here, and only here.)_
+(<YYYY-MM-DD>, plan <short-sha>)` or `Approved — in progress (<YYYY-MM-DD>, plan <short-sha>)`,
+and `Implemented (<YYYY-MM-DD>)` when Step 5 finishes. An amendment re-baselines the sha here,
+and only here.)_
 ```
 
 **Before presenting the plan, run a coverage self-check.** Confirm that every invariant (`INV-<n>`), every Success Criteria behavior, and every measurable NFR has at least one mapped test in the `## Coverage` section, and that every implementation phase cites its `Verified by:` tests. If anything is uncovered, close the gap — add the missing test or explicitly mark it "judgment — not automatable" — before presenting. Do not present a plan with silent coverage gaps.
@@ -585,11 +602,17 @@ After writing the file, tell the user:
 
 > "Plan written to `/_plans/<feature-name>-plan.md`. Please review it and reply **'approved'** to start implementing now, or **'accepted'** if the plan is right but you don't want implementation to start yet. Or tell me what you'd like to change."
 
+Then name each `Decided while planning:` entry in a line. They are the part of the plan
+nobody has reviewed, and a plan several hundred lines long hides them otherwise.
+
 ⛔ **GATE 2 — STOP. Do not write any code. Do not begin Step 5.**
 
 Two words open this gate, and they mean different things:
 
-- **"approved"** — the plan is right *and* start building. Proceed to Step 5.
+- **"approved"** — the plan is right *and* start building. Rewrite `## Status` to
+  `Approved — in progress (<YYYY-MM-DD>, plan <short-sha>)`, with the sha taken as below,
+  then proceed to Step 5. Implementation routinely outlives the session that started it,
+  and a plan still reading `Drafted` tells the next one the gate was never opened.
 - **"accepted"** — the plan is right, **stop here**. Do NOT begin Step 5. The plan is final
   and something else happens before implementation: scheduling, waiting on a dependency, or
   simply another day. Confirm the plan is final, say nothing about what should happen next,
@@ -597,9 +620,16 @@ Two words open this gate, and they mean different things:
 
   **Record it in the plan file before you stop.** Rewrite the existing `## Status` line — the
   last section of the template, so there is one and only one — to
-  `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is
-  `git hash-object /_plans/<feature-name>-plan.md` taken *before* you write the Status line,
-  and it is what makes the Gate 2 re-entry check below possible: without a recorded baseline,
+  `Accepted — not yet implemented (<YYYY-MM-DD>, plan <short-sha>)`. The sha is the hash of
+  the plan with its Status line removed, which is what the re-entry check below and an
+  amendment compute too, so the three agree whatever that line says at the time:
+
+  ```bash
+  awk 'skip && NF { skip = 0; next } /^## Status$/ { skip = 1 } { print }' \
+    _plans/<feature-name>-plan.md | git hash-object --stdin
+  ```
+
+  It is what makes the Gate 2 re-entry check below possible: without a recorded baseline,
   "has the plan changed" has nothing to compare against. If the repo is not a git repo, write
   `plan unversioned` and say that the check will be by eye.
 
@@ -619,6 +649,8 @@ assumption, not a fact: "accepted" exists precisely so time can pass, and the fi
 anyone during it. This is the read-then-write race Gate 1 already guards against, on the one gate
 designed to span days.
 
+If they match, rewrite `## Status` to `Approved — in progress` with today's date and the same
+sha, and begin Step 5.
 If the shas differ, show `git diff` of the plan file, say what changed, and re-present Gate 2.
 If `## Status` records no sha, say the baseline is missing and re-present Gate 2 rather than
 proceeding on an unverifiable claim.
@@ -706,10 +738,10 @@ behind its back, and re-presents Gate 2 for work already under way.
 - **Surface alternatives even when you agree** with the proposed approach — explain why they lose.
 - There are two separate gates — Gate 1 ("answered") and Gate 2 ("approved" or "accepted") — they are not interchangeable.
 - **Gate 2 has two exits.** "approved" means start building; "accepted" means the plan is final but do not start. Never treat "accepted" as permission to write code.
-- **`## Status` is a single line in the plan file that every gate maintains** — `Drafted` at
-  write time, `Accepted — not yet implemented` with a date and a plan sha at Gate 2, `Implemented`
-  when Step 5 finishes. The state has to survive the session, the sha is what makes "has this
-  changed" answerable, and a stale Status is worse than none because it is believed.
+- **`## Status` is a single line in the plan file that every gate maintains**, through the
+  values the template's `## Status` note lists. The state has to survive the session, the sha
+  is what makes "has this changed" answerable, and a stale Status is worse than none because it
+  is believed.
 - **A plan that turns out wrong is amended, not edited.** Append an `### Amendment <n>` saying
   what it supersedes and why, add any new `T-<n>` or `INV-<n>` to Test Definitions and
   `## Coverage`, and re-baseline the sha in `## Status`. Editing in place loses the superseded

@@ -14,7 +14,7 @@ update only when `version` changes — see [docs/RELEASING.md](docs/RELEASING.md
 This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v1.4.0 — 2026-11-26
 
 ### feature-planning
 
@@ -73,6 +73,33 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) loosely and
   angle brackets holding instructions rather than content, so its `Supersedes` and
   `Adds` lines now carry real placeholders and the rules for updating Test
   Definitions, `## Coverage` and the baseline sha sit in a note of their own.
+
+- **Accepting a plan and approving it later no longer always reports a change.**
+  Gate 2 recorded the baseline as the hash of the whole plan file, its `Drafted`
+  line included, while the re-entry check and an amendment hash the plan with
+  its Status line removed. The two could never match, so a plan accepted and
+  approved later was always reported as changed and sent back through Gate 2.
+  All three now compute the same hash, and Gate 2 gives the command.
+
+- **"approved" now records itself.** It used to leave `## Status` at `Drafted`
+  for the whole implementation, which routinely spans sessions, so a later
+  session could not tell the plan had been approved, and an amendment made
+  during the build had no baseline to supersede. It now writes
+  `Approved — in progress` with a date and the plan's hash, the same way
+  "accepted" does.
+
+- **Decisions made while writing the plan are marked.** Gate 1 settles what you
+  were asked, and writing the plan settles more, but those choices sat unmarked
+  among your answers. `## Clarifications & Decisions` now tags them
+  `Decided while planning:`, and the Gate 2 message names each one, since they
+  are the part of the plan nobody has reviewed.
+
+- **An empty Addressed or Direction section reads `None yet.`** Their templates
+  held an instruction in angle brackets, which the markers define as a
+  placeholder to replace, and nothing said what an empty one should hold, so
+  each run made up its own. The instructions are notes now, and an empty list
+  reads `None yet.`, distinct from `None open.` on a list with nothing left
+  open.
 
 ### Repository
 
