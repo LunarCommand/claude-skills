@@ -16,10 +16,11 @@
 #
 # Usage:
 #   scripts/validate.sh            # everything
-#   scripts/validate.sh --quick    # syntactic checks only (pre-commit hook)
+#   scripts/validate.sh --quick    # skips the acceptance suites (pre-commit hook)
 #
-# --quick skips both acceptance suites. What remains is entirely syntactic, so a
-# green --quick run says the artifacts are spelled correctly and nothing about
+# --quick skips both acceptance suites. What remains is syntactic apart from the
+# resolver check, which asserts only on what one script prints, so a green
+# --quick run says the artifacts are spelled correctly and almost nothing about
 # whether they behave. The suites are about half the full run between them, the
 # mutation-test one being most of that, which is why the pre-commit hook does
 # not carry them: a hook earns its place by being fast and dependable, and a
@@ -257,6 +258,64 @@ for f in plugin/skills/*/*.workflow.js; do
   [[ -n "$missing" ]] && warn "phases      $f — phase() titles absent from meta.phases: $(tr '\n' ' ' <<<"$missing")"
 done
 shopt -u nullglob
+
+# The resolver finds an engine by bare name across every skill and refuses a
+# name it finds twice, so an engine name two skills share is an engine neither
+# can launch. Catch that here rather than at someone's first run.
+shopt -s nullglob
+engine_dupes=$(for f in plugin/skills/*/*.workflow.js; do basename "$f"; done | sort | uniq -d)
+shopt -u nullglob
+[[ -z "$engine_dupes" ]] \
+  && pass "engine names  every *.workflow.js basename is unique across skills" \
+  || fail "engine names  bundled by more than one skill, so the resolver refuses them: $(tr '\n' ' ' <<<"$engine_dupes")"
+
+# A skill trusts adversarial_review_path.sh alone to name its engine file, and
+# a green syntax check says nothing about what it prints. So run it: each engine
+# resolves to its own path in this checkout; a path-shaped or unknown name is
+# refused; and a copy of the script answers only for the tree it sits in and
+# refuses a name two of that tree's skills share.
+resolver=plugin/bin/adversarial_review_path.sh
+res_bad=''
+shopt -s nullglob
+for f in plugin/skills/*/*.workflow.js; do
+  want="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+  got=$(bash "$resolver" "$(basename "$f")" 2>/dev/null) || got='(refused)'
+  [[ "$got" == "$want" ]] || res_bad+="$(basename "$f") resolved to $got, expected $want"$'\n'
+done
+shopt -u nullglob
+for arg in a/b .. . '' /etc/passwd ../bin/adversarial_review_path.sh no-such-engine.workflow.js; do
+  if got=$(bash "$resolver" "$arg" 2>/dev/null); then
+    res_bad+="accepted '$arg' and printed $got"$'\n'
+  fi
+done
+res_tmp=$(mktemp -d "${TMPDIR:-/tmp}/validate-resolver.XXXXXX")
+mkdir -p "$res_tmp/bin" "$res_tmp/skills/one" "$res_tmp/skills/two"
+cp "$resolver" "$res_tmp/bin/"
+touch "$res_tmp/skills/one/shared.workflow.js" "$res_tmp/skills/two/shared.workflow.js" \
+      "$res_tmp/skills/two/only.workflow.js"
+res_copy="$res_tmp/bin/adversarial_review_path.sh"
+got=$(bash "$res_copy" only.workflow.js 2>/dev/null) || got='(refused)'
+[[ "$got" == "$(cd "$res_tmp" && pwd)/skills/two/only.workflow.js" ]] \
+  || res_bad+="a copy did not resolve a name unique in its own tree: $got"$'\n'
+if got=$(bash "$res_copy" shared.workflow.js 2>/dev/null); then
+  res_bad+="a copy resolved a name two of its skills share: $got"$'\n'
+fi
+if got=$(bash "$res_copy" adversarial-review.workflow.js 2>/dev/null); then
+  res_bad+="a copy answered for a file outside its own tree: $got"$'\n'
+fi
+# The path guard needs a tree with ONE skill. With two or more, a traversal
+# such as ../../secret.txt matches from every skill directory, the duplicate
+# refusal rejects it, and the check stays green with the guard deleted.
+mkdir -p "$res_tmp/solo/bin" "$res_tmp/solo/skills/only"
+cp "$resolver" "$res_tmp/solo/bin/"
+touch "$res_tmp/solo/secret.txt"
+if got=$(bash "$res_tmp/solo/bin/adversarial_review_path.sh" ../../secret.txt 2>/dev/null); then
+  res_bad+="a path-shaped name escaped the skills directory: $got"$'\n'
+fi
+rm -rf "$res_tmp"
+[[ -z "$res_bad" ]] \
+  && pass "resolver      each engine resolves in this copy; path-shaped, unknown, shared and foreign names refused" \
+  || { fail "resolver      adversarial_review_path.sh answered wrongly:"; printf '%s' "$res_bad" | sed 's/^/        /'; }
 
 # The two adversarial-review engines duplicate their shared refutation mandates,
 # because the Workflow runtime has no import mechanism — a script is one file with
@@ -1200,9 +1259,9 @@ secrets=$(publishable | while IFS= read -r -d '' f; do
 if [[ "$QUICK" == false ]]; then
 section "Mutation-test acceptance (behaviour, not spelling)"
 # --------------------------------------------------------------------------
-  # Everything above this line is syntactic. This and the install suite below
-  # are the only checks that run an artifact and assert on what it does, rather
-  # than on how it is spelled. This one builds a repository designed to
+  # Everything above this line but the resolver check is syntactic. This and the
+  # install suite below run an artifact and assert on what it does, rather than
+  # on how it is spelled. This one builds a repository designed to
   # break a mutation runner -- colliding paths, a space, a symlink, and a test
   # command wired to an absolute path the way an editable install is -- and
   # checks the worktree foundation refuses each one.

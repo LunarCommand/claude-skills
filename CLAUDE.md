@@ -165,9 +165,11 @@ A skill is a directory under `plugin/skills/` containing:
   a command to run — so they belong beside the `SKILL.md`, not in `bin/`.
   Resolving them is still a `bin/` job: `adversarial_review_path.sh` prints the
   absolute path of a bundled file within whichever copy of the plugin is loaded,
-  from its own `BASH_SOURCE[0]`. Prose ("this skill's base directory") was tried
-  and does not work — with two copies on disk, the model globs and can pick the
-  stale one.
+  from its own `BASH_SOURCE[0]`. It searches every skill's directory in that
+  copy, so any skill can ship an engine, and it refuses a name that more than
+  one skill bundles rather than picking one. Prose ("this skill's base
+  directory") was tried and does not work — with two copies on disk, the model
+  globs and can pick the stale one.
 
 A skill carries no `.claude-plugin/` and no `bin/` of its own. Both live at
 `plugin/`, and `validate.sh` rejects either reappearing here: a nested manifest
@@ -362,6 +364,8 @@ node). Hard constraints, stated in their headers and enforced by the runtime:
 There is no unit-test suite — the artifacts are Markdown contracts and bash
 scripts. What exists instead is `scripts/validate.sh`, which enforces the
 mechanical invariants: shell/JS syntax, the Workflow-tool constraints above,
+engine basenames unique across skills, the engine resolver (each engine
+resolves, and a path-shaped, unknown or shared name is refused),
 SKILL.md frontmatter (`name` matching its directory, `description` present, and
 the block parsing as YAML at all -- an unquoted `: ` in a description shipped
 past every other check here, `claude plugin validate` included, and a skill whose
@@ -388,13 +392,14 @@ under `plugin/` since the last `v<number>` tag must carry a higher
 `docs/RELEASING.md`), and repo hygiene (no macOS cruft, personal paths, or
 credential-shaped strings — this repo is public).
 
-**Every check in that list is syntactic** — the two acceptance suites below are
-the only exception. shellcheck, the portability scan, the manifest
-and allowlist agreement, `bash -n` — they test spelling, not meaning, and none of
-them can tell you whether a script does what it claims. `tr '/' '_'` is valid
-shell and passes all of them; it is also not injective, which is how a bundled
-runner came to restore one file's contents over another and print "all files
-restored" with exit 0.
+**Every check in that list is syntactic except the resolver check**, which runs
+`adversarial_review_path.sh` and asserts on what it prints; the two acceptance
+suites below are the other exceptions. shellcheck, the portability scan, the
+manifest and allowlist agreement, `bash -n` — they test spelling, not meaning,
+and none of them can tell you whether a script does what it claims. `tr '/' '_'`
+is valid shell and passes all of them; it is also not injective, which is how a
+bundled runner came to restore one file's contents over another and print "all
+files restored" with exit 0.
 
 So a green suite is not evidence of correctness. For anything that **writes to
 the user's tree**, read its backup-and-restore path by hand before adopting it —
@@ -404,12 +409,13 @@ on a broken foundation, and two of those fixes were themselves blockers.
 
 ```bash
 scripts/validate.sh            # everything — what CI runs
-scripts/validate.sh --quick    # syntactic checks only — see below
+scripts/validate.sh --quick    # skips the acceptance suites — see below
 ```
 
-`--quick` skips both acceptance suites. That matters more than it sounds: they
-are the *only* checks here that run an artifact and assert on behaviour, so
-`--quick` leaves nothing but syntax. The pre-commit hook uses it, so a clean
+`--quick` skips both acceptance suites. That matters more than it sounds: apart
+from the resolver check, which asserts only on what one script prints, they are
+the only checks here that run an artifact and assert on behaviour, so `--quick`
+leaves almost nothing but syntax. The pre-commit hook uses it, so a clean
 commit hook is not evidence the scripts work. CI runs the full suite.
 
 Two suites exist, for the two scripts whose failure costs something that cannot
